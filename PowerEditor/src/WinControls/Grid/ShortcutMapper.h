@@ -17,18 +17,19 @@
 
 #pragma once
 
-#include <windows.h>
+#include <QPoint>
 
 #include <string>
 #include <vector>
 
-#include "BabyGridWrapper.h"
-#include "ContextMenu.h"
 #include "ShortcutMapper_rc.h"
 #include "StaticDialog.h"
 #include "Window.h"
-#include "dpiManagerV2.h"
 #include "shortcut.h"
+
+class DynamicMenu;
+class QTabBar;
+class QTableWidget;
 
 enum GridState {STATE_MENU, STATE_MACRO, STATE_USER, STATE_PLUGIN, STATE_SCINTILLA};
 
@@ -41,32 +42,23 @@ public:
 		_currentState = initState;
 	}
 
-	void destroy() override {}
-	void doDialog(bool isRTL = false) {
-		const auto dpiContext = DPIManagerV2::setThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-		StaticDialog::myCreateDialogBoxIndirectParam(IDD_SHORTCUTMAPPER_DLG, isRTL);
-		DPIManagerV2::setThreadDpiAwarenessContext(dpiContext);
-	}
-	void getClientRect(RECT & rc) const override;
+	void doDialog(bool isRTL = false);
 
-	bool findKeyConflicts(__inout_opt std::wstring * const keyConflictLocation,
+	bool findKeyConflicts(std::wstring * const keyConflictLocation,
 							const KeyCombo & itemKeyCombo, const size_t & itemIndex) const;
 
-	std::wstring getTextFromCombo(HWND hCombo);
 	bool isFilterValid(Shortcut sc);
 	bool isFilterValid(PluginCmdShortcut sc);
 	bool isFilterValid(ScintillaKeyMap sc);
 
 protected:
-	void resizeDialogElements();
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	void onCancel() override;
 
 private:
-	BabyGridWrapper _babygrid;
-	ContextMenu _rightClickMenu;
+	QTableWidget* _grid = nullptr;
+	QTabBar* _tabs = nullptr;
 
 	GridState _currentState = STATE_MENU;
-	HWND _hTabCtrl = nullptr;
 
 	static constexpr int _nbTab = 5;
 	std::wstring _tabNames[_nbTab];
@@ -74,30 +66,28 @@ private:
 	std::vector<size_t> _shortcutIndex;
 
 	//save/restore the last view
-	std::vector<size_t> _lastHomeRow;
-	std::vector<size_t> _lastCursorRow;
+	std::vector<int> _lastHomeRow;
+	std::vector<int> _lastCursorRow;
 
 	std::wstring _conflictInfoOk;
 	std::wstring _conflictInfoEditing;
 
-	std::vector<HFONT> _hGridFonts;
-
-	enum GridFonts : unsigned char
-	{
-		GFONT_HEADER,
-		GFONT_ROWS,
-		MAX_GRID_FONTS
-	};
-
-	SIZE _szMinDialog{};
-	SIZE _szBorder{};
-	bool _dialogInitDone = false;
-
 	using Window::init;
 
 	void initTabs();
-	void initBabyGrid();
-	void fillOutBabyGrid();
+	void initGrid();
+	void fillOutGrid();
+	void connectControls();
+	void addRow(size_t index, const std::string& name, const std::string& shortcut, const std::wstring& extra, bool isConflict);
+	void saveCurrentView();
+	void onTabChanged(int index);
+	void onRowChanged();
+	void onClear();
+	void onModify();
+	void onDelete();
+	void showContextMenu(const QPoint& position);
+	LRESULT onMessage(UINT message, WPARAM wParam, LPARAM lParam);
+	void deleteCommand(int menuIndex, int mapperCmd, DynamicMenu& menu, size_t shortcutIndex, size_t nbElem);
 	std::wstring getTabString(size_t i) const;
 
 	static bool isConflict(const KeyCombo& lhs, const KeyCombo& rhs)
@@ -107,7 +97,4 @@ private:
 				 (lhs._isShift == rhs._isShift) &&
 				 (lhs._key	   == rhs._key	  ) );
 	}
-
-	void setFontColRowMetrics();
-	void destroyFont() noexcept;
 };

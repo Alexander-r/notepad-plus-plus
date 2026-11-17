@@ -36,6 +36,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include <stdint.h>
 #include "nsCharSetProber.h"
 #include "prmem.h"
 

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceBoxDlg</class>
+ <widget class="QDialog" name="PreferenceBoxDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>960</width><height>560</height></rect></property>
+  <property name="windowTitle"><string>Preferences</string></property>
+  <layout class="QGridLayout" name="gridLayout1" columnstretch="0,1" rowstretch="1,0">
+   <item row="0" column="0" rowspan="2">
+    <widget class="QListWidget" name="listDlgtitle">
+     <property name="nppId" stdset="0"><number>6002</number></property>
+     <property name="horizontalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
+    </widget>
+   </item>
+   <item row="0" column="1">
+    <widget class="QStackedWidget" name="pages"/>
+   </item>
+   <item row="1" column="1" alignment="Qt::AlignRight">
+    <widget class="QPushButton" name="buttonClose">
+     <property name="nppId" stdset="0"><number>6001</number></property>
+     <property name="text"><string>Close</string></property>
+     <property name="sizePolicy"><sizepolicy hsizetype="Fixed" vsizetype="Fixed"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property>
+     <property name="autoDefault"><bool>false</bool></property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

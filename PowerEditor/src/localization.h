@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <windows.h>
+#include "NppPlatform.h"
 
 #include <map>
 #include <string>
@@ -29,7 +29,6 @@ class FindReplaceDlg;
 class PreferenceDlg;
 class ShortcutMapper;
 class UserDefineDialog;
-class PluginsAdminDlg;
 
 class MenuPosition
 {
@@ -70,7 +69,6 @@ public:
 	void changeUserDefineLangPopupDlg(HWND hDlg) const;
 	void changeFindReplaceDlgLang(FindReplaceDlg& findReplaceDlg);
 	void changePreferenceDlgLang(PreferenceDlg& preference) const;
-	void changePluginsAdminDlgLang(PluginsAdminDlg& pluginsAdminDlg);
 
 	bool getDoSaveOrNotStrings(std::wstring& title, std::wstring& msg) const;
 
@@ -118,5 +116,4 @@ private:
 	const char* _fileName = nullptr;
 	std::map<std::string, std::wstring> _shortcutMenuEntryNameMap;
 
-	static void resizeCheckboxRadioBtn(HWND hWnd);
 };

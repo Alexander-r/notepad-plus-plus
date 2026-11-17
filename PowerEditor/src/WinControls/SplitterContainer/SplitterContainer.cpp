@@ -1,5 +1,5 @@
 // This file is part of Notepad++ project
-// Copyright (C)2021 Don HO <don.h@free.fr>
+// Copyright (c) 2021 adzm / Adam D. Walling
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,325 +14,177 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
 #include "SplitterContainer.h"
 
-#include <windows.h>
-
-#include <cassert>
-#include <cstdint>
-#include <stdexcept>
-#include <string>
+#include <QSplitter>
+#include <QSplitterHandle>
+#include <QContextMenuEvent>
+#include <QMouseEvent>
+#include <QMenu>
+#include <QAction>
 
 #include "Parameters.h"
-#include "Splitter.h"
-#include "Window.h"
 #include "localization.h"
-#include "resource.h"
 
-
-static constexpr auto SPC_CLASS_NAME = L"splitterContainer";
-
-static constexpr int ROTATION_LEFT = 2000;
-static constexpr int ROTATION_RIGHT = 2001;
-
-bool SplitterContainer::_isRegistered = false;
-
-void SplitterContainer::create(Window *pWin0, Window *pWin1, int splitterSize, SplitterMode mode, int ratio, bool isVertical)
+namespace
 {
-	//Window::init(hInst, parent);
-	_pWin0 = pWin0;
-	_pWin1 = pWin1;
-	_splitterSize = splitterSize;
-	_splitterMode = mode;
-	_ratio = ratio;
-	_dwSplitterStyle |= isVertical?SV_VERTICAL:SV_HORIZONTAL;
-
-	if (_splitterMode != SplitterMode::DYNAMIC)
+	// The divider's own menu to turn the two panes, and a double click to give them the same size
+	class DynamicSplitterHandle : public QSplitterHandle
 	{
-		_dwSplitterStyle |= SV_FIXED;
-		_dwSplitterStyle &= ~SV_RESIZEWTHPERCNT;
-	}
+	public:
+		DynamicSplitterHandle(Qt::Orientation orientation, QSplitter* parent, SplitterContainer* container)
+			: QSplitterHandle(orientation, parent), _container(container) {}
 
-	if (!_isRegistered)
+	protected:
+		void contextMenuEvent(QContextMenuEvent* event) override
+		{
+			NativeLangSpeaker* speaker = NppParameters::getInstance().getNativeLangSpeaker();
+			QMenu menu(this);
+			QAction* right = menu.addAction(QString::fromStdWString(speaker->getLocalizedStrFromID("splitter-rotate-right", L"Rotate to right")));
+			QAction* left = menu.addAction(QString::fromStdWString(speaker->getLocalizedStrFromID("splitter-rotate-left", L"Rotate to left")));
+			const QAction* chosen = menu.exec(event->globalPos());
+			if (chosen == right || chosen == left)
+				_container->rotateTo(chosen == left);
+		}
+
+		void mousePressEvent(QMouseEvent* event) override
+		{
+			_hasPress = true;
+			QSplitterHandle::mousePressEvent(event);
+		}
+
+		void mouseDoubleClickEvent(QMouseEvent*) override
+		{
+			_hasPress = true;
+			_container->centre();
+		}
+
+		// Breeze puts a helper widget over a thin divider once the mouse has been on it, to make it easier to grab. That
+		// passes on presses and releases but not double clicks, so a double click is seen here as a release without a press.
+		void mouseReleaseEvent(QMouseEvent* event) override
+		{
+			const bool wasDoubleClickElsewhere = !_hasPress;
+			_hasPress = false;
+			if (wasDoubleClickElsewhere)
+				_container->centre();
+			else
+				QSplitterHandle::mouseReleaseEvent(event);
+		}
+
+	private:
+		SplitterContainer* _container;
+		bool _hasPress = false;
+	};
+
+	class DynamicSplitter : public QSplitter
 	{
-		WNDCLASS splitterContainerClass{};
+	public:
+		DynamicSplitter(Qt::Orientation orientation, QWidget* parent, SplitterContainer* container)
+			: QSplitter(orientation, parent), _container(container) {}
 
-		splitterContainerClass.style = CS_DBLCLKS;
-		splitterContainerClass.lpfnWndProc = staticWinProc;
-		splitterContainerClass.cbClsExtra = 0;
-		splitterContainerClass.cbWndExtra = 0;
-		splitterContainerClass.hInstance = _hInst;
-		splitterContainerClass.hIcon = NULL;
-		splitterContainerClass.hCursor = ::LoadCursor(NULL, IDC_ARROW);
+	protected:
+		QSplitterHandle* createHandle() override
+		{
+			return new DynamicSplitterHandle(orientation(), this, _container);
+		}
 
-		// hbrBackground must be NULL,
-		// otherwise this window will hide some parts of 2 windows
-		splitterContainerClass.hbrBackground = NULL;
-		splitterContainerClass.lpszMenuName = NULL;
-		splitterContainerClass.lpszClassName = SPC_CLASS_NAME;
-
-		if (!::RegisterClass(&splitterContainerClass))
-			throw std::runtime_error(" SplitterContainer::create : RegisterClass() function failed");
-
-		_isRegistered = true;
-	}
-
-	_hSelf = ::CreateWindowEx(
-		0, SPC_CLASS_NAME, L"a koi sert?",
-		WS_CHILD | WS_CLIPCHILDREN,
-		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
-		_hParent, NULL, _hInst, this);
-
-	if (!_hSelf)
-		throw std::runtime_error(" SplitterContainer::create : CreateWindowEx() function return null");
+	private:
+		SplitterContainer* _container;
+	};
 }
 
+// Which widget of a Window goes into the splitter. A document tab bar comes with its pane.
+void SplitterContainer::create(Window *pWin0, Window *pWin1, int splitterSize, SplitterMode mode, int ratio, bool isVertical)
+{
+	const Qt::Orientation orientation = isVertical ? Qt::Horizontal : Qt::Vertical;
+	QSplitter* bar = (mode == SplitterMode::DYNAMIC) ? new DynamicSplitter(orientation, _hParent, this) : new QSplitter(orientation, _hParent);
+	bar->setHandleWidth(splitterSize);
+	bar->setChildrenCollapsible(false);
+	_hSelf = bar;
+
+	setWin0(pWin0);
+	setWin1(pWin1);
+
+	switch (mode)
+	{
+		case SplitterMode::LEFT_FIX:
+			bar->setStretchFactor(0, 0);
+			bar->setStretchFactor(1, 1);
+			break;
+		case SplitterMode::RIGHT_FIX:
+			bar->setStretchFactor(0, 1);
+			bar->setStretchFactor(1, 0);
+			break;
+		case SplitterMode::DYNAMIC:
+			bar->setStretchFactor(0, 1);
+			bar->setStretchFactor(1, 1);
+			applyRatio(ratio);
+			break;
+	}
+}
 
 void SplitterContainer::destroy()
 {
-	if (_hPopupMenu)
-		::DestroyMenu(_hPopupMenu);
-
-	_splitter.destroy();
-	::DestroyWindow(_hSelf);
+	delete _hSelf;
+	_hSelf = nullptr;
 }
 
-
-void SplitterContainer::reSizeTo(RECT & rc)
+QSplitter* SplitterContainer::splitter() const
 {
-	_x = rc.left;
-	_y = rc.top;
-	::MoveWindow(_hSelf, _x, _y, rc.right, rc.bottom, FALSE);
-	_splitter.resizeSpliter();
+	return static_cast<QSplitter*>(_hSelf);
 }
 
-
-void SplitterContainer::display(bool toShow) const
+void SplitterContainer::setWin0(Window* pWin)
 {
-	Window::display(toShow);
-
-	assert(_pWin0 != nullptr);
-	assert(_pWin1 != nullptr);
-	_pWin0->display(toShow);
-	_pWin1->display(toShow);
-
-	_splitter.display(toShow);
-}
-
-
-void SplitterContainer::redraw(bool forceUpdate) const
-{
-	assert(_pWin0 != nullptr);
-	assert(_pWin1 != nullptr);
-	_pWin0->redraw(forceUpdate);
-	_pWin1->redraw(forceUpdate);
-}
-
-
-void SplitterContainer::rotateTo(DIRECTION direction)
-{
-	bool doSwitchWindow = false;
-	if (_dwSplitterStyle & SV_VERTICAL)
+	if (pWin && pWin->paneWidget())
 	{
-		_dwSplitterStyle ^= SV_VERTICAL;
-		_dwSplitterStyle |= SV_HORIZONTAL;
-		doSwitchWindow = (direction == DIRECTION::LEFT);
-	}
-	else
-	{
-		_dwSplitterStyle ^= SV_HORIZONTAL;
-		_dwSplitterStyle |= SV_VERTICAL;
-		doSwitchWindow = (direction == DIRECTION::RIGHT);
-	}
-
-	if (doSwitchWindow)
-	{
-		Window *tmp = _pWin0;
-		_pWin0 = _pWin1;
-		_pWin1 = tmp;
-	}
-	_splitter.rotate();
-
-}
-
-LRESULT CALLBACK SplitterContainer::staticWinProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-	switch (message)
-	{
-		case WM_NCCREATE:
-		{
-			auto* pSplitterContainer = static_cast<SplitterContainer*>(reinterpret_cast<LPCREATESTRUCT>(lParam)->lpCreateParams);
-			pSplitterContainer->_hSelf = hwnd;
-			::SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pSplitterContainer));
-			return TRUE;
-		}
-
-		default:
-		{
-			auto* pSplitterContainer = reinterpret_cast<SplitterContainer*>(::GetWindowLongPtr(hwnd, GWLP_USERDATA));
-			if (!pSplitterContainer)
-				return ::DefWindowProc(hwnd, message, wParam, lParam);
-			return pSplitterContainer->runProc(message, wParam, lParam);
-		}
+		// The first pane may be away while the second one stays, which then must not be replaced
+		const bool isFirstPresent = splitter()->count() > 0 && splitter()->widget(0) != _pane1;
+		if (isFirstPresent && splitter()->widget(0) != pWin->paneWidget())
+			splitter()->replaceWidget(0, pWin->paneWidget());
+		else
+			splitter()->insertWidget(0, pWin->paneWidget());
 	}
 }
 
-
-LRESULT SplitterContainer::runProc(UINT message, WPARAM wParam, LPARAM lParam)
+void SplitterContainer::setWin1(Window* pWin)
 {
-	switch (message)
+	if (pWin && pWin->paneWidget())
 	{
-		case WM_CREATE:
-		{
-			_splitter.init(_hInst, _hSelf, _splitterSize, _ratio, _dwSplitterStyle);
-			return 0;
-		}
-
-		case WM_COMMAND:
-		{
-			switch (LOWORD(wParam))
-			{
-				case ROTATION_LEFT:
-				{
-					rotateTo(DIRECTION::LEFT);
-					return 0;
-				}
-				case ROTATION_RIGHT:
-				{
-					rotateTo(DIRECTION::RIGHT);
-					return 0;
-				}
-			}
-			break;
-		}
-
-		case WM_RESIZE_CONTAINER:
-		{
-			RECT rc0{};
-			getClientRect(rc0);
-
-			RECT rc1{};
-			rc1.top = rc0.top += _y;
-			rc1.bottom = rc0.bottom;
-			rc1.left = rc0.left += _x;
-			rc1.right = rc0.right;
-
-			if (_dwSplitterStyle & SV_VERTICAL)
-			{
-				if (wParam != 0)
-				{
-					rc0.right = int(wParam);
-
-					rc1.left = int(wParam) + _x + _splitter.getPhisicalSize();
-					rc1.right = rc1.right - rc1.left + _x;
-				}
-			}
-			else //SV_HORIZONTAL
-			{
-				if (lParam != 0)
-				{
-					rc0.bottom = int(lParam);
-
-					rc1.top   = int(lParam) + _y + _splitter.getPhisicalSize();
-					rc1.bottom = rc1.bottom - rc1.top + _y;
-				}
-			}
-			_pWin0->reSizeTo(rc0);
-			_pWin1->reSizeTo(rc1);
-
-			::InvalidateRect(_splitter.getHSelf(), NULL, TRUE);
-			return TRUE;
-		}
-
-		case WM_DOPOPUPMENU:
-		{
-			if ((_splitterMode != SplitterMode::LEFT_FIX) && (_splitterMode != SplitterMode::RIGHT_FIX))
-			{
-				POINT p{};
-				::GetCursorPos(&p);
-
-				if (!_hPopupMenu)
-				{
-					_hPopupMenu = ::CreatePopupMenu();
-
-					NativeLangSpeaker* nativeLangSpeaker = NppParameters::getInstance().getNativeLangSpeaker();
-					const std::wstring textLeft =
-						nativeLangSpeaker->getLocalizedStrFromID("splitter-rotate-left", L"Rotate to left");
-					const std::wstring textRight =
-						nativeLangSpeaker->getLocalizedStrFromID("splitter-rotate-right", L"Rotate to right");
-
-					::InsertMenu(_hPopupMenu, 1, MF_BYPOSITION, ROTATION_LEFT, textLeft.c_str());
-					::InsertMenu(_hPopupMenu, 0, MF_BYPOSITION, ROTATION_RIGHT, textRight.c_str());
-				}
-
-				::TrackPopupMenu(_hPopupMenu, TPM_LEFTALIGN, p.x, p.y, 0, _hSelf, NULL);
-			}
-			return TRUE;
-		}
-
-		case WM_GETSPLITTER_X:
-		{
-			switch (_splitterMode)
-			{
-				case SplitterMode::LEFT_FIX:
-				{
-					return MAKELONG(_pWin0->getWidth(), static_cast<std::uint8_t>(SplitterMode::LEFT_FIX));
-				}
-
-				case SplitterMode::RIGHT_FIX:
-				{
-					int x = getWidth()-_pWin1->getWidth();
-					if (x < 0)
-						x = 0;
-					return MAKELONG(x, static_cast<std::uint8_t>(SplitterMode::RIGHT_FIX));
-				}
-				default:
-					break;
-			}
-			return MAKELONG(0, static_cast<std::uint8_t>(SplitterMode::DYNAMIC));
-		}
-
-		case WM_GETSPLITTER_Y:
-		{
-			switch (_splitterMode)
-			{
-				case SplitterMode::LEFT_FIX:
-				{
-					return MAKELONG(_pWin0->getHeight(), static_cast<std::uint8_t>(SplitterMode::LEFT_FIX));
-				}
-				case SplitterMode::RIGHT_FIX:
-				{
-					int y = getHeight()-_pWin1->getHeight();
-					if (y < 0)
-						y = 0;
-					return MAKELONG(y, static_cast<std::uint8_t>(SplitterMode::RIGHT_FIX));
-				}
-				default:
-					break;
-			}
-			return MAKELONG(0, static_cast<std::uint8_t>(SplitterMode::DYNAMIC));
-		}
-
-		case WM_LBUTTONDBLCLK:
-		{
-			POINT pt{};
-			::GetCursorPos(&pt);
-			::ScreenToClient(_splitter.getHSelf(), &pt);
-
-			HWND parent = ::GetParent(getHSelf());
-
-			const Window* targetWindow = (isVertical())
-				? (pt.x < 0 ? _pWin0 : _pWin1)
-				: (pt.y < 0 ? _pWin0 : _pWin1);
-
-			::SendMessage(parent, NPPM_INTERNAL_SWITCHVIEWFROMHWND, 0, reinterpret_cast<LPARAM>(targetWindow->getHSelf()));
-			::SendMessage(parent, WM_LBUTTONDBLCLK, wParam, lParam);
-			return 0;
-		}
-
-		default:
-			break;
+		_pane1 = pWin->paneWidget();
+		if (splitter()->count() > 1 && splitter()->widget(1) != pWin->paneWidget())
+			splitter()->replaceWidget(1, pWin->paneWidget());
+		else
+			splitter()->addWidget(pWin->paneWidget());
 	}
-	return ::DefWindowProc(_hSelf, message, wParam, lParam);
+}
+
+bool SplitterContainer::isVertical() const
+{
+	return splitter()->orientation() == Qt::Horizontal; // a vertical divider between side-by-side windows
+}
+
+void SplitterContainer::rotate()
+{
+	splitter()->setOrientation(isVertical() ? Qt::Vertical : Qt::Horizontal);
+}
+
+void SplitterContainer::rotateTo(bool isToLeft)
+{
+	// The panes change places as needed for them to turn in that direction
+	const bool doSwitchPanes = isVertical() ? isToLeft : !isToLeft;
+	rotate();
+	if (doSwitchPanes && splitter()->count() == 2)
+		splitter()->insertWidget(0, splitter()->widget(1));
+}
+
+void SplitterContainer::centre()
+{
+	applyRatio(50);
+}
+
+void SplitterContainer::applyRatio(int ratio)
+{
+	const int total = 1000;
+	splitter()->setSizes({total * ratio / 100, total - (total * ratio / 100)});
 }

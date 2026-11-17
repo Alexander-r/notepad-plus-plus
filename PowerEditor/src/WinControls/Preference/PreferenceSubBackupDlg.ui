@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubBackupDlg</class>
+ <widget class="QWidget" name="PreferenceSubBackupDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QGroupBox" name="backupdirRestoresessionGrpStatic">
+     <property name="nppId" stdset="0"><number>6817</number></property>
+     <property name="title"><string>Session snapshot and periodic backup</string></property>
+     <layout class="QVBoxLayout" name="layout2">
+      <item>
+       <widget class="QCheckBox" name="checkRemembersession">
+        <property name="nppId" stdset="0"><number>6309</number></property>
+        <property name="text"><string>Remember current session for next launch</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="backupdirRestoresessionCheck">
+        <property name="nppId" stdset="0"><number>6818</number></property>
+        <property name="text"><string>Enable session snapshot and periodic backup</string></property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="layout3">
+        <item>
+         <spacer name="spacer4">
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QLabel" name="backupdirRestoresessionStatic1">
+          <property name="nppId" stdset="0"><number>6819</number></property>
+          <property name="text"><string>Trigger backup on modification in every</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="backupdirRestoresessionEdit">
+          <property name="nppId" stdset="0"><number>6820</number></property>
+          <property name="alignment"><set>Qt::AlignCenter</set></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="backupdirRestoresessionStatic2">
+          <property name="nppId" stdset="0"><number>6821</number></property>
+          <property name="text"><string>seconds</string></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer5">
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="layout6">
+        <item>
+         <spacer name="spacer7">
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QLabel" name="backupdirRestoresessionPathlabelStatic">
+          <property name="nppId" stdset="0"><number>6822</number></property>
+          <property name="text"><string>Backup path:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="backupdirRestoresessionPathEdit">
+          <property name="nppId" stdset="0"><number>6823</number></property>
+          <property name="readOnly"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkKeepabsentfilesinsession">
+        <property name="nppId" stdset="0"><number>6825</number></property>
+        <property name="text"><string>Remember inaccessible files from past session</string></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="backupdirGrpStatic">
+     <property name="nppId" stdset="0"><number>6801</number></property>
+     <property name="title"><string>Backup on save</string></property>
+     <layout class="QVBoxLayout" name="layout8">
+      <item>
+       <widget class="QRadioButton" name="radioBknone">
+        <property name="nppId" stdset="0"><number>6315</number></property>
+        <property name="text"><string>None</string></property>
+        <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+       </widget>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="radioBksimple">
+        <property name="nppId" stdset="0"><number>6316</number></property>
+        <property name="text"><string>Simple backup</string></property>
+        <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+       </widget>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="radioBkverbose">
+        <property name="nppId" stdset="0"><number>6317</number></property>
+        <property name="text"><string>Verbose backup</string></property>
+        <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="backupdirUsercustomdirGrpstatic">
+        <property name="nppId" stdset="0"><number>6802</number></property>
+        <property name="title"><string/></property>
+        <layout class="QVBoxLayout" name="layout9">
+         <item>
+          <widget class="QCheckBox" name="backupdirCheck">
+           <property name="nppId" stdset="0"><number>6804</number></property>
+           <property name="text"><string>Custom Backup Directory</string></property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="layout10">
+           <item>
+            <widget class="QLabel" name="backupdirStatic">
+             <property name="nppId" stdset="0"><number>6803</number></property>
+             <property name="text"><string>Directory:</string></property>
+             <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLineEdit" name="backupdirEdit">
+             <property name="nppId" stdset="0"><number>6805</number></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="backupdirBrowseButton">
+             <property name="nppId" stdset="0"><number>6806</number></property>
+             <property name="text"><string>...</string></property>
+             <property name="autoDefault"><bool>false</bool></property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer11">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+ </buttongroups>
+</ui>

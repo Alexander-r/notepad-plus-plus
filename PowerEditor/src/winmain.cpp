@@ -15,7 +15,12 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-#include <windows.h>
+#include <QApplication>
+#include <QDir>
+#include <QEvent>
+#include <QMessageBox>
+#include <QMouseEvent>
+#include <QThread>
 
 #include <chrono>
 #include <cstdlib>
@@ -26,179 +31,23 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <tlhelp32.h>
 
+#include "NppMessageFilter.h"
 #include "Common.h"
 #include "FileInterface.h"
-#include "MiniDumper.h" //Write dump files
 #include "Notepad_plus_Window.h"
 #include "Notepad_plus_msgs.h"
 #include "NppConstants.h"
 #include "NppDarkMode.h"
+#include "NppInstanceLink.h"
 #include "Parameters.h"
-#include "Processus.h"
-#include "Win32Exception.h" //Win32 exception
-#include "dpiManagerV2.h"
 #include "resource.h"
-#include "verifySignedfile.h"
 
 typedef std::vector<std::wstring> ParamVector;
 
 
 namespace
 {
-
-
-void allowForbidPrivilegeMessages(const Notepad_plus_Window& notepad_plus_plus, winVer winVer)
-{
-	#ifndef MSGFLT_ADD
-	const DWORD MSGFLT_ADD = 1;
-	const DWORD MSGFLT_REMOVE = 2;
-	#endif
-	#ifndef MSGFLT_ALLOW
-	const DWORD MSGFLT_ALLOW = 1;
-	const DWORD MSGFLT_DISALLOW = 2;
-	#endif
-	// Tell UAC that lower integrity processes are allowed to send WM_COPYDATA (or other) messages to this process (or window)
-	// This (WM_COPYDATA) allows opening new files to already opened elevated Notepad++ process via explorer context menu.
-	if (winVer >= WV_VISTA || winVer == WV_UNKNOWN)
-	{
-		HMODULE hDll = GetModuleHandle(L"user32.dll");
-		if (hDll)
-		{
-			// According to MSDN ChangeWindowMessageFilter may not be supported in future versions of Windows,
-			// that is why we use ChangeWindowMessageFilterEx if it is available (windows version >= Win7).
-			if (winVer == WV_VISTA)
-			{
-				typedef BOOL (WINAPI *MESSAGEFILTERFUNC)(UINT message,DWORD dwFlag);
-
-				MESSAGEFILTERFUNC func = (MESSAGEFILTERFUNC)::GetProcAddress( hDll, "ChangeWindowMessageFilter" );
-
-				if (func)
-				{
-					func(WM_COPYDATA, MSGFLT_ADD);
-					func(NPPM_INTERNAL_RESTOREFROMMINIMIZED, MSGFLT_ADD);
-
-					func(WM_COMMAND, MSGFLT_REMOVE); // Disallow WM_COMMAND messages from lower integrity processes (for security reasons)
-				}
-			}
-			else
-			{
-				typedef BOOL (WINAPI *MESSAGEFILTERFUNCEX)(HWND hWnd,UINT message,DWORD action,VOID* pChangeFilterStruct);
-
-				MESSAGEFILTERFUNCEX funcEx = (MESSAGEFILTERFUNCEX)::GetProcAddress( hDll, "ChangeWindowMessageFilterEx" );
-
-				if (funcEx)
-				{
-					funcEx(notepad_plus_plus.getHSelf(), WM_COPYDATA, MSGFLT_ALLOW, NULL);
-					funcEx(notepad_plus_plus.getHSelf(), NPPM_INTERNAL_RESTOREFROMMINIMIZED, MSGFLT_ALLOW, NULL);
-
-					funcEx(notepad_plus_plus.getHSelf(), WM_COMMAND, MSGFLT_DISALLOW, NULL); // Disallow WM_COMMAND messages from lower integrity processes (for security reasons)
-				}
-			}
-		}
-	}
-}
-
-// parseCommandLine() takes command line arguments part string, cuts arguments by using white space as separator.
-// Only white space in double quotes will be kept, such as file path argument or '-settingsDir=' argument (ex.: -settingsDir="c:\my settings\my folder\")
-// if '-z' is present, the 3rd argument after -z won't be cut - ie. all the space will also be kept
-// ex.: '-notepadStyleCmdline -z "C:\WINDOWS\system32\NOTEPAD.EXE" C:\my folder\my file with whitespace.txt' will be separated to: 
-// 1. "-notepadStyleCmdline"
-// 2. "-z"
-// 3. "C:\WINDOWS\system32\NOTEPAD.EXE"
-// 4. "C:\my folder\my file with whitespace.txt" 
-void parseCommandLine(const wchar_t* commandLine, ParamVector& paramVector)
-{
-	if (!commandLine)
-		return;
-	
-	wchar_t* cmdLine = new wchar_t[lstrlen(commandLine) + 1];
-	lstrcpy(cmdLine, commandLine);
-
-	wchar_t* cmdLinePtr = cmdLine;
-
-	bool isBetweenFileNameQuotes = false;
-	bool isStringInArg = false;
-	bool isInWhiteSpace = true;
-
-	int zArg = 0; // for "-z" argument: Causes Notepad++ to ignore the next command line argument (a single word, or a phrase in quotes).
-	              // The only intended and supported use for this option is for the Notepad Replacement syntax.
-
-	bool shouldBeTerminated = false; // If "-z" argument has been found, zArg value will be increased from 0 to 1.
-	                                 // then after processing next argument of "-z", zArg value will be increased from 1 to 2.
-	                                 // when zArg == 2 shouldBeTerminated will be set to true - it will trigger the treatment which consider the rest as a argument, with or without white space(s).
-
-	size_t commandLength = lstrlen(cmdLinePtr);
-	std::vector<wchar_t *> args;
-	for (size_t i = 0; i < commandLength && !shouldBeTerminated; ++i)
-	{
-		switch (cmdLinePtr[i])
-		{
-			case '\"': //quoted filename, ignore any following whitespace
-			{
-				if (!isStringInArg && !isBetweenFileNameQuotes && i > 0 && cmdLinePtr[i-1] == '=')
-				{
-					isStringInArg = true;
-				}
-				else if (isStringInArg)
-				{
-					isStringInArg = false;
-				}
-				else if (!isBetweenFileNameQuotes)	//" will always be treated as start or end of param, in case the user forgot to add an space
-				{
-					args.push_back(cmdLinePtr + i + 1);	//add next param(since zero terminated original, no overflow of +1)
-					isBetweenFileNameQuotes = true;
-					cmdLinePtr[i] = 0;
-
-					if (zArg == 1)
-					{
-						++zArg; // zArg == 2
-					}
-				}
-				else //if (isBetweenFileNameQuotes)
-				{
-					isBetweenFileNameQuotes = false;
-					//because we don't want to leave in any quotes in the filename, remove them now (with zero terminator)
-					cmdLinePtr[i] = 0;
-				}
-				isInWhiteSpace = false;
-			}
-			break;
-
-			case '\t': //also treat tab as whitespace
-			case ' ':
-			{
-				isInWhiteSpace = true;
-				if (!isBetweenFileNameQuotes && !isStringInArg)
-				{
-					cmdLinePtr[i] = 0;		//zap spaces into zero terminators, unless its part of a filename
-
-					size_t argsLen = args.size();
-					if (argsLen > 0 && lstrcmp(args[argsLen-1], L"-z") == 0)
-						++zArg; // "-z" argument is found: change zArg value from 0 (initial) to 1
-				}
-			}
-			break;
-
-			default: //default wchar_t, if beginning of word, add it
-			{
-				if (!isBetweenFileNameQuotes && !isStringInArg && isInWhiteSpace)
-				{
-					args.push_back(cmdLinePtr + i);	//add next param
-					if (zArg == 2)
-					{
-						shouldBeTerminated = true; // stop the processing, and keep the rest string as it in the vector
-					}
-
-					isInWhiteSpace = false;
-				}
-			}
-		}
-	}
-	paramVector.assign(args.begin(), args.end());
-	delete[] cmdLine;
-}
 
 // Converts /p or /P to -quickPrint if it exists as the first parameter
 // This seems to mirror Notepad's behaviour
@@ -354,7 +203,15 @@ int getGhostTypingSpeedFromParam(ParamVector & params)
 	if (!getParamValFromString(L"-qSpeed", params, speedStr))
 		return -1;
 	
-	int speed = std::stoi(speedStr, 0);
+	int speed = -1;
+	try {
+		speed = std::stoi(speedStr);
+	}
+	catch (const std::exception&) // not a number, or too large
+	{
+		return -1;
+	}
+
 	if (speed <= 0 || speed > 3)
 		return -1;
 
@@ -387,23 +244,20 @@ const wchar_t FLAG_MONITORING_MODE[] = L"-monitoringMode";
 
 void doException(Notepad_plus_Window & notepad_plus_plus)
 {
-	Win32Exception::removeHandler();	//disable exception handler after exception, we don't want corrupt data structures to crash the exception handler
-	::MessageBox(Notepad_plus_Window::gNppHWND, L"Notepad++ will attempt to save any unsaved data. However, data loss is very likely.", L"Recovery initiating", MB_OK | MB_ICONINFORMATION);
+	QMessageBox::critical(Notepad_plus_Window::gNppHWND, QStringLiteral("Recovery initiating"), QStringLiteral("Notepad++ will attempt to save any unsaved data. However, data loss is very likely."));
 
-	wchar_t tmpDir[1024];
-	GetTempPath(1024, tmpDir);
-	std::wstring emergencySavedDir = tmpDir;
-	emergencySavedDir += L"\\Notepad++ RECOV";
+	std::wstring emergencySavedDir = QDir::tempPath().toStdWString();
+	pathAppend(emergencySavedDir, L"Notepad++ RECOV");
 
 	bool res = notepad_plus_plus.emergency(emergencySavedDir);
 	if (res)
 	{
-		std::wstring displayText = L"Notepad++ was able to successfully recover some unsaved documents, or nothing to be saved could be found.\r\nYou can find the results at :\r\n";
+		std::wstring displayText = L"Notepad++ was able to successfully recover some unsaved documents, or nothing to be saved could be found.\nYou can find the results at :\n";
 		displayText += emergencySavedDir;
-		::MessageBox(Notepad_plus_Window::gNppHWND, displayText.c_str(), L"Recovery success", MB_OK | MB_ICONINFORMATION);
+		QMessageBox::information(Notepad_plus_Window::gNppHWND, QStringLiteral("Recovery success"), QString::fromStdWString(displayText));
 	}
 	else
-		::MessageBox(Notepad_plus_Window::gNppHWND, L"Unfortunately, Notepad++ was not able to save your work. We are sorry for any lost data.", L"Recovery failure", MB_OK | MB_ICONERROR);
+		QMessageBox::critical(Notepad_plus_Window::gNppHWND, QStringLiteral("Recovery failure"), QStringLiteral("Unfortunately, Notepad++ was not able to save your work. We are sorry for any lost data."));
 }
 
 // Looks for -z arguments and strips command line arguments following those, if any
@@ -427,308 +281,54 @@ void stripIgnoredParams(ParamVector & params)
 	}
 }
 
-bool launchUpdater(const std::wstring& updaterFullPath, const std::wstring& updaterDir)
+// The mouse's back and forward buttons switch documents, whichever widget is under the pointer
+class MouseNavigationFilter : public QObject
 {
-	NppParameters& nppParameters = NppParameters::getInstance();
-	NppGUI& nppGui = nppParameters.getNppGUI();
-
-	// check if update interval elapsed
-	Date today(0);
-	if (today < nppGui._autoUpdateOpt._nextUpdateDate)
-		return false;
-
-	std::wstring updaterParams;
-	nppParameters.buildGupParams(updaterParams);
-
-	Process updater(updaterFullPath.c_str(), updaterParams.c_str(), updaterDir.c_str());
-	updater.run();
-
-	// Update next update date
-	if (nppGui._autoUpdateOpt._intervalDays < 0) // Make sure interval days value is positive
-		nppGui._autoUpdateOpt._intervalDays = 0 - nppGui._autoUpdateOpt._intervalDays;
-	nppGui._autoUpdateOpt._nextUpdateDate = Date(nppGui._autoUpdateOpt._intervalDays);
-
-	return true;
-}
-
-
-DWORD nppUacSave(const wchar_t* protectedFilePath2Save, size_t size, const wchar_t* wszOnetimeGuid)
-{
-	if ( (lstrlenW(protectedFilePath2Save) == 0) || (lstrlenW(wszOnetimeGuid) == 0)) // safe check (lstrlen returns 0 for possible nullptr)
-		return ERROR_INVALID_PARAMETER;
-
-	std::wstring uniqueMappingName = NPP_MAPPING_PREFIX;
-	uniqueMappingName += wszOnetimeGuid;
-	HANDLE hMapping = ::OpenFileMappingW(FILE_MAP_READ, FALSE, uniqueMappingName.c_str());
-	if (!hMapping)
-		return ::GetLastError();
-
-	DWORD dwRetCode = NO_ERROR;
-
-	// copy the content out of the section, then release it
-	std::string content;
-	void* p = ::MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, size);
-	if (!p)
+public:
+	bool eventFilter(QObject* watched, QEvent* event) override
 	{
-		dwRetCode = ::GetLastError();
-	}
-	else
-	{
-		try {
-			content.assign(static_cast<const char*>(p), size);
-		}
-		catch (const std::exception&) { dwRetCode = ERROR_NOT_ENOUGH_MEMORY; }
-		::UnmapViewOfFile(p);
-		p = nullptr;
-	}
-	::CloseHandle(hMapping);
-	hMapping = NULL;
-
-	if (dwRetCode != NO_ERROR)
-		return dwRetCode;
-
-	bool isOutputReadOnly = false;
-	bool isOutputHidden = false;
-	bool isOutputSystem = false;
-	WIN32_FILE_ATTRIBUTE_DATA attributes{};
-	attributes.dwFileAttributes = INVALID_FILE_ATTRIBUTES;
-	if (getFileAttributesExWithTimeout(protectedFilePath2Save, &attributes))
-	{
-		if (attributes.dwFileAttributes != INVALID_FILE_ATTRIBUTES && !(attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+		if (event->type() == QEvent::MouseButtonPress && Notepad_plus_Window::gNppHWND)
 		{
-			isOutputReadOnly = (attributes.dwFileAttributes & FILE_ATTRIBUTE_READONLY) != 0;
-			isOutputHidden = (attributes.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0;
-			isOutputSystem = (attributes.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) != 0;
-			if (isOutputReadOnly) attributes.dwFileAttributes &= ~FILE_ATTRIBUTE_READONLY;
-			if (isOutputHidden) attributes.dwFileAttributes &= ~FILE_ATTRIBUTE_HIDDEN;
-			if (isOutputSystem) attributes.dwFileAttributes &= ~FILE_ATTRIBUTE_SYSTEM;
-			if (isOutputReadOnly || isOutputHidden || isOutputSystem)
-				::SetFileAttributes(protectedFilePath2Save, attributes.dwFileAttributes); // temporarily remove the problematic ones
+			const auto* mouseEvent = static_cast<QMouseEvent*>(event);
+			if (mouseEvent->button() == Qt::BackButton)
+				::SendMessage(Notepad_plus_Window::gNppHWND, WM_APPCOMMAND, APPCOMMAND_BROWSER_BACKWARD, 0);
+			else if (mouseEvent->button() == Qt::ForwardButton)
+				::SendMessage(Notepad_plus_Window::gNppHWND, WM_APPCOMMAND, APPCOMMAND_BROWSER_FORWARD, 0);
 		}
+		return QObject::eventFilter(watched, event);
 	}
-
-	dwRetCode = writeFileContentEx(protectedFilePath2Save, content.data(), content.size());
-
-	// set back the possible original file attributes
-	if (isOutputReadOnly || isOutputHidden || isOutputSystem)
-	{
-		if (isOutputReadOnly) attributes.dwFileAttributes |= FILE_ATTRIBUTE_READONLY;
-		if (isOutputHidden) attributes.dwFileAttributes |= FILE_ATTRIBUTE_HIDDEN;
-		if (isOutputSystem) attributes.dwFileAttributes |= FILE_ATTRIBUTE_SYSTEM;
-		::SetFileAttributes(protectedFilePath2Save, attributes.dwFileAttributes);
-	}
-
-	return dwRetCode;
-}
-
-DWORD nppUacSetFileAttributes(const DWORD dwFileAttribs, const wchar_t* wszFilePath)
-{
-	if (lstrlenW(wszFilePath) == 0) // safe check (lstrlen returns 0 for possible nullptr)
-		return ERROR_INVALID_PARAMETER;
-	if (!doesFileExist(wszFilePath))
-		return ERROR_FILE_NOT_FOUND;
-	if (dwFileAttribs == INVALID_FILE_ATTRIBUTES || (dwFileAttribs & FILE_ATTRIBUTE_DIRECTORY))
-		return ERROR_INVALID_PARAMETER;
-
-	if (!::SetFileAttributes(wszFilePath, dwFileAttribs))
-		return ::GetLastError();
-
-	return ERROR_SUCCESS;
-}
-
-DWORD nppUacMoveFile(const wchar_t* wszOriginalFilePath, const wchar_t* wszNewFilePath)
-{
-	if ((lstrlenW(wszOriginalFilePath) == 0) || (lstrlenW(wszNewFilePath) == 0)) // safe check (lstrlen returns 0 for possible nullptr)
-		return ERROR_INVALID_PARAMETER;
-	if (!doesFileExist(wszOriginalFilePath))
-		return ERROR_FILE_NOT_FOUND;
-
-	if (!::MoveFileEx(wszOriginalFilePath, wszNewFilePath, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH))
-		return ::GetLastError();
-	else
-		return ERROR_SUCCESS;
-}
-
-DWORD nppUacCreateEmptyFile(const wchar_t* wszNewEmptyFilePath)
-{
-	if (lstrlenW(wszNewEmptyFilePath) == 0) // safe check (lstrlen returns 0 for possible nullptr)
-		return ERROR_INVALID_PARAMETER;
-	if (doesFileExist(wszNewEmptyFilePath))
-		return ERROR_FILE_EXISTS;
-
-	Win32_IO_File file(wszNewEmptyFilePath);
-	if (!file.isOpened())
-		return file.getLastErrorCode();
-
-	return ERROR_SUCCESS;
-}
-
-// Checks the parent process if it is the same notepad++.exe module.
-bool isParentProcessThisNotepadPlusPlusModule()
-{
-	DWORD currentPid = ::GetCurrentProcessId();
-	DWORD parentPid = 0;
-
-	HANDLE hSnap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-	if (hSnap == INVALID_HANDLE_VALUE)
-		return false;
-
-	PROCESSENTRY32W pe32{};
-	pe32.dwSize = sizeof(pe32);
-
-	bool found = false;
-	if (::Process32FirstW(hSnap, &pe32))
-	{
-		do
-		{
-			if (pe32.th32ProcessID == currentPid)
-			{
-				parentPid = pe32.th32ParentProcessID;
-				found = true;
-				break;
-			}
-		} while (::Process32NextW(hSnap, &pe32));
-	}
-	::CloseHandle(hSnap);
-
-	if (!found || parentPid == 0)
-		return false;
-
-	HANDLE hParent = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, parentPid);
-	if (hParent == nullptr)
-		return false; // parent gone or inaccessible
-
-	wchar_t parentPath[MAX_PATH] {};
-	DWORD parentPathLen = MAX_PATH;
-	bool gotPath = ::QueryFullProcessImageNameW(hParent, 0, parentPath, &parentPathLen) != 0;
-	if (!gotPath)
-	{
-		::CloseHandle(hParent);
-		return false;
-	}
-
-	wchar_t selfImagePath[MAX_PATH] = {};
-	DWORD dwSizeSelf = MAX_PATH;
-	if (!::QueryFullProcessImageNameW(::GetCurrentProcess(), 0, selfImagePath, &dwSizeSelf))
-	{
-		::CloseHandle(hParent);
-		return false;
-	}
-
-	::CloseHandle(hParent);
-
-	if (_wcsicmp(parentPath, selfImagePath) == 0)
-	{
-		return true;
-	}
-	else
-	{
-		return false; // parent is not this notepad++.exe module
-	}
-}
-
+};
 
 } // namespace
 
 
 std::chrono::steady_clock::time_point g_nppStartTimePoint{};
 
-static std::vector<NppDigest> g_pendingIpcDigests;
-static LRESULT CALLBACK IpcSenderProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
-{
-	if (msg == WM_COPYDATA)
-	{
-		const auto* c = reinterpret_cast<const COPYDATASTRUCT*>(lp);
-
-		// Check if the message is a confirmation of a previously sent IPC message
-		if (c && c->lpData && c->dwData == NPP_COPYDATA_CONFIRM && c->cbData == sizeof(NppDigest))
-		{
-			// Find the digest matches any of the pending IPC digests
-			for (auto it = g_pendingIpcDigests.begin(); it != g_pendingIpcDigests.end(); ++it)
-			{
-				// If the digest matches, remove it from the pending list and return a confirmation code
-				if (memcmp(it->data(), c->lpData, sizeof(NppDigest)) == 0)
-				{
-					g_pendingIpcDigests.erase(it);     // one-shot: a confirmation can't be replayed
-					return NPP_CONFIRM_MAGIC;
-				}
-			}
-		}
-
-		return 0;
-	}
-	return ::DefWindowProcW(hwnd, msg, wp, lp);
-}
-
-int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*/, _In_ PWSTR pCmdLine, _In_ int /*nShowCmd*/)
+int main(int argc, char* argv[])
 {
 	g_nppStartTimePoint = std::chrono::steady_clock::now();
-	
-	// Notepad++ UAC OPS /////////////////////////////////////////////////////////////////////////////////////////////
-	if ((lstrlenW(pCmdLine) > 0) && (__argc >= 2)) // safe (if pCmdLine is NULL, lstrlen returns 0)
-	{
-		const std::wstring nppUacOpSign = __wargv[1];
-		if (nppUacOpSign.starts_with(NPP_UAC_OP_PREFIX))
-		{
-			// Check the parent caller to ensure it is Notepad++ and not some other process
-			if (!isParentProcessThisNotepadPlusPlusModule())
-			{
-				::MessageBox(Notepad_plus_Window::gNppHWND, L"The parent process is not Notepad++. Aborting the operation for security reasons.", L"Notepad++ UAC OPS Warning", MB_OK | MB_ICONERROR);
-				return static_cast<int>(ERROR_ACCESS_DENIED);
-			}
 
-			if ((__argc == 5) && (nppUacOpSign == NPP_UAC_SAVE_SIGN))
-			{
-				// __wargv[x]: 2 ... protectedFilePath2Save, 3 ... content size in bytes, 4 ... one-time GUID
-				DWORD dwError = NO_ERROR;
-				try {
-					const size_t contentSize = static_cast<size_t>(std::stoull(std::wstring(__wargv[3])));
-					dwError = nppUacSave(__wargv[2], contentSize, __wargv[4]);
-				}
-				catch ([[maybe_unused]] const std::exception& e)
-				{
-					dwError = ERROR_INVALID_PARAMETER; // conversion error (check e.what() for details)
-				}
-				return static_cast<int>(dwError);
-			}
+	nppInstallMessageFilter();
+	QApplication application(argc, argv);
+	QCoreApplication::setApplicationName(QStringLiteral("Notepad++"));
+	QGuiApplication::setDesktopFileName(QStringLiteral("notepad-plus-plus"));
 
-			if ((__argc == 4) && (nppUacOpSign == NPP_UAC_SETFILEATTRIBUTES_SIGN))
-			{
-				// __wargv[x]: 2 ... dwFileAttributes (string), 3  ...  filePath
-				try {
-					return static_cast<int>(nppUacSetFileAttributes(static_cast<DWORD>(std::stoul(std::wstring(__wargv[2]))), __wargv[3]));
-				}
-				catch ([[maybe_unused]] const std::exception& e)
-				{
-					return static_cast<int>(ERROR_INVALID_PARAMETER); // conversion error (check e.what() for details)
-				}
-			}
+	const bool TheFirstOne = !nppIsInstanceRunning();
 
-			if ((__argc == 4) && (nppUacOpSign == NPP_UAC_MOVEFILE_SIGN))
-			{
-				// __wargv[x]: 2 ... originalFilePath, 3  ...  newFilePath
-				return static_cast<int>(nppUacMoveFile(__wargv[2], __wargv[3]));
-			}
-
-			if ((__argc == 3) && (nppUacOpSign == NPP_UAC_CREATEEMPTYFILE_SIGN))
-			{
-				// __wargv[x]: 2 ... newEmptyFilePath
-				return static_cast<int>(nppUacCreateEmptyFile(__wargv[2]));
-			}
-
-			return static_cast<int>(ERROR_INVALID_PARAMETER);
-		}
-	} // Notepad++ UAC OPS////////////////////////////////////////////////////////////////////////////////////////////
-
-	bool TheFirstOne = true;
-	::SetLastError(NO_ERROR);
-	::CreateMutex(NULL, false, L"nppInstance");
-	if (::GetLastError() == ERROR_ALREADY_EXISTS)
-		TheFirstOne = false;
-
-	std::wstring cmdLineString = pCmdLine ? pCmdLine : L"";
+	// Qt has taken its own options out of the list already
 	ParamVector params;
-	parseCommandLine(pCmdLine, params);
+	std::wstring cmdLineString;
+	const QStringList arguments = QCoreApplication::arguments();
+	for (qsizetype i = 1; i < arguments.size(); ++i)
+	{
+		const std::wstring argument = arguments[i].toStdWString();
+		params.push_back(argument);
+
+		if (!cmdLineString.empty())
+			cmdLineString += L' ';
+		const bool needsQuotes = argument.find(L' ') != std::wstring::npos;
+		cmdLineString += needsQuotes ? L"\"" + argument + L"\"" : argument;
+	}
 
 
 	// Convert commandline to notepad-compatible format, if applicable
@@ -832,19 +432,11 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance
 
 	nppParameters.load();
 
-	NppGUI & nppGui = nppParameters.getNppGUI();
-
 	NppDarkMode::initDarkMode();
-	DPIManagerV2::initDpiAPI();
 
-	bool doUpdateNpp = nppGui._autoUpdateOpt._doAutoUpdate != NppGUI::autoupdate_disabled;
-	bool updateAtExit = nppGui._autoUpdateOpt._doAutoUpdate == NppGUI::autoupdate_on_exit;
-	bool doUpdatePluginList = nppGui._autoUpdateOpt._doAutoUpdate != NppGUI::autoupdate_disabled;
-
-	if (doFunctionListExport || doPrintAndQuit) // export functionlist feature will serialize functionlist on the disk, then exit Notepad++. So it's important to not launch into existing instance, and keep it silent.
+	if (doFunctionListExport || doPrintAndQuit) // export functionlist feature will serialize functionlist on the disk, then exit Notepad++. So it's important to not launch into existing instance, and keep the current instance.
 	{
 		isMultiInst = true;
-		doUpdateNpp = doUpdatePluginList = false;
 		cmdLineParams._isNoSession = true;
 	}
 
@@ -887,188 +479,69 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance
 	}
 
 	//Only after loading all the file paths set the working directory
-	::SetCurrentDirectory(NppParameters::getInstance().getNppPath().c_str());	//force working directory to path of module, preventing lock
+	QDir::setCurrent(QString::fromStdWString(NppParameters::getInstance().getNppPath()));	//force working directory to path of module, preventing lock
 
 	if ((!isMultiInst) && (!TheFirstOne))
 	{
-		HWND hNotepad_plus = ::FindWindow(Notepad_plus_Window::getClassName(), NULL);
-		for (int i = 0 ;!hNotepad_plus && i < 5 ; ++i)
+		std::vector<NppInstanceMessage> messages;
+
+		if (params.size() > 0                         // if there are files to open, hand them over
+			|| !cmdLineParams._pluginMessage.empty()) // or pluginMessage is present, hand it over as well
 		{
-			Sleep(100);
-			hNotepad_plus = ::FindWindow(Notepad_plus_Window::getClassName(), NULL);
+			const CmdLineParamsDTO dto = CmdLineParamsDTO::FromCmdLineParams(cmdLineParams);
+			const auto wideBytes = [](const std::wstring& text)
+			{
+				return QByteArray(reinterpret_cast<const char*>(text.c_str()), static_cast<qsizetype>((text.length() + 1) * sizeof(wchar_t)));
+			};
+
+			messages.push_back({ COPYDATA_PARAMS, QByteArray(reinterpret_cast<const char*>(&dto), sizeof(dto)) });
+			messages.push_back({ COPYDATA_FULL_CMDLINE, wideBytes(cmdLineString) });
+			messages.push_back({ COPYDATA_FILENAMESW, wideBytes(quotFileNames) });
 		}
 
-        if (hNotepad_plus)
-        {
-			// First of all, destroy static object NppParameters
+		if (nppSendToRunningInstance(messages))
+		{
 			nppParameters.destroyInstance();
-
-			// Restore the window, bring it to front, etc
-			bool isInSystemTray = ::SendMessage(hNotepad_plus, NPPM_INTERNAL_RESTOREFROMMINIMIZED, 0, 0);
-
-			if (!isInSystemTray)
-			{
-				int sw = 0;
-
-				if (::IsZoomed(hNotepad_plus))
-					sw = SW_MAXIMIZE;
-				else if (::IsIconic(hNotepad_plus))
-					sw = SW_RESTORE;
-
-				if (sw != 0)
-					::ShowWindow(hNotepad_plus, sw);
-			}
-			::SetForegroundWindow(hNotepad_plus);
-
-			if (params.size() > 0                         // if there are files to open, use the WM_COPYDATA system
-				|| !cmdLineParams._pluginMessage.empty()) // or pluginMessage is present, use the WM_COPYDATA system as well
-			{
-				static const wchar_t* className = L"NppIpcSenderWnd";
-				WNDCLASSW wc{};
-				wc.lpfnWndProc = IpcSenderProc;
-				wc.hInstance = hInstance;
-				wc.lpszClassName = className;
-				RegisterClassW(&wc);
-
-				// HWND_MESSAGE: message-only window, never visible, no taskbar entry
-				HWND hIpcSender = CreateWindowExW(0, className, L"", 0, 0, 0, 0, 0,	HWND_MESSAGE, NULL, hInstance, NULL);
-				::ChangeWindowMessageFilterEx(hIpcSender, WM_COPYDATA, MSGFLT_ALLOW, nullptr);
-
-				CmdLineParamsDTO dto = CmdLineParamsDTO::FromCmdLineParams(cmdLineParams);
-
-				COPYDATASTRUCT paramData{};
-				paramData.dwData = COPYDATA_PARAMS;
-				paramData.lpData = &dto;
-				paramData.cbData = sizeof(dto);
-
-				COPYDATASTRUCT cmdLineData{};
-				cmdLineData.dwData = COPYDATA_FULL_CMDLINE;
-				cmdLineData.lpData = (void*)cmdLineString.c_str();
-				cmdLineData.cbData = static_cast<DWORD>((cmdLineString.length() + 1) * sizeof(wchar_t));
-
-				COPYDATASTRUCT fileNamesData{};
-				fileNamesData.dwData = COPYDATA_FILENAMESW;
-				fileNamesData.lpData = (void *)quotFileNames.c_str();
-				fileNamesData.cbData = static_cast<DWORD>((quotFileNames.length() + 1) * sizeof(wchar_t));
-
-				// store the digests of the data to be sent, so that we can verify the confirmation messages
-				g_pendingIpcDigests.clear();
-				for (const COPYDATASTRUCT* c : { &paramData, &cmdLineData, &fileNamesData })
-				{
-					NppDigest d;
-					if (nppCopyDataDigest(c->dwData, c->lpData, c->cbData, d))
-						g_pendingIpcDigests.push_back(d);
-				}
-
-				::SendMessage(hNotepad_plus, WM_COPYDATA, reinterpret_cast<WPARAM>(hIpcSender), reinterpret_cast<LPARAM>(&paramData));
-				::SendMessage(hNotepad_plus, WM_COPYDATA, reinterpret_cast<WPARAM>(hIpcSender), reinterpret_cast<LPARAM>(&cmdLineData));
-				::SendMessage(hNotepad_plus, WM_COPYDATA, reinterpret_cast<WPARAM>(hIpcSender), reinterpret_cast<LPARAM>(&fileNamesData));
-
-				g_pendingIpcDigests.clear();
-				::DestroyWindow(hIpcSender);
-			}
 			return 0;
-        }
+		}
 	}
+
+	NppInstanceServer instanceServer;
+	if (TheFirstOne)
+		instanceServer.listen();
+
+	MouseNavigationFilter mouseNavigationFilter;
+	application.installEventFilter(&mouseNavigationFilter);
 
 	auto upNotepadWindow = std::make_unique<Notepad_plus_Window>();
 	Notepad_plus_Window & notepad_plus_plus = *upNotepadWindow.get();
 
-	std::wstring updaterDir = nppParameters.getNppPath();
-	updaterDir += L"\\updater\\";
-
-	std::wstring updaterFullPath = updaterDir + L"gup.exe";
-
-	bool isUpExist = nppGui._doesExistUpdater = doesFileExist(updaterFullPath.c_str());
-
-	// wingup doesn't work with the obsolete security layer (API) under xp since downloads are secured with SSL on notepad-plus-plus.org
-	winVer ver = nppParameters.getWinVersion();
-	bool isGtXP = ver > WV_XP;
-
-	SecurityGuard securityGuard;
-	bool isSignatureOK = securityGuard.checkModule(updaterFullPath, nm_gup);
-
-	if (TheFirstOne && isUpExist && isGtXP && isSignatureOK && doUpdateNpp && !updateAtExit && !nppParameters.isNppAutoUpdateDisabled())
-	{
-		launchUpdater(updaterFullPath, updaterDir);
-	}
-
-	MSG msg{};
-	msg.wParam = 0;
-	Win32Exception::installHandler();
-	MiniDumper mdump;	//for debugging purposes.
-	bool isException = false;
+	int exitCode = 0;
 	try {
-		notepad_plus_plus.init(hInstance, NULL, quotFileNames.c_str(), &cmdLineParams);
-		allowForbidPrivilegeMessages(notepad_plus_plus, ver);
-		bool going = true;
-		while (going)
-		{
-			going = ::GetMessageW(&msg, NULL, 0, 0) != 0;
-			if (going)
-			{
-				// if the message doesn't belong to the notepad_plus_plus's dialog
-				if (!notepad_plus_plus.isDlgsMsg(&msg))
-				{
-					if (::TranslateAccelerator(notepad_plus_plus.getHSelf(), notepad_plus_plus.getAccTable(), &msg) == 0)
-					{
-						::TranslateMessage(&msg);
-						::DispatchMessageW(&msg);
-					}
-				}
-			}
-		}
+		notepad_plus_plus.init(nullptr, nullptr, quotFileNames.c_str(), &cmdLineParams);
+		instanceServer.setMainWindow(notepad_plus_plus.getHSelf());
+		exitCode = QApplication::exec();
 	}
 	catch (int i)
 	{
-		isException = true;
-		wchar_t str[50] = L"God Damned Exception:";
-		wchar_t code[10];
-		wsprintf(code, L"%d", i);
-		wcscat_s(str, code);
-		::MessageBox(Notepad_plus_Window::gNppHWND, str, L"Int Exception", MB_OK);
+		QMessageBox::critical(Notepad_plus_Window::gNppHWND, QStringLiteral("Int Exception"), QStringLiteral("God Damned Exception:%1").arg(i));
 		doException(notepad_plus_plus);
 	}
 	catch (std::runtime_error & ex)
 	{
-		isException = true;
-		::MessageBoxA(Notepad_plus_Window::gNppHWND, ex.what(), "Runtime Exception", MB_OK);
-		doException(notepad_plus_plus);
-	}
-	catch (const Win32Exception & ex)
-	{
-		isException = true;
-		wchar_t message[1024];
-		wsprintf(message, L"An exception occurred. Notepad++ cannot recover and must be shut down.\r\nThe exception details are as follows:\r\n"
-			L"Code:\t0x%08X\r\nType:\t%S\r\nException address: 0x%p", ex.code(), ex.what(), ex.where());
-		::MessageBox(Notepad_plus_Window::gNppHWND, message, L"Win32Exception", MB_OK | MB_ICONERROR);
-		mdump.writeDump(ex.info());
+		QMessageBox::critical(Notepad_plus_Window::gNppHWND, QStringLiteral("Runtime Exception"), QString::fromUtf8(ex.what()));
 		doException(notepad_plus_plus);
 	}
 	catch (std::exception & ex)
 	{
-		isException = true;
-		::MessageBoxA(Notepad_plus_Window::gNppHWND, ex.what(), "General Exception", MB_OK);
+		QMessageBox::critical(Notepad_plus_Window::gNppHWND, QStringLiteral("General Exception"), QString::fromUtf8(ex.what()));
 		doException(notepad_plus_plus);
 	}
 	catch (...) // this shouldn't ever have to happen
 	{
-		isException = true;
-		::MessageBoxA(Notepad_plus_Window::gNppHWND, "An exception that we did not yet found its name is just caught", "Unknown Exception", MB_OK);
+		QMessageBox::critical(Notepad_plus_Window::gNppHWND, QStringLiteral("Unknown Exception"), QStringLiteral("An exception that we did not yet found its name is just caught"));
 		doException(notepad_plus_plus);
 	}
 
-	doUpdateNpp = nppGui._autoUpdateOpt._doAutoUpdate != NppGUI::autoupdate_disabled; // refresh, maybe user activated these opts in Preferences
-	updateAtExit = nppGui._autoUpdateOpt._doAutoUpdate == NppGUI::autoupdate_on_exit; // refresh
-	if (!isException && !nppParameters.isEndSessionCritical() && TheFirstOne && isUpExist && isGtXP && isSignatureOK && doUpdateNpp && updateAtExit)
-	{
-		if (launchUpdater(updaterFullPath, updaterDir))
-		{
-			// for updating the nextUpdateDate in the already saved config.xml
-			nppParameters.createXmlTreeFromGUIParams();
-			nppParameters.saveConfig_xml();
-		}
-	}
-
-	return static_cast<int>(msg.wParam);
+	return exitCode;
 }

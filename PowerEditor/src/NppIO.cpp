@@ -15,10 +15,24 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-#include <windows.h>
+#include <filesystem>
 
-#include <shlobj.h>
-#include <shlwapi.h>
+#include <QAction>
+#include <QApplication>
+#include <QClipboard>
+#include <QCursor>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QMainWindow>
+#include <QMenu>
+#include <QMenuBar>
+#include <QMimeData>
+#include <QProcess>
+#include <QStringList>
+#include <QThread>
+#include <QUrl>
+
 
 #include <algorithm>
 #include <cassert>
@@ -44,8 +58,6 @@
 #include "NppConstants.h"
 #include "NppDarkMode.h"
 #include "Parameters.h"
-#include "ReadDirectoryChanges.h"
-#include "ReadFileChanges.h"
 #include "ScintillaEditView.h"
 #include "UserDefineDialog.h"
 #include "VerticalFileSwitcher.h"
@@ -58,174 +70,29 @@
 
 using namespace std;
 
+namespace
+{
+	void renameOverwriting(const std::wstring& from, const std::wstring& to)
+	{
+		std::error_code error;
+		std::filesystem::rename(from, to, error);
+	}
+}
+
 // https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file
 // Reserved characters:  < > : " / \ | ? * tab  
 //  ("tab" is not in the official list, but it is good to avoid it)
 const std::wstring filenameReservedChars = L"<>:\"/\\|\?*\t";
 
-DWORD WINAPI Notepad_plus::monitorFileOnChange(void * params)
-{
-	MonitorInfo *monitorInfo = static_cast<MonitorInfo *>(params);
-	Buffer *buf = monitorInfo->_buffer;
-	HWND h = monitorInfo->_nppHandle;
-
-	const wchar_t* fullFileName = buf->getFullPathName();
-
-	//The folder to watch :
-	wchar_t folderToMonitor[MAX_PATH]{};
-	wcscpy_s(folderToMonitor, fullFileName);
-
-	::PathRemoveFileSpecW(folderToMonitor);
-	
-	const DWORD dwNotificationFlags = FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_SIZE;
-
-	// Create the monitor and add directory to watch.
-	CReadDirectoryChanges dirChanges;
-	dirChanges.AddDirectory(folderToMonitor, true, dwNotificationFlags);
-
-	CReadFileChanges fileChanges;
-	fileChanges.AddFile(fullFileName, FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE);
-
-	HANDLE changeHandles[] = { buf->getMonitoringEvent(), dirChanges.GetWaitHandle() };
-
-	bool toBeContinued = true;
-
-	while (toBeContinued)
-	{
-		DWORD waitStatus = ::WaitForMultipleObjects(_countof(changeHandles), changeHandles, FALSE, 250);
-		switch (waitStatus)
-		{
-			case WAIT_OBJECT_0 + 0:
-			// Mutex was signaled. User removes this folder or file browser is closed
-			{
-				toBeContinued = false;
-			}
-			break;
-
-			case WAIT_OBJECT_0 + 1:
-			// We've received a notification in the queue.
-			{
-				bool bDoneOnce = false;
-				DWORD dwAction = 0;
-				wstring fn;
-				// Process all available changes, ignore User actions
-				while (dirChanges.Pop(dwAction, fn))
-				{
-					// Fix monitoring files which are under root problem
-					size_t pos = fn.find(L"\\\\");
-					if (pos == 2)
-						fn.replace(pos, 2, L"\\");
-
-					if (wcscmp(fullFileName, fn.c_str()) == 0)
-					{
-						if (dwAction == FILE_ACTION_MODIFIED)
-						{
-							if (!bDoneOnce)
-							{
-								::PostMessage(h, NPPM_INTERNAL_RELOADSCROLLTOEND, reinterpret_cast<WPARAM>(buf), 0);
-								bDoneOnce = true;
-								Sleep(250);	// Limit refresh rate
-							}
-						}
-						else if ((dwAction == FILE_ACTION_REMOVED) || (dwAction == FILE_ACTION_RENAMED_OLD_NAME))
-						{
-							// File is deleted or renamed - quit monitoring thread and close file
-							::PostMessage(h, NPPM_INTERNAL_STOPMONITORING, reinterpret_cast<WPARAM>(buf), 0);
-						}
-					}
-				}
-			}
-			break;
-
-			case WAIT_TIMEOUT:
-			{
-				if (fileChanges.DetectChanges())
-					::PostMessage(h, NPPM_INTERNAL_RELOADSCROLLTOEND, reinterpret_cast<WPARAM>(buf), 0);
-			}
-			break;
-
-			case WAIT_IO_COMPLETION:
-				// Nothing to do.
-			break;
-		}
-	}
-
-	// Just for sample purposes. The destructor will
-	// call Terminate() automatically.
-	dirChanges.Terminate();
-	fileChanges.Terminate();
-	delete monitorInfo;
-	return ERROR_SUCCESS;
-}
-
-static bool resolveLinkFile(std::wstring& linkFilePath)
-{
-	// upperize for the following comparison because the ends_with is case sensitive unlike the Windows OS filesystem
-	std::wstring linkFilePathUp = linkFilePath;
-	std::transform(linkFilePathUp.begin(), linkFilePathUp.end(), linkFilePathUp.begin(),
-		[](wchar_t ch) { return std::towupper(ch); });
-	if (!linkFilePathUp.ends_with(L".LNK"))
-		return false; // we will not check the renamed shortcuts like "file.lnk.txt"
-
-	bool isResolved = false;
-
-	IShellLink* psl = nullptr;
-	wchar_t targetFilePath[MAX_PATH]{};
-	WIN32_FIND_DATA wfd{};
-
-	HRESULT hres = CoInitialize(NULL);
-	if (SUCCEEDED(hres))
-	{
-		hres = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLink, reinterpret_cast<LPVOID*>(&psl));
-		if (SUCCEEDED(hres))
-		{
-			IPersistFile* ppf = nullptr;
-			hres = psl->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&ppf));
-			if (SUCCEEDED(hres))
-			{
-				// Load the shortcut. 
-				hres = ppf->Load(linkFilePath.c_str(), STGM_READ);
-				if (SUCCEEDED(hres) && hres != S_FALSE)
-				{
-					// Resolve the link. 
-					hres = psl->Resolve(NULL, 0);
-					if (SUCCEEDED(hres) && hres != S_FALSE)
-					{
-						// Get the path to the link target. 
-						hres = psl->GetPath(targetFilePath, MAX_PATH, &wfd, SLGP_SHORTPATH);
-						if (SUCCEEDED(hres) && hres != S_FALSE)
-						{
-							linkFilePath = targetFilePath;
-							isResolved = true;
-						}
-					}
-				}
-				ppf->Release();
-			}
-			psl->Release();
-		}
-		CoUninitialize();
-	}
-
-	return isResolved;
-}
-
 BufferID Notepad_plus::doOpen(const wstring& fileName, bool isRecursive, bool isReadOnly, int encoding, const wchar_t *backupFileName, FILETIME fileNameTimestamp)
 {
-	const rsize_t longFileNameBufferSize = MAX_PATH;
+	const size_t longFileNameBufferSize = MAX_PATH;
 	if (fileName.size() >= longFileNameBufferSize - 1)
 		return BUFFER_INVALID;
 
 	wstring targetFileName = fileName;
-	bool isResolvedLinkFileName = resolveLinkFile(targetFileName);
 
-	bool isRawFileName;
-	if (isResolvedLinkFileName)
-		isRawFileName = false;
-	else
-		isRawFileName = isWin32NamespacePrefixedFileName(fileName);
-
-	if (isUnsupportedFileName(isResolvedLinkFileName ? targetFileName : fileName))
+	if (isUnsupportedFileName(fileName))
 	{
 		// TODO:
 		// for the raw filenames we can allow even the usually unsupported filenames in the future,
@@ -251,42 +118,18 @@ BufferID Notepad_plus::doOpen(const wstring& fileName, bool isRecursive, bool is
 				L"ERROR",
 				MB_OK,
 				0,
-				isResolvedLinkFileName ? targetFileName.c_str() : fileName.c_str());
+				fileName.c_str());
 			return BUFFER_INVALID;
 		//}
 	}
 
-	//If [GetFullPathName] succeeds, the return value is the length, in TCHARs, of the string copied to lpBuffer, not including the terminating null character.
-	//If the lpBuffer buffer is too small to contain the path, the return value [of GetFullPathName] is the size, in TCHARs, of the buffer that is required to hold the path and the terminating null character.
-	//If [GetFullPathName] fails for any other reason, the return value is zero.
-
 	NppParameters& nppParam = NppParameters::getInstance();
 	wchar_t longFileName[longFileNameBufferSize] = { 0 };
 
-	if (isRawFileName)
-	{
-		// use directly the raw file name, skip the GetFullPathName WINAPI and alike...)
-		wcsncpy_s(longFileName, _countof(longFileName), fileName.c_str(), _TRUNCATE);
-	}
-	else
-	{
-		const DWORD getFullPathNameResult = ::GetFullPathName(targetFileName.c_str(), longFileNameBufferSize, longFileName, NULL);
-		if (getFullPathNameResult == 0)
-		{
-			return BUFFER_INVALID;
-		}
-		if (getFullPathNameResult > longFileNameBufferSize)
-		{
-			return BUFFER_INVALID;
-		}
-		assert(wcslen(longFileName) == getFullPathNameResult);
-
-		if (wcschr(longFileName, '~'))
-		{
-			// ignore the returned value of function due to win64 redirection system
-			::GetLongPathName(longFileName, longFileName, longFileNameBufferSize);
-		}
-	}
+	const wstring fullPath = QDir::toNativeSeparators(QFileInfo(QString::fromStdWString(targetFileName)).absoluteFilePath()).toStdWString();
+	if (fullPath.size() >= longFileNameBufferSize)
+		return BUFFER_INVALID;
+	wcscpy_s(longFileName, fullPath.c_str());
 
 	bool isSnapshotMode = (backupFileName != NULL) && doesFileExist(backupFileName);
 	bool longFileNameExists = doesFileExist(longFileName);
@@ -320,7 +163,7 @@ BufferID Notepad_plus::doOpen(const wstring& fileName, bool isRecursive, bool is
         {
             if (_pTrayIco->isInTray())
             {
-                ::ShowWindow(_pPublicInterface->getHSelf(), SW_SHOW);
+                _pPublicInterface->getHSelf()->show();
                 if (!_pPublicInterface->isPrelaunch())
                     _pTrayIco->doTrayIcon(REMOVE);
                 ::SendMessage(_pPublicInterface->getHSelf(), WM_SIZE, 0, 0);
@@ -348,16 +191,11 @@ BufferID Notepad_plus::doOpen(const wstring& fileName, bool isRecursive, bool is
     bool isWow64Off = false;
     if (!longFileNameExists)
     {
-        nppParam.safeWow64EnableWow64FsRedirection(FALSE);
         isWow64Off = true;
     }
 #endif
 
-	bool globbing;
-	if (isRawFileName)
-		globbing = (wcsrchr(longFileName, wchar_t('*')) || (abs(longFileName - wcsrchr(longFileName, wchar_t('?'))) > 3));
-	else
-		globbing = (wcsrchr(longFileName, wchar_t('*')) || wcsrchr(longFileName, wchar_t('?')));
+	bool globbing = (wcsrchr(longFileName, wchar_t('*')) || wcsrchr(longFileName, wchar_t('?')));
 
 	if (!isSnapshotMode) // if not backup mode, or backupfile path is invalid
 	{
@@ -421,7 +259,6 @@ BufferID Notepad_plus::doOpen(const wstring& fileName, bool isRecursive, bool is
 #ifndef	_WIN64
 				if (isWow64Off)
 				{
-					nppParam.safeWow64EnableWow64FsRedirection(TRUE);
 					isWow64Off = false;
 				}
 #endif
@@ -492,13 +329,17 @@ BufferID Notepad_plus::doOpen(const wstring& fileName, bool isRecursive, bool is
         {
             if (_pTrayIco->isInTray())
             {
-                ::ShowWindow(_pPublicInterface->getHSelf(), SW_SHOW);
+                _pPublicInterface->getHSelf()->show();
                 if (!_pPublicInterface->isPrelaunch())
                     _pTrayIco->doTrayIcon(REMOVE);
                 ::SendMessage(_pPublicInterface->getHSelf(), WM_SIZE, 0, 0);
             }
         }
-        PathRemoveFileSpec(longFileName);
+        {
+            wstring folder = longFileName;
+            pathRemoveFileSpec(folder);
+            wcscpy_s(longFileName, folder.c_str());
+        }
         _linkTriggered = true;
         _isFileOpening = false;
 
@@ -516,7 +357,7 @@ BufferID Notepad_plus::doOpen(const wstring& fileName, bool isRecursive, bool is
             vector<wstring> patterns;
             if (globbing)
             {
-                const wchar_t * substring = wcsrchr(targetFileName.c_str(), wchar_t('\\'));
+                const wchar_t * substring = wcsrchr(targetFileName.c_str(), nppPathSep);
 				if (substring)
 				{
 					size_t pos = substring - targetFileName.c_str();
@@ -533,8 +374,8 @@ BufferID Notepad_plus::doOpen(const wstring& fileName, bool isRecursive, bool is
             else
             {
                 wstring fileNameStr = targetFileName;
-                if (targetFileName[targetFileName.size() - 1] != '\\')
-                    fileNameStr += L"\\";
+                if (targetFileName[targetFileName.size() - 1] != nppPathSep)
+                    fileNameStr += nppPathSepStr;
 
                 patterns.push_back(L"*");
                 getMatchedFileNames(fileNameStr.c_str(), 0, patterns, fileNames, true, false);
@@ -578,7 +419,6 @@ BufferID Notepad_plus::doOpen(const wstring& fileName, bool isRecursive, bool is
 #ifndef	_WIN64
     if (isWow64Off)
     {
-        nppParam.safeWow64EnableWow64FsRedirection(TRUE);
         //isWow64Off = false;
     }
 #endif
@@ -748,96 +588,12 @@ bool Notepad_plus::doSave(BufferID id, const wchar_t * filename, bool isCopy)
 		}
 		else
 		{
-			if (_isAdministrator)
-			{
-				// Already in admin mode? File is probably locked.
-				_nativeLangSpeaker.messageBox("FileLockedWarning",
-					_pPublicInterface->getHSelf(),
-					L"Please check whether if this file is opened in another program.",
-					L"Save failed",
-					MB_OK | MB_ICONWARNING);
-			}
-			else
-			{
-				// try to open Notepad++ in admin mode
-				const NppGUI& nppGui = NppParameters::getInstance().getNppGUI();
-				bool isSnapshotMode = nppGui.isSnapshotMode();
-				bool isAlwaysInMultiInstMode = nppGui._multiInstSetting == multiInst;
-				if (isSnapshotMode && !isAlwaysInMultiInstMode) // if both rememberSession && backup mode are enabled and "Always In Multi-Instance Mode" option not activated:
-				{                                               // Open the 2nd Notepad++ instance in Admin mode, then close the 1st instance.
-
-					int openInAdminModeRes = _nativeLangSpeaker.messageBox("OpenInAdminMode",
-						_pPublicInterface->getHSelf(),
-						L"This file cannot be saved and it may be protected.\rDo you want to launch Notepad++ in Administrator mode?",
-						L"Save failed",
-						MB_YESNO);
-
-					if (openInAdminModeRes == IDYES)
-					{
-						wchar_t nppFullPath[MAX_PATH]{};
-						::GetModuleFileName(NULL, nppFullPath, MAX_PATH);
-
-						wstring args = L"-multiInst";
-						size_t shellExecRes = (size_t)::ShellExecute(_pPublicInterface->getHSelf(), L"runas", nppFullPath, args.c_str(), L".", SW_SHOW);
-
-						// If the function succeeds, it returns a value greater than 32. If the function fails,
-						// it returns an error value that indicates the cause of the failure.
-						// https://msdn.microsoft.com/en-us/library/windows/desktop/bb762153%28v=vs.85%29.aspx
-
-						if (shellExecRes <= 32)
-						{
-							_nativeLangSpeaker.messageBox("OpenInAdminModeFailed",
-								_pPublicInterface->getHSelf(),
-								L"Notepad++ cannot be opened in Administrator mode.",
-								L"Open in Administrator mode failed",
-								MB_OK);
-						}
-						else
-						{
-							::SendMessage(_pPublicInterface->getHSelf(), WM_CLOSE, 0, 0);
-						}
-
-					}
-				}
-				else // rememberSession && backup mode are not both enabled, or "Always In Multi-Instance Mode" option is ON:
-				{    // Open only the file to save in Notepad++ of Administrator mode by keeping the current instance.
-
-					int openInAdminModeRes = _nativeLangSpeaker.messageBox("OpenInAdminModeWithoutCloseCurrent",
-						_pPublicInterface->getHSelf(),
-						L"The file cannot be saved and it may be protected.\rDo you want to launch Notepad++ in Administrator mode?",
-						L"Save failed",
-						MB_YESNO);
-
-					if (openInAdminModeRes == IDYES)
-					{
-						wchar_t nppFullPath[MAX_PATH]{};
-						::GetModuleFileName(NULL, nppFullPath, MAX_PATH);
-
-						//process the fileNamePath into LRF
-						wstring fileNamePath = buf->getFullPathName();
-
-						wstring args = L"-multiInst -nosession ";
-						args += L"\"";
-						args += fileNamePath;
-						args += L"\"";
-						size_t shellExecRes = (size_t)::ShellExecute(_pPublicInterface->getHSelf(), L"runas", nppFullPath, args.c_str(), L".", SW_SHOW);
-
-						// If the function succeeds, it returns a value greater than 32. If the function fails,
-						// it returns an error value that indicates the cause of the failure.
-						// https://msdn.microsoft.com/en-us/library/windows/desktop/bb762153%28v=vs.85%29.aspx
-
-						if (shellExecRes <= 32)
-						{
-							_nativeLangSpeaker.messageBox("OpenInAdminModeFailed",
-								_pPublicInterface->getHSelf(),
-								L"Notepad++ cannot be opened in Administrator mode.",
-								L"Open in Administrator mode failed",
-								MB_OK);
-						}
-					}
-				}
-
-			}
+			// Saving as administrator was refused or failed, or the file is in use
+			_nativeLangSpeaker.messageBox("FileLockedWarning",
+				_pPublicInterface->getHSelf(),
+				L"Please check whether if this file is opened in another program.",
+				L"Save failed",
+				MB_OK | MB_ICONWARNING);
 		}
 	}
 
@@ -888,7 +644,6 @@ void Notepad_plus::doClose(BufferID id, int whichOne, bool doDeleteBackup)
 		bool isWow64Off = false;
 		if (!fileExists)
 		{
-			nppParam.safeWow64EnableWow64FsRedirection(FALSE);
 			isWow64Off = true;
 			fileExists = doesFileExist(fn);
 		}
@@ -901,7 +656,6 @@ void Notepad_plus::doClose(BufferID id, int whichOne, bool doDeleteBackup)
 		// We enable Wow64 system, if it was disabled
 		if (isWow64Off)
 		{
-			nppParam.safeWow64EnableWow64FsRedirection(TRUE);
 			//isWow64Off = false;
 		}
 #endif
@@ -1798,15 +1552,15 @@ bool Notepad_plus::fileSave(BufferID bufferID)
 		if (backup != bak_none && !buf->isLargeFile())
 		{
 			const wchar_t *fn = buf->getFullPathName();
-			wchar_t *name = ::PathFindFileName(fn);
+			const wchar_t *name = PathFindFileName(fn);
 			wstring fn_bak;
 
 			if (nppgui._useDir && !nppgui._backupDir.empty())
 			{
 				// Get the custom directory, make sure it has a trailing slash
 				fn_bak = nppgui._backupDir;
-				if (fn_bak.back() != L'\\')
-					fn_bak += L"\\";
+				if (fn_bak.back() != nppPathSep)
+					fn_bak += nppPathSepStr;
 			}
 			else
 			{
@@ -1814,24 +1568,23 @@ bool Notepad_plus::fileSave(BufferID bufferID)
 				wstring path = fn;
 				::pathRemoveFileSpec(path);
 				fn_bak = path;
-				fn_bak += L"\\";
+				fn_bak += nppPathSepStr;
 
 				// If verbose, save it in a sub folder
 				if (backup == bak_verbose)
 				{
-					fn_bak += L"nppBackup\\";
+					fn_bak += L"nppBackup";
+					fn_bak += nppPathSepStr;
 				}
 			}
 
 			// Expand any environment variables
-			wchar_t fn_bak_expanded[MAX_PATH] = { '\0' };
-			::ExpandEnvironmentStrings(fn_bak.c_str(), fn_bak_expanded, MAX_PATH);
-			fn_bak = fn_bak_expanded;
+			fn_bak = expandEnvironmentStrs(fn_bak);
 
 			// Make sure the directory exists
 			if (!doesDirectoryExist(fn_bak.c_str()))
 			{
-				SHCreateDirectory(NULL, fn_bak.c_str());
+				QDir().mkpath(QString::fromStdWString(fn_bak));
 			}
 
 			// Determine what to name the backed-up file
@@ -1859,8 +1612,9 @@ bool Notepad_plus::fileSave(BufferID bufferID)
 				}
 			}
 
-			BOOL doCancel = FALSE;
-			if (!::CopyFileEx(fn, fn_bak.c_str(), nullptr, nullptr, &doCancel, COPY_FILE_NO_BUFFERING))
+			std::error_code backupError;
+			std::filesystem::copy_file(fn, fn_bak, std::filesystem::copy_options::overwrite_existing, backupError);
+			if (backupError)
 			{
 				int res = _nativeLangSpeaker.messageBox("FileBackupFailed",
 					_pPublicInterface->getHSelf(),
@@ -2196,9 +1950,9 @@ bool Notepad_plus::fileRename(BufferID bufferID)
 					newBackUpFileName.replace(newBackUpFileName.rfind(oldFileNamePath), oldFileNamePath.length(), tabNewNameStr);
 
 					if (doesFileExist(newBackUpFileName.c_str()))
-						::ReplaceFile(newBackUpFileName.c_str(), oldBackUpFileName.c_str(), nullptr, REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS, 0, 0);
+						renameOverwriting(oldBackUpFileName, newBackUpFileName);
 					else
-						::MoveFileEx(oldBackUpFileName.c_str(), newBackUpFileName.c_str(), MOVEFILE_REPLACE_EXISTING);
+						renameOverwriting(oldBackUpFileName, newBackUpFileName);
 
 					buf->setBackupFileName(newBackUpFileName);
 				}
@@ -2254,9 +2008,9 @@ bool Notepad_plus::useFirstLineAsTabName(BufferID bufferID)
 			newBackUpFileName.replace(newBackUpFileName.rfind(oldFileNamePath), oldFileNamePath.length(), content1stLineTabName);
 
 			if (doesFileExist(newBackUpFileName.c_str()))
-				::ReplaceFile(newBackUpFileName.c_str(), oldBackUpFileName.c_str(), nullptr, REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS, 0, 0);
+				renameOverwriting(oldBackUpFileName, newBackUpFileName);
 			else
-				::MoveFileEx(oldBackUpFileName.c_str(), newBackUpFileName.c_str(), MOVEFILE_REPLACE_EXISTING);
+				renameOverwriting(oldBackUpFileName, newBackUpFileName);
 
 			buffer->setBackupFileName(newBackUpFileName);
 		}
@@ -2333,9 +2087,9 @@ bool Notepad_plus::fileRenameUntitledPluginAPI(BufferID id, const wchar_t* tabNe
 		newBackUpFileName.replace(newBackUpFileName.rfind(oldName), oldName.length(), tabNewNameStr);
 
 		if (doesFileExist(newBackUpFileName.c_str()))
-			::ReplaceFile(newBackUpFileName.c_str(), oldBackUpFileName.c_str(), nullptr, REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS, 0, 0);
+			renameOverwriting(oldBackUpFileName, newBackUpFileName);
 		else
-			::MoveFileEx(oldBackUpFileName.c_str(), newBackUpFileName.c_str(), MOVEFILE_REPLACE_EXISTING);
+			renameOverwriting(oldBackUpFileName, newBackUpFileName);
 
 		buf->setBackupFileName(newBackUpFileName);
 	}
@@ -2439,7 +2193,7 @@ bool Notepad_plus::isFileSession(const wchar_t * filename)
 	if (*definedSessionExt != '\0')
 	{
 		wstring fncp = filename;
-		wchar_t *pExt = PathFindExtension(fncp.c_str());
+		const wchar_t *pExt = PathFindExtension(fncp.c_str());
 
 		wstring usrSessionExt = L"";
 		if (*definedSessionExt != '.')
@@ -2463,7 +2217,7 @@ bool Notepad_plus::isFileWorkspace(const wchar_t * filename)
 	if (*definedWorkspaceExt != '\0')
 	{
 		wstring fncp = filename;
-		wchar_t *pExt = PathFindExtension(fncp.c_str());
+		const wchar_t *pExt = PathFindExtension(fncp.c_str());
 
 		wstring usrWorkspaceExt = L"";
 		if (*definedWorkspaceExt != '.')
@@ -2531,7 +2285,6 @@ bool Notepad_plus::loadSession(Session & session, bool isSnapshotMode, const wch
 		bool isWow64Off = false;
 		if (!doesFileExist(pFn))
 		{
-			nppParam.safeWow64EnableWow64FsRedirection(FALSE);
 			isWow64Off = true;
 		}
 #endif
@@ -2555,7 +2308,6 @@ bool Notepad_plus::loadSession(Session & session, bool isSnapshotMode, const wch
 #ifndef	_WIN64
 		if (isWow64Off)
 		{
-			nppParam.safeWow64EnableWow64FsRedirection(TRUE);
 			isWow64Off = false;
 		}
 #endif
@@ -2674,7 +2426,6 @@ bool Notepad_plus::loadSession(Session & session, bool isSnapshotMode, const wch
 		bool isWow64Off = false;
 		if (!doesFileExist(pFn))
 		{
-			nppParam.safeWow64EnableWow64FsRedirection(FALSE);
 			isWow64Off = true;
 		}
 #endif
@@ -2707,7 +2458,6 @@ bool Notepad_plus::loadSession(Session & session, bool isSnapshotMode, const wch
 #ifndef	_WIN64
 		if (isWow64Off)
 		{
-			nppParam.safeWow64EnableWow64FsRedirection(TRUE);
 			isWow64Off = false;
 		}
 #endif
@@ -2743,7 +2493,7 @@ bool Notepad_plus::loadSession(Session & session, bool isSnapshotMode, const wch
 			buf->setMapPosition(session._subViewFiles[k]._mapPos);
 			if (typeToSet == L_USER)
 			{
-				if (!lstrcmp(pLn, L"User Defined"))
+				if (!wcscmp(pLn, L"User Defined"))
 				{
 					pLn = L"";	//default user defined
 				}
@@ -2890,14 +2640,8 @@ bool Notepad_plus::fileLoadSession(const wchar_t *fn)
 		}
 		if (!isEmptyNpp && (nppGUI._multiInstSetting == multiInstOnSession || nppGUI._multiInstSetting == multiInst))
 		{
-			wchar_t nppFullPath[MAX_PATH]{};
-			::GetModuleFileName(NULL, nppFullPath, MAX_PATH);
-
-			wstring args = L"-multiInst -nosession -openSession ";
-			args += L"\"";
-			args += sessionFileName;
-			args += L"\"";
-			if (::ShellExecute(_pPublicInterface->getHSelf(), L"open", nppFullPath, args.c_str(), L".", SW_SHOW) > (HINSTANCE)32)
+			const QStringList args = { QStringLiteral("-multiInst"), QStringLiteral("-nosession"), QStringLiteral("-openSession"), QString::fromStdWString(sessionFileName) };
+			if (QProcess::startDetached(QCoreApplication::applicationFilePath(), args, QStringLiteral(".")))
 				result = true;
 		}
 		else

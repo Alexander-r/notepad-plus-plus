@@ -17,6 +17,15 @@
 
 #include "SortLocale.h"
 
+#include <QCollator>
+#include <QCollatorSortKey>
+#include <QLocale>
+#include <QString>
+
+#include <algorithm>
+#include <limits>
+#include <optional>
+
 static const SortLocale::Result sortSuccess { 0, "0", L"0" };
 static const SortLocale::Result sortNothing { 0, "SortLocaleNothing", L"Nothing to sort." };
 static const SortLocale::Result warnMultiple { MB_ICONWARNING, "SortLocaleMultiple", L"Sorting multiple selections is not supported." };
@@ -28,13 +37,23 @@ static const SortLocale::Result errorUnknown { MB_ICONERROR, "SortLocaleUnknown"
 SortLocale::Result SortLocale::sort(ScintillaEditView* sci, bool descending) const
 {
 
-	DWORD options = LCMAP_SORTKEY | NORM_LINGUISTIC_CASING;
-	if (!caseSensitive) options |= LINGUISTIC_IGNORECASE;
-	if (digitsAsNumbers) options |= SORT_DIGITSASNUMBERS;
-	if (ignoreDiacritics) options |= LINGUISTIC_IGNOREDIACRITIC;
-	if (ignoreSymbols) options |= NORM_IGNORESYMBOLS;
+	// QCollator stands in for LCMapStringEx. Collations have no option for ignoring only diacritics, so that
+	// setting is done by decomposing the text first.
+	QCollator collator(localeName.empty() ? QLocale::system() : QLocale(QString::fromStdWString(localeName)));
+	collator.setCaseSensitivity(caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive);
+	collator.setNumericMode(digitsAsNumbers);
+	collator.setIgnorePunctuation(ignoreSymbols);
 
-	LPCWSTR locale = localeName.empty() ? LOCALE_NAME_USER_DEFAULT : localeName.data();
+	const auto sortableText = [this](QString text)
+	{
+		if (ignoreDiacritics)
+		{
+			text = text.normalized(QString::NormalizationForm_D);
+			text.removeIf([](QChar c) { return c.category() == QChar::Mark_NonSpacing; });
+		}
+		return text;
+	};
+
 	UINT codepage = static_cast<UINT>(sci->execute(SCI_GETCODEPAGE));
 
 	intptr_t lines, startPos, topLine, endPos, bottomLine;
@@ -138,7 +157,7 @@ SortLocale::Result SortLocale::sort(ScintillaEditView* sci, bool descending) con
 		// Build a vector which will contain the sort keys and pointers to the lines to be sorted.
 
 		struct SortLine {
-			std::string key;
+			std::optional<QCollatorSortKey> key; // none sorts first
 			std::string_view content;
 			intptr_t index = 0;
 			intptr_t lineStart = 0;
@@ -194,22 +213,22 @@ SortLocale::Result SortLocale::sort(ScintillaEditView* sci, bool descending) con
 			std::string_view keyText(sl.keyStart - startPos + textPointer, sl.keyLength);
 			if (!keyText.empty())
 			{
-				constexpr unsigned int safeSize = std::numeric_limits<int>::max() / 2;
-				size_t textLength = keyText.length();
-				int sortableLength = textLength > safeSize ? safeSize : static_cast<int>(textLength);
-				int wideLength = MultiByteToWideChar(codepage, 0, keyText.data(), sortableLength, 0, 0);
-				std::wstring wideText(wideLength, 0);
-				MultiByteToWideChar(codepage, 0, keyText.data(), sortableLength, wideText.data(), wideLength);
-				int m = LCMapStringEx(locale, options, wideText.data(), wideLength, 0, 0, 0, 0, 0);
-				sl.key.resize(m, 0);
-				LCMapStringEx(locale, options, wideText.data(), wideLength, reinterpret_cast<LPWSTR>(sl.key.data()), m, 0, 0, 0);
+				int wideLength = 0;
+				const wchar_t* wide = WcharMbcsConvertor::getInstance().char2wchar(keyText.data(), codepage, static_cast<int>(std::min<size_t>(keyText.length(), std::numeric_limits<int>::max() / 2)), &wideLength);
+				sl.key = collator.sortKey(sortableText(QString::fromWCharArray(wide, wideLength)));
 			}
 		}
 
+		const auto keyLess = [](const SortLine& a, const SortLine& b)
+		{
+			if (!a.key || !b.key)
+				return !a.key && b.key.has_value();
+			return *a.key < *b.key;
+		};
 		if (descending)
-			std::stable_sort(sortLines.begin(), sortLines.end(), [](const SortLine& a, const SortLine& b) { return a.key > b.key; });
+			std::stable_sort(sortLines.begin(), sortLines.end(), [&keyLess](const SortLine& a, const SortLine& b) { return keyLess(b, a); });
 		else
-			std::stable_sort(sortLines.begin(), sortLines.end(), [](const SortLine& a, const SortLine& b) { return a.key < b.key; });
+			std::stable_sort(sortLines.begin(), sortLines.end(), keyLess);
 
 		sortedText.reserve(endPos - startPos + docEOL.length());
 		for (SortLine& sl : sortLines)
@@ -256,10 +275,9 @@ SortLocale::Result SortLocale::sort(ScintillaEditView* sci, bool descending) con
 	catch (const std::exception& e)
 	{
 		try {
-			int errlen = MultiByteToWideChar(CP_ACP, 0, e.what(), -1, 0, 0);
-			if (errlen < 2) return errorUnknown;
-			std::wstring errmsg(errlen - 1, 0);
-			MultiByteToWideChar(CP_ACP, 0, e.what(), -1, errmsg.data(), errlen);
+			const std::wstring errmsg = QString::fromLocal8Bit(e.what()).toStdWString();
+			if (errmsg.empty())
+				return errorUnknown;
 			return { MB_ICONERROR, "SortLocaleExcept", errmsg };
 		}
 		catch (...)
@@ -290,7 +308,7 @@ SortLocale::Result SortLocale::sort(ScintillaEditView* sci, bool descending) con
 		{
 			const char* what() const noexcept override { return "Scintilla was unable to update the document."; }
 		};
-		SendMessage(sci->getHSelf(), WM_SETREDRAW, FALSE, 0);  // Without this, Scintilla can hang before message is displayed
+		sci->getHSelf()->setUpdatesEnabled(false);  // Without this, Scintilla can hang before message is displayed
 		if (replaceStatus == SC_STATUS_BADALLOC)
 			throw ScintillaMemory();
 		else

@@ -16,6 +16,14 @@
 
 
 #include "ContextMenu.h"
+
+#include <QAction>
+#include <QCursor>
+#include <QMenu>
+#include <QPoint>
+#include <QWidget>
+
+#include "NppMenu.h"
 #include "menuCmdID.h"
 #include "Parameters.h"
 #include "localization.h"
@@ -34,14 +42,12 @@ MenuItemUnit::MenuItemUnit(unsigned long cmdID, const wchar_t* itemName, const w
 }
 
 void ContextMenu::create(HWND hParent, const std::vector<MenuItemUnit> & menuItemArray, const HMENU mainMenuHandle, bool copyLink)
-{ 
+{
 	_hParent = hParent;
-	_hMenu = ::CreatePopupMenu();
+	_hMenu = new QMenu(hParent);
 	bool lastIsSep = false;
-	HMENU hParentFolder = NULL;
+	HMENU hParentFolder = nullptr;
 	std::wstring currentParentFolderStr;
-	int j = 0;
-	MENUITEMINFO mii{};
 
 	for (size_t i = 0, len = menuItemArray.size(); i < len; ++i)
 	{
@@ -49,40 +55,34 @@ void ContextMenu::create(HWND hParent, const std::vector<MenuItemUnit> & menuIte
 		if (item._parentFolderName.empty())
 		{
 			currentParentFolderStr.clear();
-			hParentFolder = NULL;
-			j = 0;
+			hParentFolder = nullptr;
 		}
-		else
+		else if (item._parentFolderName != currentParentFolderStr)
 		{
-			if (item._parentFolderName != currentParentFolderStr)
-			{
-				currentParentFolderStr = item._parentFolderName;
-				hParentFolder = ::CreateMenu();
-				j = 0;
-
-				_subMenus.push_back(hParentFolder);
-				::InsertMenu(_hMenu, static_cast<UINT>(i), MF_BYPOSITION | MF_POPUP, (UINT_PTR)hParentFolder, currentParentFolderStr.c_str());
-			}
+			currentParentFolderStr = item._parentFolderName;
+			hParentFolder = nppAddSubMenu(_hMenu, currentParentFolderStr);
 		}
 
-		unsigned int flag = MF_BYPOSITION | ((item._cmdID == 0)?MF_SEPARATOR:0);
 		if (hParentFolder)
 		{
-			::InsertMenu(hParentFolder, j++, flag, item._cmdID, item._itemName.c_str());
+			if (item._cmdID == 0)
+				nppAddMenuSeparator(hParentFolder);
+			else
+				nppAddMenuItem(hParentFolder, static_cast<int>(item._cmdID), item._itemName, _hParent);
 			lastIsSep = false;
 		}
-		else if ((i == 0 || i == menuItemArray.size() - 1) && item._cmdID == 0)
+		else if ((i == 0 || i == len - 1) && item._cmdID == 0)
 		{
 			lastIsSep = true;
 		}
 		else if (item._cmdID != 0)
 		{
-			::InsertMenu(_hMenu, static_cast<UINT>(i), flag, item._cmdID, item._itemName.c_str());
+			nppAddMenuItem(_hMenu, static_cast<int>(item._cmdID), item._itemName, _hParent);
 			lastIsSep = false;
 		}
-		else if (/*item._cmdID == 0 &&*/ !lastIsSep)
+		else if (!lastIsSep)
 		{
-			::InsertMenu(_hMenu, static_cast<int32_t>(i), flag, item._cmdID, item._itemName.c_str());
+			nppAddMenuSeparator(_hMenu);
 			lastIsSep = true;
 		}
 		else // last item is separator and current item is separator
@@ -90,80 +90,68 @@ void ContextMenu::create(HWND hParent, const std::vector<MenuItemUnit> & menuIte
 			lastIsSep = true;
 		}
 
-		if (mainMenuHandle)
+		if (mainMenuHandle && item._cmdID != 0)
 		{
-			UINT s = ::GetMenuState(mainMenuHandle, item._cmdID, MF_BYCOMMAND);
-			if (s != ((UINT)-1))
+			// Same state and icon as the main menu's item
+			if (const QAction* mainAction = nppFindMenuAction(mainMenuHandle, static_cast<int>(item._cmdID)))
 			{
-				bool isEnabled = (s & (MF_DISABLED | MF_GRAYED)) == 0;
-				bool isChecked = (s & (MF_CHECKED)) != 0;
-				if (!isEnabled)
-					enableItem(item._cmdID, isEnabled);
-				if (isChecked)
-					checkItem(item._cmdID, isChecked);
+				if (QAction* action = findAction(static_cast<int>(item._cmdID)))
+				{
+					action->setIcon(mainAction->icon());
+					action->setEnabled(mainAction->isEnabled());
+					if (mainAction->isChecked())
+						checkItem(static_cast<int>(item._cmdID), true);
+				}
 			}
-
-			// set up any menu item bitmaps in the context menu, using main menu bitmaps
-			memset(&mii, 0, sizeof(mii));
-			mii.cbSize = sizeof(MENUITEMINFO);
-			mii.fMask = MIIM_CHECKMARKS;
-			mii.fType = MFT_BITMAP;
-			GetMenuItemInfo(mainMenuHandle, item._cmdID, FALSE, &mii);
-			SetMenuItemInfo(_hMenu, item._cmdID, FALSE, &mii);
 		}
 
 		if (copyLink && (item._cmdID == IDM_EDIT_COPY))
 		{
 			NativeLangSpeaker* nativeLangSpeaker = NppParameters::getInstance().getNativeLangSpeaker();
 			std::wstring localized = nativeLangSpeaker->getNativeLangMenuString(IDM_EDIT_COPY_LINK);
-			if (localized.length() == 0)
+			if (localized.empty())
 				localized = L"Copy link";
-			memset(&mii, 0, sizeof(mii));
-			mii.cbSize = sizeof(MENUITEMINFO);
-			mii.fMask = MIIM_ID | MIIM_STRING | MIIM_STATE;
-			mii.wID = IDM_EDIT_COPY_LINK;
-			mii.dwTypeData = (wchar_t*) localized.c_str();
-			mii.fState = MFS_ENABLED;
-			int c = GetMenuItemCount(_hMenu);
-			SetMenuItemInfo(_hMenu, c - 1, TRUE, & mii);
+
+			// The item just added becomes "Copy link"
+			if (QAction* action = findAction(IDM_EDIT_COPY))
+			{
+				nppRemoveMenuCommand(_hMenu, IDM_EDIT_COPY);
+				nppAddMenuItem(_hMenu, IDM_EDIT_COPY_LINK, localized, _hParent);
+				static_cast<void>(action);
+			}
 		}
 	}
 }
 
-void ContextMenu::display(HWND hwnd) const
+QAction* ContextMenu::findAction(int cmdID) const
 {
-	RECT rcItem{};
-	::GetClientRect(hwnd, &rcItem);
-	::MapWindowPoints(hwnd, HWND_DESKTOP, reinterpret_cast<LPPOINT>(&rcItem), 2);
+	return nppFindMenuAction(_hMenu, cmdID);
+}
 
-	TPMPARAMS tpm{};
-	tpm.cbSize = sizeof(TPMPARAMS);
-	tpm.rcExclude = rcItem;
+void ContextMenu::display(const POINT & p) const
+{
+	if (_hMenu)
+		_hMenu->exec(QPoint(p.x, p.y));
+}
 
-	const NativeLangSpeaker* nativeLangSpeaker = NppParameters::getInstance().getNativeLangSpeaker();
-	const UINT flags = nativeLangSpeaker->isRTL() ? (TPM_RIGHTALIGN | TPM_RIGHTBUTTON | TPM_LAYOUTRTL) : (TPM_LEFTALIGN | TPM_LEFTBUTTON);
-	::TrackPopupMenuEx(_hMenu, flags | TPM_VERTICAL, rcItem.left, rcItem.bottom, _hParent, &tpm);
+void ContextMenu::display(HWND) const
+{
+	if (_hMenu)
+		_hMenu->exec(QCursor::pos());
+}
+
+void ContextMenu::enableItem(int cmdID, bool doEnable) const
+{
+	nppEnableMenuCommand(_hMenu, cmdID, doEnable);
+}
+
+void ContextMenu::checkItem(int cmdID, bool doCheck) const
+{
+	nppCheckMenuCommand(_hMenu, cmdID, doCheck);
 }
 
 void ContextMenu::destroy()
 {
-	if (isCreated())
-	{
-		for (int i = 0; i < TAB_COLORS_COUNT; ++i)
-		{
-			if (_tabColorBitmaps[i])
-			{
-				::DeleteObject(_tabColorBitmaps[i]);
-				_tabColorBitmaps[i] = nullptr;
-			}
-		}
-
-		for (size_t i = 0, len = _subMenus.size(); i < len; ++i)
-		{
-			::DestroyMenu(_subMenus[i]);
-			_subMenus[i] = nullptr;
-		}
-		::DestroyMenu(_hMenu);
-		_hMenu = nullptr;
-	}
+	delete _hMenu;
+	_hMenu = nullptr;
 }

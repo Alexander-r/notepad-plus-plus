@@ -17,17 +17,6 @@
 
 #pragma once
 
-#ifdef __GNUC__
-#ifndef _WIN32_IE
-#define _WIN32_IE 0x0600
-#endif
-
-	#ifndef LVS_OWNERDATA
-		#define LVS_OWNERDATA 4096
-	#endif
-
-#endif
-
 #define IDD_WINDOWS 7000
 	#define IDC_WINDOWS_LIST (IDD_WINDOWS + 1)
 	#define IDC_WINDOWS_SAVE (IDD_WINDOWS + 2)

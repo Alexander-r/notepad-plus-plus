@@ -17,255 +17,211 @@
 
 #include "RunDlg.h"
 
-#include <windows.h>
+#include <QAbstractButton>
+#include <QComboBox>
+#include <QCursor>
+#include <QDesktopServices>
+#include <QDialog>
+#include <QDir>
+#include <QFileInfo>
+#include <QMenu>
+#include <QProcess>
+#include <QProcessEnvironment>
+#include <QRegularExpression>
+#include <QStandardPaths>
+#include <QUrl>
 
-#include <strsafe.h>
-
-#include <algorithm>
-#include <cwchar>
 #include <string>
 #include <vector>
 
 #include "Common.h"
-#include "ContextMenu.h"
 #include "CustomFileDialog.h"
 #include "Notepad_plus_msgs.h"
 #include "NppDarkMode.h"
+#include "NppMenu.h"
 #include "Parameters.h"
 #include "RunDlg_rc.h"
-#include "StaticDialog.h"
-#include "Window.h"
-#include "dpiManagerV2.h"
 #include "localization.h"
 #include "menuCmdID.h"
 #include "resource.h"
 #include "shortcut.h"
+#include "ui_RunDlg.h"
 
 using namespace std;
 
-void Command::extractArgs(wchar_t* cmd2Exec, size_t cmd2ExecLen, wchar_t* args, size_t argsLen, const wchar_t* cmdEntier)
+namespace
 {
-	size_t i = 0;
-	bool quoted = false;
-
-	size_t cmdEntierLen = std::wcslen(cmdEntier);
-
-	size_t shortest = std::min<size_t>(cmd2ExecLen, argsLen);
-
-	if (cmdEntierLen > shortest)
-		cmdEntierLen = shortest - 1;
-
-	for (; i < cmdEntierLen; ++i)
+	// Splits at the first space outside of double quotes. The quotes stay, as they matter for the arguments.
+	void extractArgs(const wstring& commandLine, wstring& command, wstring& args)
 	{
-		if (cmdEntier[i] == ' ' && !quoted)
-			break;
-
-		if (cmdEntier[i]=='"')
-			quoted = !quoted;
-
-		cmd2Exec[i] = cmdEntier[i];
-	}
-	cmd2Exec[i] = '\0';
-	
-	if (i < cmdEntierLen)
-	{
-		for (size_t len = cmdEntierLen; (i < len) && (cmdEntier[i] == ' ') ; ++i);
-
-		if (i < cmdEntierLen)
+		size_t i = 0;
+		bool quoted = false;
+		for (; i < commandLine.size(); ++i)
 		{
-			for (size_t k = 0, len2 = cmdEntierLen; i <= len2; ++i, ++k)
-			{
-				args[k] = cmdEntier[i];
-			}
-		}
+			if (commandLine[i] == L' ' && !quoted)
+				break;
 
-		int l = lstrlen(args);
-		if (args[l-1] == ' ')
-		{
-			for (l -= 2 ; (l > 0) && (args[l] == ' ') ; l--);
-			args[l+1] = '\0';
+			if (commandLine[i] == L'"')
+				quoted = !quoted;
 		}
+		command = commandLine.substr(0, i);
+
+		const size_t argsBegin = commandLine.find_first_not_of(L' ', i);
+		const size_t argsEnd = commandLine.find_last_not_of(L' ');
+		args = (argsBegin == wstring::npos || argsBegin >= commandLine.size()) ? wstring{} : commandLine.substr(argsBegin, argsEnd - argsBegin + 1);
 	}
-	else
-	{
-		args[0] = '\0';
-	}
+
 }
 
-
-int whichVar(wchar_t *str)
+// $VAR and ${VAR} from the environment. $(VAR) belongs to expandNppEnvironmentStrs().
+wstring expandEnvironmentStrs(const wstring& text)
 {
-	if (!lstrcmp(fullCurrentPath, str))
+	static const QRegularExpression variable(QStringLiteral(R"(\$(?:\{(\w+)\}|(\w+)))"));
+	const QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+
+	const QString source = QString::fromStdWString(text);
+	QString result;
+	qsizetype last = 0;
+	auto matches = variable.globalMatch(source);
+	while (matches.hasNext())
+	{
+		const QRegularExpressionMatch match = matches.next();
+		const QString name = match.captured(1).isEmpty() ? match.captured(2) : match.captured(1);
+		result += source.mid(last, match.capturedStart() - last);
+		result += environment.contains(name) ? environment.value(name) : match.captured();
+		last = match.capturedEnd();
+	}
+	result += source.mid(last);
+	return result.toStdWString();
+}
+
+int whichVar(const std::wstring& str)
+{
+	if (str == fullCurrentPath)
 		return FULL_CURRENT_PATH;
-	else if (!lstrcmp(currentDirectory, str))
+	else if (str == currentDirectory)
 		return CURRENT_DIRECTORY;
-	else if (!lstrcmp(onlyFileName, str))
+	else if (str == onlyFileName)
 		return FILE_NAME;
-	else if (!lstrcmp(fileNamePart, str))
+	else if (str == fileNamePart)
 		return NAME_PART;
-	else if (!lstrcmp(fileExtPart, str))
+	else if (str == fileExtPart)
 		return EXT_PART;
-	else if (!lstrcmp(currentWord, str))
+	else if (str == currentWord)
 		return CURRENT_WORD;
-	else if (!lstrcmp(nppDir, str))
+	else if (str == nppDir)
 		return NPP_DIRECTORY;
-	else if (!lstrcmp(nppFullFilePath, str))
+	else if (str == nppFullFilePath)
 		return NPP_FULL_FILE_PATH;
-	else if (!lstrcmp(currentLine, str))
+	else if (str == currentLine)
 		return CURRENT_LINE;
-	else if (!lstrcmp(currentColumn, str))
+	else if (str == currentColumn)
 		return CURRENT_COLUMN;
-	else if (!lstrcmp(currentLineStr, str))
+	else if (str == currentLineStr)
 		return CURRENT_LINESTR;
 
 	return VAR_NOT_RECOGNIZED;
 }
 
-void expandNppEnvironmentStrs(const wchar_t *strSrc, wchar_t *stringDest, size_t strDestLen, HWND hWnd)
+wstring expandNppEnvironmentStrs(const wstring& strSrc, HWND hWnd)
 {
-	size_t j = 0;
-	for (int i = 0, len = lstrlen(strSrc); i < len; ++i)
+	wstring result;
+	size_t i = 0;
+	while (i < strSrc.size())
 	{
-		int iBegin = -1;
-		int iEnd = -1;
-		if ((strSrc[i] == '$') && (strSrc[i+1] == '('))
+		if (strSrc.compare(i, 2, L"$(") == 0)
 		{
-			iBegin = i += 2;
-			for (size_t len2 = std::wcslen(strSrc); static_cast<size_t>(i) < len2 ; ++i)
+			const size_t end = strSrc.find(L')', i + 2);
+			if (end != wstring::npos)
 			{
-				if (strSrc[i] == ')')
+				const int internalVar = whichVar(strSrc.substr(i + 2, end - i - 2));
+				if (internalVar != VAR_NOT_RECOGNIZED)
 				{
-					iEnd = i - 1;
-					break;
-				}
-			}
-		}
-
-		if (iBegin != -1)
-		{
-			if (iEnd != -1)
-			{
-				wchar_t str[MAX_PATH] = { '\0' };
-				int m = 0;
-				for (int k = iBegin  ; m < MAX_PATH -1 && k <= iEnd ; ++k)
-					str[m++] = strSrc[k];
-				str[m] = '\0';
-
-				int internalVar = whichVar(str);
-				if (internalVar == VAR_NOT_RECOGNIZED)
-				{
-					i = iBegin - 2;
-					if (j < (strDestLen-1))
-						stringDest[j++] = strSrc[i];
-					else
-						break;
-				}
-				else
-				{
-					wchar_t expandedStr[CURRENTWORD_MAXLENGTH] = { '\0' };
 					if (internalVar == CURRENT_LINE || internalVar == CURRENT_COLUMN)
 					{
-						size_t lineNumber = ::SendMessage(hWnd, RUNCOMMAND_USER + internalVar, 0, 0);
-						std::wstring lineNumStr = std::to_wstring(lineNumber);
-						StringCchCopyW(expandedStr, CURRENTWORD_MAXLENGTH, lineNumStr.c_str());
+						result += std::to_wstring(::SendMessage(hWnd, RUNCOMMAND_USER + internalVar, 0, 0));
 					}
 					else
-						::SendMessage(hWnd, RUNCOMMAND_USER + internalVar, CURRENTWORD_MAXLENGTH, reinterpret_cast<LPARAM>(expandedStr));
-
-					for (size_t p = 0, len3 = std::wcslen(expandedStr); p < len3; ++p)
 					{
-						if (j < (strDestLen-1))
-							stringDest[j++] = expandedStr[p];
-						else
-							break;
+						std::vector<wchar_t> expandedStr(CURRENTWORD_MAXLENGTH, L'\0');
+						::SendMessage(hWnd, RUNCOMMAND_USER + internalVar, CURRENTWORD_MAXLENGTH, reinterpret_cast<LPARAM>(expandedStr.data()));
+						result += expandedStr.data();
 					}
+					i = end + 1;
+					continue;
 				}
 			}
-			else
-			{
-				i = iBegin - 2;
-				if (j < (strDestLen-1))
-					stringDest[j++] = strSrc[i];
-				else
-					break;
-			}
 		}
-		else
-			if (j < (strDestLen-1))
-				stringDest[j++] = strSrc[i];
-			else
-				break;
+		result += strSrc[i];
+		++i;
 	}
-	stringDest[j] = '\0';
+	return result;
 }
 
-HINSTANCE Command::run(HWND hWnd)
+bool Command::run(HWND hWnd)
 {
 	return run(hWnd, L".");
 }
 
-HINSTANCE Command::run(HWND hWnd, const wchar_t* cwd)
+bool Command::run(HWND hWnd, const wchar_t* cwd)
 {
-	constexpr int argsIntermediateLen = MAX_PATH * 2;
-	constexpr int args2ExecLen = CURRENTWORD_MAXLENGTH + MAX_PATH * 2;
+	wstring cmdPure;
+	wstring args;
+	extractArgs(_cmdLine, cmdPure, args);
 
-	wchar_t cmdPure[MAX_PATH]{};
-	wchar_t cmdIntermediate[MAX_PATH]{};
-	wchar_t cmd2Exec[MAX_PATH]{};
-	wchar_t args[MAX_PATH]{};
-	wchar_t argsIntermediate[argsIntermediateLen]{};
-	wchar_t args2Exec[args2ExecLen]{};
+	const wstring cmd2Exec = expandNppEnvironmentStrs(expandEnvironmentStrs(cmdPure), hWnd);
+	const wstring args2Exec = expandNppEnvironmentStrs(expandEnvironmentStrs(args), hWnd);
+	const wstring cwd2Exec = expandNppEnvironmentStrs(cwd, hWnd);
 
-	extractArgs(cmdPure, MAX_PATH, args, MAX_PATH, _cmdLine.c_str());
-	int nbTchar = ::ExpandEnvironmentStrings(cmdPure, cmdIntermediate, MAX_PATH);
-	if (!nbTchar)
-		wcscpy_s(cmdIntermediate, cmdPure);
-	else if (nbTchar >= MAX_PATH)
-		cmdIntermediate[MAX_PATH-1] = '\0';
+	QString program = QString::fromStdWString(cmd2Exec);
+	if (program.size() >= 2 && program.startsWith(u'"') && program.endsWith(u'"'))
+		program = program.mid(1, program.size() - 2);
 
-	nbTchar = ::ExpandEnvironmentStrings(args, argsIntermediate, argsIntermediateLen);
-	if (!nbTchar)
-		wcscpy_s(argsIntermediate, args);
-	else if (nbTchar >= argsIntermediateLen)
-		argsIntermediate[argsIntermediateLen-1] = '\0';
+	// As with ShellExecute's "open": a program runs, and a document or a link goes to its default application
+	const QFileInfo info(program);
+	const bool isProgram = (info.isFile() && info.isExecutable()) || !QStandardPaths::findExecutable(program).isEmpty();
 
-	expandNppEnvironmentStrs(cmdIntermediate, cmd2Exec, MAX_PATH, hWnd);
-	expandNppEnvironmentStrs(argsIntermediate, args2Exec, args2ExecLen, hWnd);
-
-	wchar_t cwd2Exec[MAX_PATH]{};
-	expandNppEnvironmentStrs(cwd, cwd2Exec, MAX_PATH, hWnd);
-
-	HINSTANCE res = ::ShellExecute(hWnd, L"open", cmd2Exec, args2Exec, cwd2Exec, SW_SHOW);
-
-	// As per MSDN (https://msdn.microsoft.com/en-us/library/windows/desktop/bb762153(v=vs.85).aspx)
-	// If the function succeeds, it returns a value greater than 32.
-	// If the function fails, it returns an error value that indicates the cause of the failure.
-	int retResult = static_cast<int>(reinterpret_cast<intptr_t>(res));
-	if (retResult <= 32)
+	bool isLaunched = false;
+	QString failure;
+	if (isProgram)
 	{
-		wstring errorMsg;
-		errorMsg += GetLastErrorAsString(retResult);
-		errorMsg += L"An attempt was made to execute the below command.";
+		QProcess process;
+		process.setProgram(program);
+		process.setArguments(QProcess::splitCommand(QString::fromStdWString(args2Exec)));
+		process.setWorkingDirectory(QString::fromStdWString(cwd2Exec));
+		isLaunched = process.startDetached();
+		failure = process.errorString();
+	}
+	else if (!program.isEmpty() && (info.exists() || QUrl(program).isValid()))
+	{
+		const QUrl url = info.exists() ? QUrl::fromLocalFile(info.absoluteFilePath()) : QUrl(program);
+		isLaunched = QDesktopServices::openUrl(url);
+		failure = QStringLiteral("No application could open this.");
+	}
+	else
+	{
+		failure = QStringLiteral("The program was not found.");
+	}
+
+	if (!isLaunched)
+	{
+		wstring errorMsg = failure.toStdWString();
+		errorMsg += L"\nAn attempt was made to execute the below command.";
 		errorMsg += L"\n----------------------------------------------------------";
 		errorMsg += L"\nCommand: ";
 		errorMsg += cmd2Exec;
 		errorMsg += L"\nArguments: ";
 		errorMsg += args2Exec;
-		errorMsg += L"\nError Code: ";
-		errorMsg += std::to_wstring(retResult);
 		errorMsg += L"\n----------------------------------------------------------";
 
-		NppDarkMode::darkMessageBoxW(hWnd, errorMsg.c_str(), L"ShellExecute - ERROR", MB_ICONINFORMATION | MB_APPLMODAL);
+		NppDarkMode::darkMessageBoxW(hWnd, errorMsg.c_str(), L"Run - ERROR", MB_ICONINFORMATION | MB_APPLMODAL);
 	}
 
-	return res;
+	return isLaunched;
 }
 
 void RunDlg::insertVariable(unsigned char id)
 {
-	wchar_t cmd[MAX_PATH]{};
-	::GetDlgItemText(_hSelf, IDC_COMBO_RUN_PATH, cmd, MAX_PATH);
-
 	wstring variable;
 	switch (id)
 	{
@@ -306,227 +262,136 @@ void RunDlg::insertVariable(unsigned char id)
 		return; // Invalid id number
 	}
 
-	wstring cmdNew = cmd;
+	wstring cmdNew = getItemText(IDC_COMBO_RUN_PATH);
 	cmdNew += L"$(" + variable + L")";
-	::SetDlgItemText(_hSelf, IDC_COMBO_RUN_PATH, cmdNew.c_str());
+	setItemText(IDC_COMBO_RUN_PATH, cmdNew);
 }
 
-intptr_t CALLBACK RunDlg::run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam)
+void RunDlg::onRun()
 {
-	switch (message) 
+	_cmdLine = getItemText(IDC_COMBO_RUN_PATH);
+
+	if (run(_hParent))
 	{
-		case WM_INITDIALOG:
-		{
-			NppDarkMode::autoSubclassAndThemeChildControls(_hSelf);
-
-			return TRUE;
-		}
-
-		case NPPM_INTERNAL_FINDKEYCONFLICTS:
-		{
-			return ::SendMessage(_hParent, message, wParam, lParam);
-		}
-
-		case WM_CTLCOLOREDIT:
-		{
-			return NppDarkMode::onCtlColorCtrl(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_CTLCOLORLISTBOX:
-		{
-			return NppDarkMode::onCtlColorListbox(wParam, lParam);
-		}
-
-		case WM_CTLCOLORDLG:
-		case WM_CTLCOLORSTATIC:
-		{
-			return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_PRINTCLIENT:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				return TRUE;
-			}
-			break;
-		}
-
-		case NPPM_INTERNAL_REFRESHDARKMODE:
-		{
-			NppDarkMode::autoThemeChildControls(_hSelf);
-			return TRUE;
-		}
-
-		case WM_CHANGEUISTATE:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				redrawDlgItem(IDC_MAINTEXT_STATIC);
-			}
-
-			return FALSE;
-		}
-
-		case WM_DPICHANGED:
-		{
-			_dpiManager.setDpiWP(wParam);
-			setPositionDpi(lParam);
-			getWindowRect(_rc);
-
-			return TRUE;
-		}
-
-		case WM_COMMAND:
-		{
-			if (LOWORD(wParam) >= IDM_RUN_DLG_VARMENU_START && LOWORD(wParam) <= IDM_RUN_DLG_VARMENU_END)
-			{
-				insertVariable(static_cast<unsigned char>(LOWORD(wParam) - IDM_RUN_DLG_VARMENU_START));
-				return TRUE;
-			}
-
-			switch (LOWORD(wParam))
-			{
-				case IDCANCEL :
-					display(false);
-					return TRUE;
-				
-				case IDOK :
-				{
-					wchar_t cmd[MAX_PATH]{};
-					::GetDlgItemText(_hSelf, IDC_COMBO_RUN_PATH, cmd, MAX_PATH);
-					_cmdLine = cmd;
-
-					HINSTANCE hInst = run(_hParent);
-					if (reinterpret_cast<intptr_t>(hInst) > 32)
-					{
-						addTextToCombo(_cmdLine.c_str());
-						display(false);
-					}
-					else
-					{
-						removeTextFromCombo(_cmdLine.c_str());
-					}
-					return TRUE;
-				}
-
-				case IDC_BUTTON_SAVE :
-				{
-					NppParameters& nppParams = NppParameters::getInstance();
-					std::vector<UserCommand> & theUserCmds = nppParams.getUserCommandList();
-
-					const auto nbCmd = static_cast<int>(theUserCmds.size());
-					int cmdID = ID_USER_CMD + nbCmd;
-
-					DynamicMenu& runMenu = nppParams.getRunMenuItems();
-					int nbTopLevelItem = runMenu.getTopLevelItemNumber();
-
-					wchar_t cmd[MAX_PATH]{};
-					::GetDlgItemText(_hSelf, IDC_COMBO_RUN_PATH, cmd, MAX_PATH);
-					UserCommand uc(Shortcut(), wstring2string(cmd, CP_UTF8).c_str(), cmdID);
-					uc.init(_hInst, _hSelf);
-
-					if (uc.doDialog() != -1)
-					{
-						HMENU mainMenu = reinterpret_cast<HMENU>(::SendMessage(_hParent, NPPM_INTERNAL_GETMENU, 0, 0));
-						HMENU hRunMenu = ::GetSubMenu(mainMenu, MENUINDEX_RUN);
-						int const posBase = runMenu.getPosBase();
-						
-						if (nbTopLevelItem == 0)
-							::InsertMenu(hRunMenu, posBase - 1, MF_BYPOSITION, static_cast<unsigned int>(-1), 0);
-						
-						theUserCmds.push_back(uc);
-						runMenu.push_back(MenuItemUnit(cmdID, string2wstring(uc.getName(), CP_UTF8)));
-						::InsertMenu(hRunMenu, posBase + nbTopLevelItem, MF_BYPOSITION, cmdID, string2wstring(uc.toMenuItemString(), CP_UTF8).c_str());
-
-                        if (nbTopLevelItem == 0)
-                        {
-                            // Insert the separator and modify/delete command
-							::InsertMenu(hRunMenu, posBase + nbTopLevelItem + 1, MF_BYPOSITION, static_cast<unsigned int>(-1), 0);
-							NativeLangSpeaker *pNativeLangSpeaker = nppParams.getNativeLangSpeaker();
-							wstring nativeLangShortcutMapperMacro = pNativeLangSpeaker->getNativeLangMenuString(IDM_SETTING_SHORTCUT_MAPPER_MACRO);
-							if (nativeLangShortcutMapperMacro == L"")
-								nativeLangShortcutMapperMacro = runMenu.getLastCmdLabel();
-
-							::InsertMenu(hRunMenu, posBase + nbTopLevelItem + 2, MF_BYCOMMAND, IDM_SETTING_SHORTCUT_MAPPER_RUN, nativeLangShortcutMapperMacro.c_str());
-                        }
-						nppParams.getAccelerator()->updateShortcuts();
-						nppParams.setShortcutDirty();
-					}
-					return TRUE;
-				}
-
-				case IDC_BUTTON_FILE_BROWSER:
-				{
-					CustomFileDialog fd(_hSelf);
-					fd.setExtFilter(L"Executable File", { L".exe", L".com", L".cmd", L".bat" });
-					fd.setExtFilter(L"All Files", L".*");
-
-					wstring fn = fd.doOpenSingleFileDlg();
-					if (!fn.empty())
-					{
-						if (fn.find(' ') != wstring::npos)
-						{
-							wstring fn_quotes(fn);
-							fn_quotes = L"\"" + fn_quotes + L"\"";
-							addTextToCombo(fn_quotes.c_str());
-						}
-						else
-						{
-							addTextToCombo(fn.c_str());
-						}
-					}
-					return TRUE;
-				}
-
-				case IDC_BUTTON_VARIABLES:
-				{
-					RECT rcButton;
-					GetWindowRect(::GetDlgItem(_hSelf, IDC_BUTTON_VARIABLES), &rcButton);
-
-					HMENU hmenu;            // menu template
-					HMENU hVariablePopup;  // shortcut menu
-					hmenu = ::LoadMenu(_hInst, MAKEINTRESOURCE(IDR_RUN_DLG_MENU_VARIABLES));
-					hVariablePopup = ::GetSubMenu(hmenu, 0);
-					TrackPopupMenu(hVariablePopup, TPM_LEFTALIGN, rcButton.right, rcButton.top, 0, _hSelf, NULL);
-					PostMessage(_hSelf, WM_NULL, 0, 0);
-					DestroyMenu(hmenu);
-
-					return TRUE;
-				}
-
-				default:
-					break;
-			}
-		}
+		addTextToCombo(_cmdLine.c_str());
+		display(false);
 	}
-	return FALSE;
+	else
+	{
+		removeTextFromCombo(_cmdLine.c_str());
+	}
+}
+
+void RunDlg::onSave()
+{
+	NppParameters& nppParams = NppParameters::getInstance();
+	std::vector<UserCommand> & theUserCmds = nppParams.getUserCommandList();
+
+	const auto nbCmd = static_cast<int>(theUserCmds.size());
+	int cmdID = ID_USER_CMD + nbCmd;
+
+	DynamicMenu& runMenu = nppParams.getRunMenuItems();
+	int nbTopLevelItem = runMenu.getTopLevelItemNumber();
+
+	UserCommand uc(Shortcut(), wstring2string(getItemText(IDC_COMBO_RUN_PATH), CP_UTF8).c_str(), cmdID);
+
+	uc.init(_hInst, _hSelf);
+	if (uc.doDialog() != -1)
+	{
+		HMENU mainMenu = reinterpret_cast<HMENU>(::SendMessage(_hParent, NPPM_INTERNAL_GETMENU, 0, 0));
+		HMENU hRunMenu = nppSubMenuAt(mainMenu, MENUINDEX_RUN);
+		int const posBase = runMenu.getPosBase();
+
+		if (nbTopLevelItem == 0)
+			nppInsertSeparatorAt(hRunMenu, posBase - 1);
+
+		theUserCmds.push_back(uc);
+		runMenu.push_back(MenuItemUnit(cmdID, string2wstring(uc.getName(), CP_UTF8)));
+		nppInsertMenuItemAt(hRunMenu, posBase + nbTopLevelItem, cmdID, string2wstring(uc.getMenuName(), CP_UTF8), _hParent);
+
+		if (nbTopLevelItem == 0)
+		{
+			// Insert the separator and modify/delete command
+			nppInsertSeparatorAt(hRunMenu, posBase + nbTopLevelItem + 1);
+			NativeLangSpeaker *pNativeLangSpeaker = nppParams.getNativeLangSpeaker();
+			wstring nativeLangShortcutMapperMacro = pNativeLangSpeaker->getNativeLangMenuString(IDM_SETTING_SHORTCUT_MAPPER_MACRO);
+			if (nativeLangShortcutMapperMacro.empty())
+				nativeLangShortcutMapperMacro = runMenu.getLastCmdLabel();
+
+			nppInsertMenuItemAt(hRunMenu, posBase + nbTopLevelItem + 2, IDM_SETTING_SHORTCUT_MAPPER_RUN, nativeLangShortcutMapperMacro, _hParent);
+		}
+		nppParams.getAccelerator()->updateShortcuts();
+		nppParams.setShortcutDirty();
+	}
+}
+
+void RunDlg::onBrowse()
+{
+	CustomFileDialog fd(_hSelf);
+	fd.setExtFilter(L"All Files", L".*");
+
+	wstring fn = fd.doOpenSingleFileDlg();
+	if (!fn.empty())
+	{
+		if (fn.find(L' ') != wstring::npos)
+			fn = L"\"" + fn + L"\"";
+		addTextToCombo(fn.c_str());
+	}
+}
+
+void RunDlg::onVariables()
+{
+	HMENU menu = nppCreateMenuFromTemplate(IDR_RUN_DLG_MENU_VARIABLES, nullptr, _hSelf);
+	HMENU variablePopup = nppSubMenuAt(menu, 0);
+	const QWidget* variablesButton = dlgItem(IDC_BUTTON_VARIABLES);
+	QAction* chosen = variablePopup->exec(variablesButton->mapToGlobal(QPoint(variablesButton->width(), 0)));
+	if (chosen)
+	{
+		const int cmd = chosen->data().toInt();
+		if (cmd >= IDM_RUN_DLG_VARMENU_START && cmd <= IDM_RUN_DLG_VARMENU_END)
+			insertVariable(static_cast<unsigned char>(cmd - IDM_RUN_DLG_VARMENU_START));
+	}
+	delete menu;
 }
 
 void RunDlg::addTextToCombo(const wchar_t *txt2Add) const
 {
-	HWND handle = ::GetDlgItem(_hSelf, IDC_COMBO_RUN_PATH);
-	auto i = ::SendMessage(handle, CB_FINDSTRINGEXACT, static_cast<WPARAM>(-1), reinterpret_cast<LPARAM>(txt2Add));
-	if (i == CB_ERR)
-		i = ::SendMessage(handle, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(txt2Add));
-	::SendMessage(handle, CB_SETCURSEL, i, 0);
+	QComboBox* comboBox = combo(IDC_COMBO_RUN_PATH);
+	const QString text = QString::fromStdWString(txt2Add);
+	int i = comboBox->findText(text, Qt::MatchExactly | Qt::MatchCaseSensitive);
+	if (i < 0)
+	{
+		comboBox->addItem(text);
+		i = comboBox->count() - 1;
+	}
+	comboBox->setCurrentIndex(i);
 }
+
 void RunDlg::removeTextFromCombo(const wchar_t *txt2Remove) const
 {
-	HWND handle = ::GetDlgItem(_hSelf, IDC_COMBO_RUN_PATH);
-	auto i = ::SendMessage(handle, CB_FINDSTRINGEXACT, static_cast<WPARAM>(-1), reinterpret_cast<LPARAM>(txt2Remove));
-	if (i == CB_ERR)
-		return;
-	::SendMessage(handle, CB_DELETESTRING, i, 0);
+	QComboBox* comboBox = combo(IDC_COMBO_RUN_PATH);
+	const int i = comboBox->findText(QString::fromStdWString(txt2Remove), Qt::MatchExactly | Qt::MatchCaseSensitive);
+	if (i >= 0)
+		comboBox->removeItem(i);
 }
 
 void RunDlg::doDialog(bool isRTL)
 {
 	if (!isCreated())
-		create(IDD_RUN_DLG, isRTL);
+	{
+		QDialog* dialog = createDialogWidget(isRTL);
+		Ui::RunDlg ui;
+		ui.setupUi(dialog);
+
+		QObject::connect(button(IDOK), &QAbstractButton::clicked, dialog, [this]() { onRun(); });
+		QObject::connect(button(IDCANCEL), &QAbstractButton::clicked, dialog, [this]() { display(false); });
+		QObject::connect(button(IDC_BUTTON_SAVE), &QAbstractButton::clicked, dialog, [this]() { onSave(); });
+		QObject::connect(button(IDC_BUTTON_FILE_BROWSER), &QAbstractButton::clicked, dialog, [this]() { onBrowse(); });
+		QObject::connect(button(IDC_BUTTON_VARIABLES), &QAbstractButton::clicked, dialog, [this]() { onVariables(); });
+	}
 
 	// Adjust the position in the center
-	moveForDpiChange();
-	goToCenter(SWP_SHOWWINDOW | SWP_NOSIZE);
-	::SetFocus(::GetDlgItem(_hSelf, IDC_COMBO_RUN_PATH));
+	goToCenter();
+	display();
+	dlgItem(IDC_COMBO_RUN_PATH)->setFocus();
 }

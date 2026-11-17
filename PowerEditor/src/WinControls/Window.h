@@ -1,5 +1,5 @@
 // This file is part of Notepad++ project
-// Copyright (C)2024 Don HO <don.h@free.fr>
+// Copyright (C)2021 Don HO <don.h@free.fr>
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,9 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
 #pragma once
-#include <windows.h>
+
+#include <QRect>
+#include <QWidget>
+
+#include "NppMessages.h"
+#include "NppPlatform.h"
 
 class Window
 {
@@ -37,56 +41,76 @@ public:
 	virtual void destroy() = 0;
 
 	virtual void display(bool toShow = true) const {
-		::ShowWindow(_hSelf, toShow ? SW_SHOW : SW_HIDE);
+		if (_hSelf)
+			_hSelf->setVisible(toShow);
 	}
 
 
 	virtual void reSizeTo(RECT & rc) { // should NEVER be const !!!
-		::MoveWindow(_hSelf, rc.left, rc.top, rc.right, rc.bottom, TRUE);
+		// rc holds x, y, width, height here
+		if (_hSelf)
+			_hSelf->setGeometry(rc.left, rc.top, rc.right, rc.bottom);
 		redraw();
 	}
 
 
 	virtual void reSizeToWH(RECT& rc) { // should NEVER be const !!!
-		::MoveWindow(_hSelf, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, TRUE);
+		if (_hSelf)
+			_hSelf->setGeometry(rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top);
 		redraw();
 	}
 
 
 	virtual void redraw(bool forceUpdate = false) const {
-		::InvalidateRect(_hSelf, nullptr, TRUE);
+		if (!_hSelf)
+			return;
 		if (forceUpdate)
-			::UpdateWindow(_hSelf);
+			_hSelf->repaint();
+		else
+			_hSelf->update();
 	}
 
 
-    virtual void getClientRect(RECT & rc) const {
-		::GetClientRect(_hSelf, &rc);
+	virtual void getClientRect(RECT & rc) const {
+		rc = {};
+		if (_hSelf)
+		{
+			rc.right = _hSelf->width();
+			rc.bottom = _hSelf->height();
+		}
 	}
 
 	virtual void getWindowRect(RECT & rc) const {
-		::GetWindowRect(_hSelf, &rc);
+		rc = {};
+		if (_hSelf)
+		{
+			const QRect frame = _hSelf->frameGeometry();
+			const QPoint topLeft = _hSelf->isWindow() ? frame.topLeft() : _hSelf->mapToGlobal(QPoint(0, 0));
+			rc.left = topLeft.x();
+			rc.top = topLeft.y();
+			rc.right = topLeft.x() + frame.width();
+			rc.bottom = topLeft.y() + frame.height();
+		}
 	}
 
 	virtual int getWidth() const {
-		RECT rc;
-		::GetClientRect(_hSelf, &rc);
-		return (rc.right - rc.left);
+		return _hSelf ? _hSelf->width() : 0;
 	}
 
 	virtual int getHeight() const {
-		RECT rc;
-		::GetClientRect(_hSelf, &rc);
-		if (::IsWindowVisible(_hSelf) == TRUE)
-			return (rc.bottom - rc.top);
-		return 0;
+		return (_hSelf && _hSelf->isVisible()) ? _hSelf->height() : 0;
 	}
 
 	virtual bool isVisible() const {
-		return (::IsWindowVisible(_hSelf) == TRUE);
+		return _hSelf && _hSelf->isVisible();
 	}
 
 	HWND getHSelf() const {
+		return _hSelf;
+	}
+
+	// The widget that represents this window in a layout or a splitter
+	virtual HWND paneWidget() const {
 		return _hSelf;
 	}
 
@@ -95,10 +119,11 @@ public:
 	}
 
 	void grabFocus() const {
-		::SetFocus(_hSelf);
+		if (_hSelf)
+			_hSelf->setFocus();
 	}
 
-    HINSTANCE getHinst() const {
+	HINSTANCE getHinst() const {
 		return _hInst;
 	}
 

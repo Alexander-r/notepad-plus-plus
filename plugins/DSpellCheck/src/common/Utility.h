@@ -1,0 +1,119 @@
+// This file is part of DSpellCheck Plug-in for Notepad++
+// Copyright (C)2019 Sergey Semushin <Predelnik@gmail.com>
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+#pragma once
+#include <algorithm>
+#define NOMINMAX
+
+#include <memory>
+#include <Windows.h>
+
+enum class LanguageNameStyle;
+
+class NppData;
+
+constexpr size_t max_utf8_char_length = 6;
+
+std::wstring to_wstring(std::string_view source);
+std::string to_string(std::wstring_view source);
+std::string to_utf8_string(std::string_view source);
+std::string to_utf8_string(std::wstring_view source);
+std::wstring utf8_to_wstring(const char *source);
+std::string utf8_to_string(const char *source);
+void write_unicode_bom(FILE *fp);
+
+std::pair<std::wstring, bool> apply_alias(std::wstring_view str, LanguageNameStyle style);
+
+std::wstring parse_string(const wchar_t *source);
+
+bool check_for_directory_existence(std::wstring path, bool silent = true,
+                                   HWND npp_window = nullptr);
+
+template <typename T>
+std::weak_ptr<T> weaken(std::shared_ptr<T> ptr) { return ptr; }
+
+// Qt port: the conversions of Windows' wide printf in those of glibc, where %s is a narrow string and %ls a wide one:
+// %s and %c become %ls and %lc, and %S and %C, narrow on Windows, become %s and %c
+std::wstring windows_wide_format(const wchar_t *format);
+
+// Qt port: with a buffer that grows, as glibc's swprintf cannot measure the result without one
+template <typename... ArgTypes>
+std::wstring wstring_printf(const wchar_t *format, ArgTypes &&... args) {
+  const std::wstring glibc_format = windows_wide_format(format);
+  std::vector<wchar_t> buf(256);
+  while (true) {
+    const int size = swprintf(buf.data(), buf.size(), glibc_format.c_str(), args...);
+    if (size >= 0 && static_cast<size_t>(size) < buf.size())
+      return buf.data();
+    if (buf.size() > 1024 * 1024)
+      return {};
+    buf.resize(buf.size() * 2);
+  }
+}
+
+class MoveOnlyFlag {
+  using Self = MoveOnlyFlag;
+public:
+  MoveOnlyFlag() = default;
+
+  static Self create_valid() {
+    Self out;
+    out.m_valid = true;
+    return out;
+  }
+
+  void make_valid() { m_valid = true; }
+
+  MoveOnlyFlag(Self &&other) noexcept
+    : m_valid(other.m_valid) { other.m_valid = false; }
+
+  Self &operator=(Self &&other) noexcept {
+    m_valid = other.m_valid;
+    other.m_valid = false;
+    return *this;
+  }
+
+  MoveOnlyFlag(const Self &) = delete;
+  Self &operator=(const Self &other) = delete;
+  bool is_valid() const { return m_valid; }
+private:
+  bool m_valid = false;
+};
+
+#ifdef _DEBUG
+#define ASSERT_RETURN(CONDITION, RET)                                                                                                                          \
+  do {                                                                                                                                                         \
+    if (!(CONDITION)) {                                                                                                                                        \
+      assert(false);                                                                                                                                           \
+      return RET;                                                                                                                                              \
+    }                                                                                                                                                          \
+  } while (0)
+#else // !_DEBUG
+#define ASSERT_RETURN(CONDITION, RET)                                                                                                                          \
+  do {                                                                                                                                                         \
+    if (!(CONDITION))                                                                                                                                          \
+      return RET;                                                                                                                                              \
+  } while (0)
+#endif // !_DEBUG
+
+constexpr std::size_t operator "" _z(unsigned long long n) {
+  return static_cast<std::size_t> (n);
+}
+
+constexpr std::ptrdiff_t operator "" _sz(unsigned long long n) {
+  return static_cast<std::ptrdiff_t>(n);
+}
+
+#define CONCATENATE_(a, b) a ## b
+#define CONCATENATE(a, b) CONCATENATE_(a, b)

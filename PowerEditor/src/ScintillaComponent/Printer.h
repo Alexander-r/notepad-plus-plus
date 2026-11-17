@@ -17,35 +17,27 @@
 
 #pragma once
 
-#include "ScintillaEditView.h"
+#include <cstddef>
 
+#include "NppPlatform.h"
 
-struct NPP_RangeToFormat {
-	HDC hdc = nullptr;
-	HDC hdcTarget = nullptr;
-	RECT rc = {};
-	RECT rcPage = {};
-	Sci_CharacterRangeFull chrg = {};
-};
+class ScintillaEditView;
 
 class Printer
 {
 public :
 	Printer() = default;
 
-	void init(HINSTANCE hInst, HWND hwnd, ScintillaEditView *pSEView, bool showDialog, size_t startPos, size_t endPos, bool isRTL = false);
-	size_t doPrint() {
-		if (!::PrintDlg(&_pdlg))
-				return 0;
+	void init(HWND hwnd, ScintillaEditView *pSEView, bool showDialog, size_t startPos, size_t endPos, bool isRTL = false);
 
-		return doPrint(true);
-	}
-	size_t doPrint(bool justDoIt);
+	// Returns the number of pages produced
+	size_t doPrint();
 
 private :
-	PRINTDLG _pdlg = {};
+	HWND _hOwner = nullptr;
 	ScintillaEditView *_pSEView = nullptr;
 	size_t _startPos = 0;
 	size_t _endPos = 0;
+	bool _showDialog = true;
 	bool _isRTL = false;
 };

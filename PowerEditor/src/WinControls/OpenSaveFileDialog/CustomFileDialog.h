@@ -17,8 +17,12 @@
 
 #pragma once
 
-#include "Common.h"
+#include <initializer_list>
 #include <memory>
+#include <string>
+#include <vector>
+
+#include "Common.h"
 
 // Customizable file dialog.
 // It allows adding custom controls like checkbox to the dialog.

@@ -15,8 +15,14 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include <locale>
-#include <shlwapi.h>
 #include "FileInterface.h"
+#include <QMessageBox>
+#include <QString>
+
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include "Parameters.h"
 
 using namespace std;
@@ -28,58 +34,24 @@ Win32_IO_File::Win32_IO_File(const wchar_t *fname)
 		std::wstring fn = fname;
 		_path = wstring2string(fn, CP_UTF8);
 
-		WIN32_FILE_ATTRIBUTE_DATA attributes_original{};
-		attributes_original.dwFileAttributes = INVALID_FILE_ATTRIBUTES;
-		DWORD dispParam = CREATE_ALWAYS;
-		bool fileExists = false;
+		// Truncating in place keeps the inode, so the owner, permissions, hard links and extended attributes
+		// of an existing file survive, like the creation date and attributes the Windows version restores.
+		WIN32_FILE_ATTRIBUTE_DATA attributes{};
+		attributes.dwFileAttributes = INVALID_FILE_ATTRIBUTES;
 		bool isTimeoutReached = false;
-		// Store the file creation date & attributes for a possible use later...
-		if (getFileAttributesExWithTimeout(fname, &attributes_original, 0, &isTimeoutReached))
+		const bool fileExists = getFileAttributesExWithTimeout(fname, &attributes, 0, &isTimeoutReached)
+			&& !(attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+
+		if (!fileExists && isTimeoutReached)
 		{
-			fileExists = (attributes_original.dwFileAttributes != INVALID_FILE_ATTRIBUTES && !(attributes_original.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY));
+			// The file doesn't exist, plus a network problem has been detected due to timeout
+			_dwErrorCode = ERROR_FILE_NOT_FOUND; // store
+			return;                              // In this case, we don't call open to prevent hanging
 		}
 
-		if (fileExists)
-		{
-			// Check the existence of Alternate Data Streams
-			WIN32_FIND_STREAM_DATA findData;
-			HANDLE hFind = FindFirstStreamW(fname, FindStreamInfoStandard, &findData, 0);
-			if (hFind != INVALID_HANDLE_VALUE) // Alternate Data Streams found
-			{
-				dispParam = TRUNCATE_EXISTING;
-				FindClose(hFind);
-			}
-		}
-		else
-		{
-			bool isFromNetwork = PathIsNetworkPath(fname);
-			if (isFromNetwork && isTimeoutReached) // The file doesn't exist, and the file is a network file, plus the network problem has been detected due to timeout
-			{
-				_dwErrorCode = ERROR_FILE_NOT_FOUND; // store
-				return;                              // In this case, we don't call createFile to prevent hanging
-			}
-		}
-
-		_hFile = ::CreateFileW(fname, _accessParam, _shareParam, NULL, dispParam, _attribParam, NULL);
-
-		// Race condition management:
-		//  If file didn't exist while calling getFileAttributesExWithTimeout, but before calling CreateFileW, file is created: use CREATE_ALWAYS is OK
-		//  If file did exist while calling getFileAttributesExWithTimeout, but before calling CreateFileW, file is deleted: use TRUNCATE_EXISTING will cause the error
-		if (dispParam == TRUNCATE_EXISTING && _hFile == INVALID_HANDLE_VALUE && ::GetLastError() == ERROR_FILE_NOT_FOUND)
-		{
-			dispParam = CREATE_ALWAYS;
-			_hFile = ::CreateFileW(fname, _accessParam, _shareParam, NULL, dispParam, _attribParam, NULL);
-		}
-
-		if (_hFile == INVALID_HANDLE_VALUE)
+		_fd = ::open(_path.c_str(), O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+		if (_fd == -1)
 			_dwErrorCode = ::GetLastError(); // store
-
-		if (fileExists && (dispParam == CREATE_ALWAYS) && (_hFile != INVALID_HANDLE_VALUE))
-		{
-			// restore back the original creation date & attributes
-			::SetFileTime(_hFile, &(attributes_original.ftCreationTime), NULL, NULL);
-			::SetFileAttributesW(fname, (_attribParam | attributes_original.dwFileAttributes));
-		}
 	}
 }
 
@@ -94,44 +66,22 @@ void Win32_IO_File::close()
 		DWORD flushError = NO_ERROR;
 		if (_written)
 		{
-			if (!::FlushFileBuffers(_hFile))
+			if (::fsync(_fd) != 0)
 			{
 				flushError = ::GetLastError();
 				std::wstring errNumberMsg = std::to_wstring(flushError) + L" - " + GetLastErrorAsString(flushError);
 
 				if (!nppParam.isEndSessionCritical())
 				{
-					// because of there is not an externally forced shutdown/restart of Windows in progress,
+					// because of there is not an externally forced shutdown/restart in progress,
 					// we can at least alert the user that the file data could not actually be saved
-
-					std::wstring curFilePath;
-					const DWORD cchPathBuf = MAX_PATH + 128;
-					wchar_t pathbuf[cchPathBuf]{};
-					// the dwFlags used below are the most error-proof and informative
-					DWORD dwRet = ::GetFinalPathNameByHandle(_hFile, pathbuf, cchPathBuf, FILE_NAME_OPENED | VOLUME_NAME_NT);
-					if ((dwRet == 0) || (dwRet >= cchPathBuf))
-					{
-						// probably insufficient path-buffer length, the classic style must suffice
-						curFilePath = string2wstring(_path, CP_UTF8);
-					}
-					else
-					{
-						// ok
-						// - the chosen file path style here will allow us to also see the MS MUP (multiple UNC provider) style path
-						//   for a possible network drive mapped here as the usual disk-letter, e.g.:
-						//     "\Device\Mup\NETWORK_SERVER_DNS_NAME_OR_IP\SERVER_PATH\FILENAME" 
-						//     "\Device\Mup\NETWORK_SERVER_DNS_NAME_OR_IP@SSL@PORT_NUMBER\DavWWWRoot\SERVER_PATH\FILENAME"
-						// - classic local disk will be visible here like: "\Device\HarddiskVolume2\ABSOLUTE_PATH_WITHOUT_DRIVENAME\FILENAME"
-						curFilePath = pathbuf;
-					}
-
 					std::wstring errMsg = L"Notepad++ has encountered a serious system problem while saving:\n\n";
-					errMsg += curFilePath;
+					errMsg += string2wstring(_path, CP_UTF8);
 					errMsg += L"\n\nThat file, temporarily stored in the system cache, cannot be finally committed to the storage device selected! \
 This is probably a storage driver or hardware issue, beyond the control of the Notepad++. \
 Please try using another storage and also check if your saved data is not corrupted.\n\nError Code reported: ";
 					errMsg += errNumberMsg;
-					::MessageBoxW(NULL, errMsg.c_str(), L"WARNING - filebuffer flushing fail!", MB_OK | MB_ICONWARNING | MB_SYSTEMMODAL);
+					QMessageBox::warning(nullptr, QStringLiteral("WARNING - filebuffer flushing fail!"), QString::fromStdWString(errMsg));
 				}
 				else
 				{
@@ -149,13 +99,13 @@ Please try using another storage and also check if your saved data is not corrup
 
 		_dwErrorCode = flushError; // store possible flushing error 1st
 
-		if (!::CloseHandle(_hFile))
+		if (::close(_fd) != 0)
 		{
 			if (!flushError)
 				_dwErrorCode = ::GetLastError(); // store
 		}
 
-		_hFile = INVALID_HANDLE_VALUE;
+		_fd = -1;
 	}
 }
 
@@ -167,43 +117,21 @@ bool Win32_IO_File::write(const void *wbuf, size_t buf_size)
 	if (!isOpened() || (wbuf == nullptr))
 		return false;
 
-	// we need to split any 4GB+ data for the WriteFile WINAPI later
-	constexpr DWORD c_max_dword = ~(DWORD(0)); // 0xFFFFFFFF
 	size_t total_bytes_written = 0;
-	size_t bytes_left_to_write = buf_size;
-
-	BOOL success = FALSE;
-	DWORD writeError = NO_ERROR; // use also a local var here to be 100% thread-safe
-
-	do
+	while (total_bytes_written < buf_size)
 	{
-		const DWORD bytes_to_write = (bytes_left_to_write < static_cast<size_t>(c_max_dword)) ?
-			static_cast<DWORD>(bytes_left_to_write) : c_max_dword;
-		DWORD bytes_written = 0;
-
-		success = ::WriteFile(_hFile, static_cast<const char*>(wbuf) + total_bytes_written,
-			bytes_to_write, &bytes_written, NULL);
-
-		if (success)
+		const ssize_t bytes_written = ::write(_fd, static_cast<const char*>(wbuf) + total_bytes_written, buf_size - total_bytes_written);
+		if (bytes_written < 0)
 		{
-			success = (bytes_written == bytes_to_write);
-			bytes_left_to_write -= static_cast<size_t>(bytes_written);
-			total_bytes_written += static_cast<size_t>(bytes_written);
+			if (errno == EINTR)
+				continue;
+			_dwErrorCode = ::GetLastError(); // store
+			return false;
 		}
-		else
-		{
-			writeError = ::GetLastError();
-		}
-	} while (success && bytes_left_to_write);
-
-	if (success == FALSE)
-	{
-		_dwErrorCode = writeError; // store
-		return false;
+		total_bytes_written += static_cast<size_t>(bytes_written);
 	}
 
 	_written = true;
 
 	return (total_bytes_written == buf_size);
 }
-

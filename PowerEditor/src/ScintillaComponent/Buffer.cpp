@@ -17,10 +17,13 @@
 
 #include "Buffer.h"
 
-#include <windows.h>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QString>
 
-#include <excpt.h>
-#include <shlwapi.h>
+
 
 #include <algorithm>
 #include <cassert>
@@ -36,12 +39,6 @@
 #include <string>
 #include <vector>
 
-#include <sddl.h>
-#include <aclapi.h>
-#pragma comment(lib, "advapi32.lib")
-#include <objbase.h>
-#pragma comment(lib, "ole32.lib")
-
 #include <ILexer.h>
 #include <Lexilla.h>
 #include <Scintilla.h>
@@ -51,6 +48,7 @@
 #include "Common.h"
 #include "EncodingMapper.h"
 #include "FileInterface.h"
+#include "NppElevation.h"
 #include "Notepad_plus.h"
 #include "Notepad_plus_msgs.h"
 #include "NppConstants.h"
@@ -94,13 +92,22 @@ namespace // anonymous
 	}
 
 	// local helper to get the current system time in milliseconds since Unix epoch (January 1, 1970)
-	ULONGLONG GetUnixSysTimeInMilliseconds()
+	uint64_t GetUnixSysTimeInMilliseconds()
 	{
-		FILETIME ft;
-		::GetSystemTimeAsFileTime(&ft); // 100-nanosecond intervals since January 1, 1601 (UTC)
-		ULONGLONG ullTime = (((ULONGLONG)ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-		const ULONGLONG EPOCH_DIFF = 116444736000000000ULL; // difference between Jan 1, 1601 and Jan 1, 1970 in 100-ns intervals
-		return (ullTime - EPOCH_DIFF) / 10000; // subtract the diff and convert to milliseconds
+		return static_cast<uint64_t>(QDateTime::currentMSecsSinceEpoch());
+	}
+
+	// The part after the last dot of the file name, as a pointer into it. Empty when there is none.
+	const wchar_t* extensionOf(const wchar_t* fileName)
+	{
+		const wchar_t* dot = std::wcsrchr(fileName, L'.');
+		return dot ? dot : fileName + std::wcslen(fileName);
+	}
+
+	std::wstring directoryOf(const std::wstring& path)
+	{
+		std::wstring dir = path;
+		return pathRemoveFileSpec(dir);
 	}
 } // anonymous namespace
 
@@ -253,13 +260,13 @@ void Buffer::updateTimeStamp()
 			char buf[1024]{};
 			if (res == 1)
 			{
-				sprintf_s(buf, _countof(buf) - 1, "  in updateTimeStamp(): timeStampLive (%lu/%lu) < _timeStamp (%lu/%lu)",
+				snprintf(buf, _countof(buf), "  in updateTimeStamp(): timeStampLive (%lu/%lu) < _timeStamp (%lu/%lu)",
 					timeStampLive.dwLowDateTime, timeStampLive.dwHighDateTime, _timeStamp.dwLowDateTime, _timeStamp.dwHighDateTime);
 			}
 			else
 			{
 				// usual case, uncomment if needed to log too
-				//sprintf_s(buf, _countof(buf) - 1, "  in updateTimeStamp(): timeStampLive (%lu/%lu) > _timeStamp (%lu/%lu)",
+				//snprintf(buf, _countof(buf), "  in updateTimeStamp(): timeStampLive (%lu/%lu) > _timeStamp (%lu/%lu)",
 				//	timeStampLive.dwLowDateTime, timeStampLive.dwHighDateTime, _timeStamp.dwLowDateTime, _timeStamp.dwHighDateTime);
 			}
 
@@ -295,34 +302,22 @@ void Buffer::setFileName(const wchar_t *fn)
 	}
 
 	_fullPathName = fn;
-	_fileName = PathFindFileName(_fullPathName.c_str());
+	_fileName = QFileInfo(QString::fromStdWString(_fullPathName)).fileName().toStdWString();
 
 	const UINT tabCompactLabelLen = nppParamInst.getNbTabCompactLabelLen();
-	if ((tabCompactLabelLen == 0) || (static_cast<UINT>(wcslen(_fileName)) <= tabCompactLabelLen))
-	{
-		_compactFileName = _fileName;
-	}
-	else
-	{
-		_compactFileName.resize(tabCompactLabelLen + 1, L'\0');
-		if (!::PathCompactPathExW(_compactFileName.data(), _fileName, static_cast<UINT>(_compactFileName.size()), 0))
-		{
-			// compacting failed, use the original instead
-			_compactFileName = _fileName;
-		}
-	}
+	_compactFileName = (tabCompactLabelLen == 0) ? _fileName : compactPath(_fileName, tabCompactLabelLen);
 
-	_isFromNetwork = PathIsNetworkPath(fn);
+	_isFromNetwork = false; // network mounts look like any other path here
 
 	// for _lang
 	LangType determinedLang = L_TEXT;
-	wchar_t *ext = PathFindExtension(_fullPathName.c_str());
+	const wchar_t* ext = extensionOf(_fileName.c_str());
 	if (*ext == '.') // extension found
 	{
 		ext += 1;
 
 		// Define User Lang firstly
-		const wchar_t* langName = nppParamInst.getUserDefinedLangNameFromExt(ext, _fileName);
+		const wchar_t* langName = nppParamInst.getUserDefinedLangNameFromExt(ext, _fileName.c_str());
 		if (langName)
 		{
 			determinedLang = L_USER;
@@ -337,15 +332,15 @@ void Buffer::setFileName(const wchar_t *fn)
 
 	if (determinedLang == L_TEXT)	// language can probably be refined
 	{
-		if ((_wcsicmp(_fileName, L"makefile") == 0) || (_wcsicmp(_fileName, L"GNUmakefile") == 0))
+		if ((_wcsicmp(_fileName.c_str(), L"makefile") == 0) || (_wcsicmp(_fileName.c_str(), L"GNUmakefile") == 0))
 			determinedLang = L_MAKEFILE;
-		else if (_wcsicmp(_fileName, L"CmakeLists.txt") == 0)
+		else if (_wcsicmp(_fileName.c_str(), L"CmakeLists.txt") == 0)
 			determinedLang = L_CMAKE;
-		else if ((_wcsicmp(_fileName, L"SConstruct") == 0) || (_wcsicmp(_fileName, L"SConscript") == 0) || (_wcsicmp(_fileName, L"wscript") == 0))
+		else if ((_wcsicmp(_fileName.c_str(), L"SConstruct") == 0) || (_wcsicmp(_fileName.c_str(), L"SConscript") == 0) || (_wcsicmp(_fileName.c_str(), L"wscript") == 0))
 			determinedLang = L_PYTHON;
-		else if ((_wcsicmp(_fileName, L"Rakefile") == 0) || (_wcsicmp(_fileName, L"Vagrantfile") == 0))
+		else if ((_wcsicmp(_fileName.c_str(), L"Rakefile") == 0) || (_wcsicmp(_fileName.c_str(), L"Vagrantfile") == 0))
 			determinedLang = L_RUBY;
-		else if ((_wcsicmp(_fileName, L"crontab") == 0) || (_wcsicmp(_fileName, L"PKGBUILD") == 0) || (_wcsicmp(_fileName, L"APKBUILD") == 0))
+		else if ((_wcsicmp(_fileName.c_str(), L"crontab") == 0) || (_wcsicmp(_fileName.c_str(), L"PKGBUILD") == 0) || (_wcsicmp(_fileName.c_str(), L"APKBUILD") == 0))
 			determinedLang = L_BASH;
 	}
 
@@ -408,26 +403,14 @@ void Buffer::normalizeTabName(wstring& tabName)
 
 void Buffer::refreshCompactFileName()
 {
-	if (!_fileName)
+	if (_fileName.empty())
 	{
 		_compactFileName = L"";
 	}
 	else
 	{
 		const UINT tabCompactLabelLen = NppParameters::getInstance().getNbTabCompactLabelLen();
-		if ((tabCompactLabelLen == 0) || (static_cast<UINT>(lstrlenW(_fileName)) <= tabCompactLabelLen))
-		{
-			_compactFileName = _fileName;
-		}
-		else
-		{
-			_compactFileName.resize(tabCompactLabelLen + 1, L'\0');
-			if (!::PathCompactPathExW(_compactFileName.data(), _fileName, static_cast<UINT>(_compactFileName.size()), 0))
-			{
-				// compacting failed, use the original instead
-				_compactFileName = _fileName;
-			}
-		}
+		_compactFileName = (tabCompactLabelLen == 0) ? _fileName : compactPath(_fileName, tabCompactLabelLen);
 	}
 
 	doNotify(BufferChangeFilename);
@@ -449,18 +432,6 @@ bool Buffer::checkFileState() // returns true if the status has been changed (it
 	DWORD dwWin32ApiError = NO_ERROR;
 	BOOL bGetFileAttributesExSucceeded = getFileAttributesExWithTimeout(_fullPathName.c_str(), &attributes, 0, &bWorkerThreadTerminated, &dwWin32ApiError);
 	bool fileExists = (bGetFileAttributesExSucceeded && (attributes.dwFileAttributes != INVALID_FILE_ATTRIBUTES) && !(attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY));
-
-#ifndef	_WIN64
-	bool isWow64Off = false;
-	if (!fileExists)
-	{
-		nppParam.safeWow64EnableWow64FsRedirection(FALSE);
-		isWow64Off = true;
-
-		bGetFileAttributesExSucceeded = getFileAttributesExWithTimeout(_fullPathName.c_str(), &attributes, 0, &bWorkerThreadTerminated, &dwWin32ApiError);
-		fileExists = (bGetFileAttributesExSucceeded && (attributes.dwFileAttributes != INVALID_FILE_ATTRIBUTES) && !(attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY));
-	}
-#endif
 
 	if (!fileExists && nppParam.doNppLogNetworkDriveIssue())
 	{
@@ -555,13 +526,13 @@ bool Buffer::checkFileState() // returns true if the status has been changed (it
 				char buf[1024]{};
 				if (res == 1)
 				{
-					sprintf_s(buf, _countof(buf) - 1, "  in checkFileState(): attributes.ftLastWriteTime (%lu/%lu) < _timeStamp (%lu/%lu)",
+					snprintf(buf, _countof(buf), "  in checkFileState(): attributes.ftLastWriteTime (%lu/%lu) < _timeStamp (%lu/%lu)",
 						attributes.ftLastWriteTime.dwLowDateTime, attributes.ftLastWriteTime.dwHighDateTime, _timeStamp.dwLowDateTime, _timeStamp.dwHighDateTime);
 				}
 				else
 				{
 					// usual state after a file modification, uncomment if needed to log too
-					//sprintf_s(buf, _countof(buf) - 1, "  in checkFileState(): attributes.ftLastWriteTime (%lu/%lu) > _timeStamp (%lu/%lu)",
+					//snprintf(buf, _countof(buf), "  in checkFileState(): attributes.ftLastWriteTime (%lu/%lu) > _timeStamp (%lu/%lu)",
 					//	attributes.ftLastWriteTime.dwLowDateTime, attributes.ftLastWriteTime.dwHighDateTime, _timeStamp.dwLowDateTime, _timeStamp.dwHighDateTime);
 				}
 
@@ -597,12 +568,6 @@ bool Buffer::checkFileState() // returns true if the status has been changed (it
 		return false;
 	}
 
-#ifndef	_WIN64
-	if (isWow64Off)
-	{
-		nppParam.safeWow64EnableWow64FsRedirection(TRUE);
-	}
-#endif
 
 	return isOK;
 }
@@ -611,7 +576,7 @@ void Buffer::reload()
 {
 	WIN32_FILE_ATTRIBUTE_DATA attributes{};
 	attributes.dwFileAttributes = INVALID_FILE_ATTRIBUTES;
-	if (GetFileAttributesEx(_fullPathName.c_str(), GetFileExInfoStandard, &attributes) != 0)
+	if (getFileAttributesExWithTimeout(_fullPathName.c_str(), &attributes))
 	{
 		_timeStamp = attributes.ftLastWriteTime;
 		_currentStatus = DOC_NEEDRELOAD;
@@ -626,41 +591,23 @@ int64_t Buffer::getFileLength() const
 
 	WIN32_FILE_ATTRIBUTE_DATA attributes{};
 	attributes.dwFileAttributes = INVALID_FILE_ATTRIBUTES;
-	if (GetFileAttributesEx(_fullPathName.c_str(), GetFileExInfoStandard, &attributes) != 0)
+	if (getFileAttributesExWithTimeout(_fullPathName.c_str(), &attributes))
 	{
-		LARGE_INTEGER size{};
-		size.LowPart = attributes.nFileSizeLow;
-		size.HighPart = attributes.nFileSizeHigh;
-		return size.QuadPart;
+		return fileSizeOf(attributes);
 	}
 	return -1;
 }
 
 wstring Buffer::getTimeString(FILETIME rawtime) const
 {
-	wstring result;
-	SYSTEMTIME utcSystemTime, localSystemTime;
-	FileTimeToSystemTime(&rawtime, &utcSystemTime);
-	SystemTimeToTzSpecificLocalTime(nullptr, &utcSystemTime, &localSystemTime);
-
-	const size_t dateTimeStrLen = 256;
-	wchar_t bufDate[dateTimeStrLen] = { '\0' };
-	GetDateFormat(LOCALE_USER_DEFAULT, 0, &localSystemTime, nullptr, bufDate, dateTimeStrLen);
-	result += bufDate;
-	result += ' ';
-
-	wchar_t bufTime[dateTimeStrLen] = { '\0' };
-	GetTimeFormat(LOCALE_USER_DEFAULT, 0, &localSystemTime, nullptr, bufTime, dateTimeStrLen);
-	result += bufTime;
-
-	return result;
+	return fileTimeToLocalString(rawtime);
 }
 
 wstring Buffer::getFileTime(fileTimeType ftt) const
 {
 	WIN32_FILE_ATTRIBUTE_DATA attributes{};
 	attributes.dwFileAttributes = INVALID_FILE_ATTRIBUTES;
-	if (GetFileAttributesEx(_currentStatus == DOC_UNNAMED ? _backupFileName.c_str() : _fullPathName.c_str(), GetFileExInfoStandard, &attributes) != 0)
+	if (getFileAttributesExWithTimeout(_currentStatus == DOC_UNNAMED ? _backupFileName.c_str() : _fullPathName.c_str(), &attributes))
 	{
 		FILETIME rawtime;
 		switch (ftt)
@@ -966,11 +913,7 @@ BufferID FileManager::loadFile(const wchar_t* filename, Document doc, int encodi
 		attributes.dwFileAttributes = INVALID_FILE_ATTRIBUTES;
 		if (getFileAttributesExWithTimeout(pPath, &attributes))
 		{
-			LARGE_INTEGER size{};
-			size.LowPart = attributes.nFileSizeLow;
-			size.HighPart = attributes.nFileSizeHigh;
-
-			fileSize = size.QuadPart;
+			fileSize = fileSizeOf(attributes);
 		}
 	}
 
@@ -1008,25 +951,12 @@ BufferID FileManager::loadFile(const wchar_t* filename, Document doc, int encodi
 		ownDoc = true;
 	}
 
-	wchar_t fullpath[MAX_PATH] = { 0 };
-	if (isWin32NamespacePrefixedFileName(filename)) // This function checks for the \\?\ prefix
-	{
-		// use directly the raw file name, skip the GetFullPathName WINAPI
-		wcsncpy_s(fullpath, _countof(fullpath), filename, _TRUNCATE);
-	}
-	else
-	{
-		::GetFullPathName(filename, MAX_PATH, fullpath, NULL);
-		if (wcschr(fullpath, '~'))
-		{
-			::GetLongPathName(fullpath, fullpath, MAX_PATH);
-		}
-	}
+	std::wstring fullpath = relativeFilePathToFullFilePath(filename);
 
 	bool isSnapshotMode = (backupFileName != NULL) && doesFileExist(backupFileName);
-	if (isSnapshotMode && !doesFileExist(fullpath)) // if backup mode and fullpath doesn't exist, we guess is UNTITLED
+	if (isSnapshotMode && !doesFileExist(fullpath.c_str())) // if backup mode and fullpath doesn't exist, we guess is UNTITLED
 	{
-		wcscpy_s(fullpath, MAX_PATH, filename); // we restore fullpath with filename, in our case is "new  #"
+		fullpath = filename; // we restore fullpath with filename, in our case is "new  #"
 	}
 
 	Utf8_16_Read UnicodeConvertor;	//declare here so we can get information after loading is done
@@ -1038,20 +968,20 @@ BufferID FileManager::loadFile(const wchar_t* filename, Document doc, int encodi
 	loadedFileFormat._eolFormat = EolType::unknown;
 	loadedFileFormat._language = L_TEXT;
 
-	bool loadRes = loadFileData(doc, fileSize, backupFileName ? backupFileName : fullpath, data, &UnicodeConvertor, loadedFileFormat);
+	bool loadRes = loadFileData(doc, fileSize, backupFileName ? backupFileName : fullpath.c_str(), data, &UnicodeConvertor, loadedFileFormat);
 
 	delete[] data;
 
 	if (loadRes)
 	{
-		Buffer* newBuf = new Buffer(this, _nextBufferID, doc, DOC_REGULAR, fullpath, isLargeFile);
+		Buffer* newBuf = new Buffer(this, _nextBufferID, doc, DOC_REGULAR, fullpath.c_str(), isLargeFile);
 		BufferID id = newBuf;
 		newBuf->_id = id;
 
 		if (backupFileName != NULL)
 		{
 			newBuf->_backupFileName = backupFileName;
-			if (!doesFileExist(fullpath))
+			if (!doesFileExist(fullpath.c_str()))
 			{
 				newBuf->_currentStatus = DOC_UNNAMED;
 				newBuf->setTabCreatedTimeStringFromBakFile();
@@ -1116,11 +1046,7 @@ bool FileManager::reloadBuffer(BufferID id)
 	}
 	else
 	{
-		LARGE_INTEGER size{};
-		size.LowPart = attributes.nFileSizeLow;
-		size.HighPart = attributes.nFileSizeHigh;
-
-		fileSize = size.QuadPart;
+		fileSize = fileSizeOf(attributes);
 	}
 
 	
@@ -1198,20 +1124,7 @@ bool FileManager::deleteFile(BufferID id)
 	if (!doesFileExist(fileNamePath.c_str()))
 		return false;
 
-	// Make sure to form a string with double '\0' terminator.
-	fileNamePath.append(1, '\0');
-
-	SHFILEOPSTRUCT fileOpStruct = {};
-	fileOpStruct.hwnd = NULL;
-	fileOpStruct.pFrom = fileNamePath.c_str();
-	fileOpStruct.pTo = NULL;
-	fileOpStruct.wFunc = FO_DELETE;
-	fileOpStruct.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION; // FOF_NOCONFIRMATION - prevent possible redundant shell-dlg (Notepad++ uses its own delete-confirmation dlg)
-	fileOpStruct.fAnyOperationsAborted = false;
-	fileOpStruct.hNameMappings         = NULL;
-	fileOpStruct.lpszProgressTitle     = NULL;
-
-	return SHFileOperation(&fileOpStruct) == 0;
+	return QFile::moveToTrash(QString::fromStdWString(fileNamePath));
 }
 
 
@@ -1222,21 +1135,16 @@ bool FileManager::moveFile(BufferID id, const wchar_t* newFileName)
 
 	Buffer* buf = getBufferByID(id);
 	const wchar_t* fileNamePath = buf->getFullPathName();
-	if (!::MoveFileExW(fileNamePath, newFileName, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH))
+	const QString source = QString::fromWCharArray(fileNamePath);
+	const QString destination = QString::fromWCharArray(newFileName);
+	QFile::remove(destination); // QFile::rename does not replace
+	if (!QFile::rename(source, destination))
 	{
-		if (::GetLastError() != ERROR_ACCESS_DENIED)
+		// Not ours to change? Try with administrator rights.
+		const QFileInfo sourceInfo(source);
+		if (sourceInfo.exists() && QFileInfo(sourceInfo.absolutePath()).isWritable() && QFileInfo(QFileInfo(destination).absolutePath()).isWritable())
 			return false;
-
-		// ERROR_ACCESS_DENIED, try to move elevated
-		// (notepad++.exe #UAC-MOVEFILE# original_file_path new_file_path)
-		wstring strCmdLineParams = NPP_UAC_MOVEFILE_SIGN;
-		strCmdLineParams += L" \"";
-		strCmdLineParams += fileNamePath;
-		strCmdLineParams += L"\" \"";
-		strCmdLineParams += newFileName;
-		strCmdLineParams += L"\"";
-		DWORD dwNppUacOpError = invokeNppUacOp(strCmdLineParams);
-		if (dwNppUacOpError != NO_ERROR)
+		if (nppElevatedMove(fileNamePath, newFileName) != NO_ERROR)
 			return false;
 	}
 
@@ -1318,13 +1226,11 @@ bool FileManager::backupCurrentBuffer()
 			{
 				// Create file
 				backupFilePath = NppParameters::getInstance().getUserPath();
-				backupFilePath += L"\\backup\\";
+				pathAppend(backupFilePath, L"backup");
+				backupFilePath += nppPathSepStr;
 
 				// if "backup" folder doesn't exist, create it.
-				if (!doesDirectoryExist(backupFilePath.c_str()))
-				{
-					::CreateDirectory(backupFilePath.c_str(), NULL);
-				}
+				QDir().mkpath(QString::fromStdWString(backupFilePath));
 
 				backupFilePath += buffer->getFileName();
 
@@ -1347,19 +1253,14 @@ bool FileManager::backupCurrentBuffer()
 				hasModifForSession = true;
 			}
 
-			wchar_t fullpath[MAX_PATH]{};
-			::GetFullPathName(backupFilePath.c_str(), MAX_PATH, fullpath, NULL);
-			if (wcschr(fullpath, '~'))
-			{
-				::GetLongPathName(fullpath, fullpath, MAX_PATH);
-			}
+			const std::wstring fullpath = relativeFilePathToFullFilePath(backupFilePath.c_str());
 
 			// Make sure the backup file is not read only
-			removeReadOnlyFlagFromFileAttributes(fullpath);
+			removeReadOnlyFlagFromFileAttributes(fullpath.c_str());
 
 			std::wstring fullpathTemp = fullpath;
 			fullpathTemp += L".tmp";
-			if (UnicodeConvertor.openFile(buffer->isUntitled() ? fullpathTemp.c_str() : fullpath)) // Use temp only for "new #" due to they don't have the original physical existance on the hard drive
+			if (UnicodeConvertor.openFile(buffer->isUntitled() ? fullpathTemp.c_str() : fullpath.c_str())) // Use temp only for "new #" due to they don't have the original physical existance on the hard drive
 			{
 				size_t lengthDoc = _pNotepadPlus->_pEditView->getCurrentDocLen();
 				char* buf = (char*)_pNotepadPlus->_pEditView->execute(SCI_GETCHARACTERPOINTER);	//to get characters directly from Scintilla buffer
@@ -1397,10 +1298,8 @@ bool FileManager::backupCurrentBuffer()
 				{
 					if (buffer->isUntitled()) // "new #" file is saved successfully, then we replace its only physical existence by its temp
 					{
-						if (doesFileExist(fullpath))
-							::ReplaceFile(fullpath, fullpathTemp.c_str(), nullptr, REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS, 0, 0);
-						else
-							::MoveFileEx(fullpathTemp.c_str(), fullpath, MOVEFILE_REPLACE_EXISTING);
+						// rename() replaces atomically on POSIX
+						std::rename(QString::fromStdWString(fullpathTemp).toLocal8Bit().constData(), QString::fromStdWString(fullpath).toLocal8Bit().constData());
 					}
 
 					buffer->setTabCreatedTimeStringFromBakFile();
@@ -1424,7 +1323,7 @@ bool FileManager::backupCurrentBuffer()
 			// delete backup file
 			wstring file2Delete = buffer->getBackupFileName();
 			buffer->setBackupFileName(wstring());
-			result = (::DeleteFile(file2Delete.c_str()) != 0);
+			result = QFile::remove(QString::fromStdWString(file2Delete));
 
 			// Session changes, save it
 			hasModifForSession = true;
@@ -1448,7 +1347,7 @@ bool FileManager::deleteBufferBackup(BufferID id)
 	{
 		// delete backup file
 		buffer->setBackupFileName(wstring());
-		result = (::DeleteFile(backupFilePath.c_str()) != 0);
+		result = QFile::remove(QString::fromStdWString(backupFilePath));
 	}
 
 	return result;
@@ -1485,18 +1384,13 @@ static std::string encodeForUacSave(const char* buf, size_t len, UniMode mode, i
 			const bool bigEndian = (mode == uni16BE || mode == uni16BE_NoBOM);
 			const bool withBom = (mode == uni16LE || mode == uni16BE);
 
-			std::wstring w;
-			if (len > 0)
-			{
-				int n = ::MultiByteToWideChar(CP_UTF8, 0, buf, static_cast<int>(len), nullptr, 0);
-				w.resize(n);
-				::MultiByteToWideChar(CP_UTF8, 0, buf, static_cast<int>(len), w.data(), n);
-			}
+			const QString w = QString::fromUtf8(buf, static_cast<qsizetype>(len)); // UTF-16 code units, whatever the size of wchar_t
 
 			out.reserve(w.size() * 2 + 2);
 			if (withBom) { out.push_back(bigEndian ? '\xFE' : '\xFF'); out.push_back(bigEndian ? '\xFF' : '\xFE'); }
-			for (wchar_t c : w)
+			for (const QChar qc : w)
 			{
+				const char16_t c = qc.unicode();
 				const char lo = static_cast<char>(c & 0xFF), hi = static_cast<char>((c >> 8) & 0xFF);
 				out.push_back(bigEndian ? hi : lo);
 				out.push_back(bigEndian ? lo : hi);
@@ -1510,39 +1404,6 @@ static std::string encodeForUacSave(const char* buf, size_t len, UniMode mode, i
 	}
 	return out;
 }
-
-static std::wstring CreateGuidString()
-{
-	GUID guid{};
-	if (FAILED(::CoCreateGuid(&guid)))
-		return L"";
-
-	wchar_t guidString[40]{};
-	if (!::StringFromGUID2(guid, guidString, ARRAYSIZE(guidString)))
-		return L"";
-
-	return guidString;
-}
-
-static bool CreateMappingSecurityAttributes(SECURITY_ATTRIBUTES& sa, PSECURITY_DESCRIPTOR& pSD)
-{
-	// OW ... OWNER RIGHTS (removes the implicit WRITE_DAC of the owner)
-	// BA ... BUILTIN\Administrators
-	// 0x0004 ... SECTION_MAP_READ
-	LPCWSTR sddl =
-		L"D:P"
-		L"(A;;0x0004;;;OW)"
-		L"(A;;0x0004;;;BA)";
-
-	if (!::ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, SDDL_REVISION_1, &pSD, nullptr))
-		return false;
-
-	sa.nLength = sizeof(sa);
-	sa.lpSecurityDescriptor = pSD;
-	sa.bInheritHandle = FALSE;
-	return true;
-}
-
 
 std::mutex save_mutex;
 
@@ -1559,35 +1420,18 @@ SavingStatus FileManager::saveBuffer(BufferID id, const wchar_t* filename, bool 
 	}
 
 	Buffer* buffer = getBufferByID(id);
-	bool isHiddenOrSys = false;
 
-	wchar_t fullpath[MAX_PATH]{};
-	if (isWin32NamespacePrefixedFileName(filename))
-	{
-		// use directly the raw file name, skip the GetFullPathName WINAPI
-		wcsncpy_s(fullpath, _countof(fullpath), filename, _TRUNCATE);
-	}
-	else
-	{
-		::GetFullPathName(filename, MAX_PATH, fullpath, NULL);
-		if (wcschr(fullpath, '~'))
-		{
-			::GetLongPathName(fullpath, fullpath, MAX_PATH);
-		}
-	}
-	
-	wchar_t dirDest[MAX_PATH]{};
-	wcscpy_s(dirDest, MAX_PATH, fullpath);
-	::PathRemoveFileSpecW(dirDest);
+	const std::wstring fullpath = relativeFilePathToFullFilePath(filename);
+	const std::wstring dirDest = directoryOf(fullpath);
 
 	const wchar_t* currentBufFilePath = buffer->getFullPathName();
 	ULARGE_INTEGER freeBytesForUser;
 	 
-	BOOL getFreeSpaceSuccessful = getDiskFreeSpaceWithTimeout(dirDest, &freeBytesForUser);
+	BOOL getFreeSpaceSuccessful = getDiskFreeSpaceWithTimeout(dirDest.c_str(), &freeBytesForUser);
 	if (getFreeSpaceSuccessful)
 	{
 		int64_t fileSize = buffer->getFileLength();
-		if (fileSize >= 0 && lstrcmp(fullpath, currentBufFilePath) == 0) // if file to save does exist, and it's an operation "Save" but not "Save As"
+		if (fileSize >= 0 && lstrcmp(fullpath.c_str(), currentBufFilePath) == 0) // if file to save does exist, and it's an operation "Save" but not "Save As"
 		{
 			// if file exists and the operation "Save" but not "Save As", its current length should be considered as part of free room space since the file itself will be overrrided 
 			freeBytesForUser.QuadPart += fileSize;
@@ -1596,16 +1440,6 @@ SavingStatus FileManager::saveBuffer(BufferID id, const wchar_t* filename, bool 
 		// determine if free space is enough
 		if (freeBytesForUser.QuadPart < buffer->docLength())
 			return SavingStatus::NotEnoughRoom;
-	}
-
-	WIN32_FILE_ATTRIBUTE_DATA attributes{};
-	attributes.dwFileAttributes = INVALID_FILE_ATTRIBUTES;
-	getFileAttributesExWithTimeout(fullpath, &attributes);
-	if (attributes.dwFileAttributes != INVALID_FILE_ATTRIBUTES && !(attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-	{
-		isHiddenOrSys = (attributes.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) != 0;
-		if (isHiddenOrSys)
-			::SetFileAttributes(filename, attributes.dwFileAttributes & ~(FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM));
 	}
 
 	UniMode mode = buffer->getUnicodeMode();
@@ -1624,7 +1458,7 @@ SavingStatus FileManager::saveBuffer(BufferID id, const wchar_t* filename, bool 
 
 	std::string fileContentSaveUAC;
 	bool uacSaveMode = false;
-	if (!UnicodeConvertor.openFile(fullpath))
+	if (!UnicodeConvertor.openFile(fullpath.c_str()))
 	{
 		if (NppParameters::getInstance().isEndSessionCritical())
 		{
@@ -1680,9 +1514,6 @@ SavingStatus FileManager::saveBuffer(BufferID id, const wchar_t* filename, bool 
 	}
 	UnicodeConvertor.closeFile();
 
-	if (isHiddenOrSys && !uacSaveMode)
-		::SetFileAttributes(fullpath, attributes.dwFileAttributes);
-
 	// Error, we didn't write the entire document to disk.
 	if (!uacSaveMode && !isWrittenSuccessful)
 	{
@@ -1692,96 +1523,7 @@ SavingStatus FileManager::saveBuffer(BufferID id, const wchar_t* filename, bool 
 
 	if (uacSaveMode)
 	{
-		// Default Windows UAC "runas" uses the same user account with elevated token,
-		// while the possible Administrator Protection (AP) mode uses a separate,
-		// system-managed administrator account, with a different SID and separate user profile.
-		// 
-		// With the possible AP mode active, we cannot assume that the current and elevated processes
-		// will have identical user SIDs. Thus we cannot use OpenProcess WINAPI with PROCESS_DUP_HANDLE
-		// higher access right in AP mode from within the elevated Notepad++ child instance
-		// (it cannot cross the security barrier in that mode).
-		// 
-		// Solution:
-		// - using of a uniquely named filemapping object instead of unnamed (that way we do not have to pass/duplicate HANDLEs)
-		// - using of a read-only DACL (owner and administrators only), set already at the creation (works both for the ordinary UAC elevations and the AP)
-		// - the same notepad++.exe module is still checked from the elevated child as before via OpenProcess, since we can drop the use of the PROCESS_DUP_HANDLE now
-
-		std::wstring onetimeGuid = CreateGuidString();
-		if (onetimeGuid.empty())
-		{
-			_pscratchTilla->execute(SCI_SETDOCPOINTER, 0, _scratchDocDefault);
-			return SavingStatus::SaveOpenFailed;
-		}
-		std::wstring uniqueMappingName = NPP_MAPPING_PREFIX + onetimeGuid;
-
-		SECURITY_ATTRIBUTES sa{};
-		PSECURITY_DESCRIPTOR pSD = nullptr;
-		if (!CreateMappingSecurityAttributes(sa, pSD))
-		{
-			_pscratchTilla->execute(SCI_SETDOCPOINTER, 0, _scratchDocDefault);
-			return SavingStatus::SaveOpenFailed;
-		}
-
-		// set mapSize to at least 1, otherwise CreateFileMappingW will fail with ERROR_FILE_INVALID
-		const size_t mapSize = (std::max)(fileContentSaveUAC.size(), static_cast<size_t>(1));
-
-		HANDLE hMap = ::CreateFileMappingW(INVALID_HANDLE_VALUE, &sa, PAGE_READWRITE,
-			static_cast<DWORD>((uint64_t)mapSize >> 32), static_cast<DWORD>(mapSize), uniqueMappingName.c_str());
-
-		const bool alreadyExists = (hMap != NULL) && (::GetLastError() == ERROR_ALREADY_EXISTS);
-
-		::LocalFree(pSD);
-		pSD = nullptr;
-
-		if (!hMap)
-		{
-			_pscratchTilla->execute(SCI_SETDOCPOINTER, 0, _scratchDocDefault);
-			 return SavingStatus::SaveOpenFailed;
-		}
-
-		if (alreadyExists) // somebody else has created an object with that name before us, do not use it
-		{
-			::CloseHandle(hMap);
-			_pscratchTilla->execute(SCI_SETDOCPOINTER, 0, _scratchDocDefault);
-			return SavingStatus::SaveOpenFailed;
-		}
-
-		void* p = ::MapViewOfFile(hMap, FILE_MAP_WRITE, 0, 0, mapSize);
-		if (!p)
-		{
-			_pscratchTilla->execute(SCI_SETDOCPOINTER, 0, _scratchDocDefault);
-			::CloseHandle(hMap);
-			return SavingStatus::SaveOpenFailed;
-		}
-
-		memcpy(p, fileContentSaveUAC.data(), fileContentSaveUAC.size());
-		::UnmapViewOfFile(p);
-		p = nullptr;
-
-
-
-		// from here on, nobody (including a same-user attacker) can obtain write access to the section
-		HANDLE hMapRO = NULL;
-		if (!::DuplicateHandle(::GetCurrentProcess(), hMap, ::GetCurrentProcess(), &hMapRO, FILE_MAP_READ, FALSE, DUPLICATE_CLOSE_SOURCE)) // DUPLICATE_CLOSE_SOURCE: destroy the writable handle hMap
-		{
-			_pscratchTilla->execute(SCI_SETDOCPOINTER, 0, _scratchDocDefault);
-			return SavingStatus::SaveOpenFailed;
-		}
-		hMap = NULL;
-
-		// elevated saving/overwriting of the original file by the help of Memory Mapped File and UAC prompt
-		// (notepad++.exe #UAC-SAVE# dest_file_path mapHandle fileContent2SaveLength)
-		std::wstring strCmdLineParams = NPP_UAC_SAVE_SIGN;
-		strCmdLineParams += L" \"";
-		strCmdLineParams += fullpath;
-		strCmdLineParams += L"\" ";
-		strCmdLineParams += std::to_wstring(fileContentSaveUAC.size()) + L" ";
-		strCmdLineParams += onetimeGuid;
-
-		DWORD dwNppUacOpError = invokeNppUacOp(strCmdLineParams);
-
-		::CloseHandle(hMapRO); // last closed handle released the mapped object memory
-		hMapRO = NULL;
+		const DWORD dwNppUacOpError = nppElevatedSave(fullpath, fileContentSaveUAC);
 
 		if (dwNppUacOpError != NO_ERROR)
 		{
@@ -1797,7 +1539,7 @@ SavingStatus FileManager::saveBuffer(BufferID id, const wchar_t* filename, bool 
 		return SavingStatus::SaveOK;	//all done - we don't change the current buffer's path to "fullpath", since it's "Save a Copy As..." action.
 	}
 
-	buffer->setFileName(fullpath);
+	buffer->setFileName(fullpath.c_str());
 
 	// if not a large file and language is normal text (not defined)
 	// we may try determine its language from its content 
@@ -1826,7 +1568,7 @@ SavingStatus FileManager::saveBuffer(BufferID id, const wchar_t* filename, bool 
 	{
 		// delete backup file
 		buffer->setBackupFileName(wstring());
-		::DeleteFile(backupFilePath.c_str());
+		QFile::remove(QString::fromStdWString(backupFilePath));
 	}
 
 	return SavingStatus::SaveOK;
@@ -1844,8 +1586,7 @@ size_t FileManager::nextUntitledNewNumber() const
 			if ((buf->_referees[0])->isVisible())
 			{
 				wstring newTitle = ((NppParameters::getInstance()).getNativeLangSpeaker())->getLocalizedStrFromID("tab-untitled-string", UNTITLED_STR);
-				wchar_t *numberStr = buf->_fileName + newTitle.length();
-				int usedNumber = _wtoi(numberStr);
+				int usedNumber = _wtoi(buf->_fileName.c_str() + newTitle.length());
 				usedNumbers.push_back(usedNumber);
 			}
 		}
@@ -1885,9 +1626,7 @@ BufferID FileManager::newEmptyDocument()
 
 	wstring newTitle = (nppParams.getNativeLangSpeaker())->getLocalizedStrFromID("tab-untitled-string", UNTITLED_STR);
 
-	wchar_t nb[10]{};
-	wsprintf(nb, L"%d", static_cast<int>(nextUntitledNewNumber()));
-	newTitle += nb;
+	newTitle += std::to_wstring(nextUntitledNewNumber());
 
 	Document doc = static_cast<Document>(_pscratchTilla->execute(SCI_CREATEDOCUMENT, 0, SC_DOCUMENTOPTION_TEXT_LARGE)); // this already sets a reference for filemanager
 	if (doc == 0) // if SCI_CREATEDOCUMENT fails, 0 is returned
@@ -2001,9 +1740,7 @@ BufferID FileManager::bufferFromDocument(Document doc, bool isMainEditZone)
 	if (isMainEditZone) // only _mainEditView or _subEditView is main edit zone, so we count new number of doc only for these 2 scintilla edit views.
 	{
 		newTitle = (nppParamInst.getNativeLangSpeaker())->getLocalizedStrFromID("tab-untitled-string", UNTITLED_STR);
-		wchar_t nb[10];
-		wsprintf(nb, L"%d", static_cast<int>(nextUntitledNewNumber()));
-		newTitle += nb;
+		newTitle += std::to_wstring(nextUntitledNewNumber());
 	}
 
 	Buffer* newBuf = new Buffer(this, _nextBufferID, doc, DOC_UNNAMED, newTitle.c_str(), false);
@@ -2137,8 +1874,8 @@ bool FileManager::loadFileData(Document doc, int64_t fileSize, const wchar_t * f
 
 	if (bufferSizeRequested > INT_MAX)
 	{
-		// As a 32bit application, we cannot allocate 2 buffer of more than INT_MAX size (it takes the whole address space).
-		if (nppParam.archType() == IMAGE_FILE_MACHINE_I386)
+		// As a 32bit application, we cannot allocate 2 buffer of more than INT_MAX size (it takes the whole address space)
+		if (sizeof(void*) == 4)
 		{
 			pNativeSpeaker->messageBox("FileTooBigToOpen",
 				_pNotepadPlus->_pEditView->getHSelf(),
@@ -2171,24 +1908,6 @@ bool FileManager::loadFileData(Document doc, int64_t fileSize, const wchar_t * f
 		}
 	}
 
-	// Check if the file is located on a network. If it is, verify the existence of the file's directory.
-	// Note: We're checking the directory's existence instead of the file itself to avoid the GetAttributesEx cache issue.
-	// Just before calling loadFileData, the doesFileExist function was called, which should return false if there's a network problem.
-	// If execution reaches here during a network connection problem, it means doesFileExist returned true incorrectly due to GetAttributesEx caching.
-	// Therefore, we avoid calling doesFileExist again and instead call doesDirectoryExist to ensure accuracy.
-	bool isNetworkDirDisconnected = false;
-	if (PathIsNetworkPath(filename))
-	{
-		wchar_t dir[MAX_PATH]{};
-		wcscpy_s(dir,filename);
-		PathRemoveFileSpec(dir);
-		isNetworkDirDisconnected = !doesDirectoryExist(dir);
-	}
-
-	if (isNetworkDirDisconnected)
-		return false; // If network ressource is not reachable, we stop here for not having hanging issue because of _wfopen
-
-
 	FILE* fp = _wfopen(filename, L"rb");
 
 	if (!fp)
@@ -2208,7 +1927,7 @@ bool FileManager::loadFileData(Document doc, int64_t fileSize, const wchar_t * f
 
 	if (fileFormat._language < L_EXTERNAL)
 	{
-		const char* lexerNameID = ScintillaEditView::_langNameInfoArray[fileFormat._language]._lexerID;
+		const char* lexerNameID = g_langNameInfoArray[fileFormat._language]._lexerID;
 		_pscratchTilla->execute(SCI_SETILEXER, 0, reinterpret_cast<LPARAM>(CreateLexer(lexerNameID)));
 	}
 	else
@@ -2226,8 +1945,8 @@ bool FileManager::loadFileData(Document doc, int64_t fileSize, const wchar_t * f
 	bool success = true;
 	EolType format = EolType::unknown;
 	int sciStatus = SC_STATUS_OK;
-	wchar_t szException[64] = {'\0'};
-	__try
+	std::wstring szException;
+	try
 	{
 		// First allocate enough memory for the whole file (this will reduce memory copy during loading)
 		_pscratchTilla->execute(SCI_ALLOCATE, WPARAM(bufferSizeRequested));
@@ -2238,19 +1957,13 @@ bool FileManager::loadFileData(Document doc, int64_t fileSize, const wchar_t * f
 		if (!copyFileContentToScintilla(_pscratchTilla, fp, data, fileSize, unicodeConvertor, fileFormat, format, sciStatus, DocumentFillPolicy::forEditing()))
 			success = false;
 	}
-	__except (EXCEPTION_EXECUTE_HANDLER)
+	catch (...)
 	{
 		switch (sciStatus)
 		{
 			case SC_STATUS_OK:
 				// either the Scintilla doesn't catch this exception or the error is in the Notepad++ code, report the exception anyway
-#if defined(__GNUC__)
-				// there is the std::current_exception() possibility, but getting the real exception code from there requires an ugly hack,
-				// because of the std::exception_ptr has its members _Data1 (GetExceptionCode) and _Data2 (GetExceptionInformation) private
-				::swprintf_s(szException, _countof(szException), L"unknown exception");
-#else
-				::swprintf_s(szException, _countof(szException), L"0x%X (SEH)", ::GetExceptionCode());
-#endif
+				szException = L"unknown exception";
 				break;
 			case SC_STATUS_BADALLOC:
 			{
@@ -2263,7 +1976,7 @@ bool FileManager::loadFileData(Document doc, int64_t fileSize, const wchar_t * f
 			[[fallthrough]];
 			case SC_STATUS_FAILURE:
 			default:
-				::swprintf_s(szException, _countof(szException), L"%d (Scintilla)", sciStatus);
+				szException = std::to_wstring(sciStatus) + L" (Scintilla)";
 				break;
 		}
 
@@ -2275,7 +1988,7 @@ bool FileManager::loadFileData(Document doc, int64_t fileSize, const wchar_t * f
 				L"Exception code: $STR_REPLACE$",
 				MB_OK | MB_APPLMODAL,
 				0,
-				szException);
+				szException.c_str());
 		}
 		success = false;
 	}
@@ -2416,12 +2129,10 @@ bool FileManager::copyFileContentToScintilla(ScintillaEditView* ingestView, FILE
 				}
 				else // if (uniMode == uni8Bit)
 				{
-					WcharMbcsConvertor& wmc = WcharMbcsConvertor::getInstance();
-					int newDataLen = 0;
-					fileFormat._encoding = nppParamInst.defaultCodepage();
-
-					const char* newData = wmc.encode(fileFormat._encoding, SC_CP_UTF8, data, static_cast<int32_t>(lenFile), &newDataLen, &incompleteMultibyteChar);
-					ingestView->execute(SCI_APPENDTEXT, newDataLen, reinterpret_cast<LPARAM>(newData));
+					// Windows converts from the code page the system had before UTF-8, but here the system's code page has always been UTF-8.
+					// So the text opens as UTF-8, with its bytes as they are, and saves back unchanged.
+					fileFormat._encoding = SC_CP_UTF8;
+					ingestView->execute(SCI_APPENDTEXT, lenFile, reinterpret_cast<LPARAM>(data));
 
 					if (format == EolType::unknown)
 						format = getEOLFormatForm(data, lenFile, EolType::unknown);
@@ -2474,23 +2185,20 @@ SearchLoadResult FileManager::loadFileContentForSearch(const SearchFillRequest& 
 	{
 		WIN32_FILE_ATTRIBUTE_DATA attributes{};
 		attributes.dwFileAttributes = INVALID_FILE_ATTRIBUTES;
-		if (!::GetFileAttributesExW(request._path, GetFileExInfoStandard, &attributes)
+		if (!getFileAttributesExWithTimeout(request._path, &attributes)
 			|| (attributes.dwFileAttributes == INVALID_FILE_ATTRIBUTES)
 			|| (attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
 		{
 			return result;
 		}
 
-		LARGE_INTEGER size{};
-		size.LowPart = attributes.nFileSizeLow;
-		size.HighPart = attributes.nFileSizeHigh;
-		fileSize = size.QuadPart;
+		fileSize = fileSizeOf(attributes);
 	}
 
 	NppParameters& nppParam = NppParameters::getInstance();
 	if ((fileSize + std::min<int64_t>(1LL << 20, fileSize / 6)) > INT_MAX)
 	{
-		if (nppParam.archType() == IMAGE_FILE_MACHINE_I386)
+		if (sizeof(void*) == 4)
 			return result;
 	}
 
@@ -2557,7 +2265,7 @@ BufferID FileManager::getBufferFromName(const wchar_t* name)
 {
 	for (auto buf : _buffers)
 	{
-		if (_wcsicmp(name, buf->getFullPathName()) == 0)
+		if (std::wcscmp(name, buf->getFullPathName()) == 0) // file names are case-sensitive here
 		{
 			if (!(buf->_referees.empty()) && buf->_referees[0]->isVisible())
 			{
@@ -2589,12 +2297,7 @@ bool FileManager::createEmptyFile(const wchar_t* path)
 			return false;
 
 		// ERROR_ACCESS_DENIED, try the same but elevated
-		// (notepad++.exe #UAC-CREATEEMPTYFILE# new_empty_file_path)
-		wstring strCmdLineParams = NPP_UAC_CREATEEMPTYFILE_SIGN;
-		strCmdLineParams += L" \"";
-		strCmdLineParams += path;
-		strCmdLineParams += L"\"";
-		DWORD dwNppUacOpError = invokeNppUacOp(strCmdLineParams);
+		const DWORD dwNppUacOpError = nppElevatedCreateEmptyFile(path);
 		if (dwNppUacOpError != NO_ERROR)
 			return false;
 	}
@@ -2637,4 +2340,24 @@ void FileManager::removeHotSpot(Buffer* buffer) const
 	_pscratchTilla->execute(SCI_INDICATORCLEARRANGE, 0, docLen);
 
 	_pscratchTilla->execute(SCI_SETDOCPOINTER, 0, curDoc);
+}
+
+bool buf2Clipboard(const std::vector<Buffer*>& buffers, bool isFullPath, HWND hwnd)
+{
+	const std::wstring crlf = L"\r\n";
+	std::wstring selection;
+	for (auto&& buf : buffers)
+	{
+		if (buf)
+		{
+			const wchar_t* fileName = isFullPath ? buf->getFullPathName() : buf->getFileName();
+			if (fileName)
+				selection += fileName;
+		}
+		if (!selection.empty() && !selection.ends_with(crlf))
+			selection += crlf;
+	}
+	if (!selection.empty())
+		return str2Clipboard(selection, hwnd);
+	return false;
 }

@@ -448,8 +448,8 @@ BEGIN
         MENUITEM "&Open...",                         IDM_FILE_OPEN
         POPUP "Open Containing &Folder"
         BEGIN
-            MENUITEM "Explorer",       IDM_FILE_OPEN_FOLDER
-            MENUITEM "cmd",            IDM_FILE_OPEN_CMD
+            MENUITEM "File Manager",       IDM_FILE_OPEN_FOLDER
+            MENUITEM "Terminal",            IDM_FILE_OPEN_CMD
             MENUITEM "PowerShell",     IDM_FILE_OPEN_POWERSHELL
             MENUITEM SEPARATOR
             MENUITEM "Folder as Workspace", IDM_FILE_CONTAININGFOLDERASWORKSPACE
@@ -606,7 +606,7 @@ BEGIN
         POPUP "&On Selection"
         BEGIN
             MENUITEM "Open File", IDM_EDIT_OPENSELECTEDFILETOEDIT
-            MENUITEM "Open Containing Folder in Explorer", IDM_EDIT_OPENSELECTEDFILEFOLDERINEXPLORER
+            MENUITEM "Open Containing Folder in File Manager", IDM_EDIT_OPENSELECTEDFILEFOLDERINEXPLORER
             MENUITEM SEPARATOR
             MENUITEM "&Redact Selection █ (Shift: ●)", IDM_EDIT_REDACT_SELECTION
             MENUITEM SEPARATOR
@@ -642,7 +642,7 @@ BEGIN
             MENUITEM "Read-Only for All Documents",       IDM_EDIT_SETREADONLYFORALLDOCS
             MENUITEM "Clear Read-Only for All Documents", IDM_EDIT_CLEARREADONLYFORALLDOCS
         END
-        MENUITEM "Read-Only Attribute in Windows",    IDM_EDIT_TOGGLESYSTEMREADONLY
+        MENUITEM "Read-Only File Attribute",    IDM_EDIT_TOGGLESYSTEMREADONLY
     END
 
     POPUP "&Search"

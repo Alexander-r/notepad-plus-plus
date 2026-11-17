@@ -17,12 +17,10 @@
 
 #pragma once
 
-#include <windows.h>
-
 #include <vector>
 
 #include "Buffer.h"
-#include "ImageListSet.h"
+#include "IconList.h"
 #include "NppConstants.h"
 #include "ScintillaEditView.h"
 #include "TabBar.h"
@@ -37,14 +35,8 @@ public:
 
 	void init(HINSTANCE hInst, HWND parent, ScintillaEditView * pView, unsigned char indexChoice, unsigned char buttonsStatus);
 
-	void createIconSets();
-
-	void changeIconSet(unsigned char choice) {
-		if (choice >= _pIconListVector.size())
-			return;
-		_iconListIndexChoice = choice;
-		TabBar::setImageList(_pIconListVector[_iconListIndexChoice]->getHandle());
-	}
+	void changeIconSet(unsigned char choice);
+	const IconList* iconList(int choice) const { return (choice >= 0 && static_cast<size_t>(choice) < _iconSets.size()) ? &_iconSets[choice] : nullptr; }
 
 	void addBuffer(BufferID buffer);
 	void closeBuffer(BufferID buffer);
@@ -60,22 +52,17 @@ public:
 
 	void setBuffer(size_t index, BufferID id);
 
-	void reSizeTo(RECT & rc) override;
+	void resizeIconsDpi() {} // Qt scales icons
 
-	void resizeIconsDpi() {
-		UINT newSize = dpiManager().scale(g_TabIconSize);
-		for (const IconList* const& i : _pIconListVector)
-		{
-			ImageList_SetIconSize(i->getHandle(), newSize, newSize);
-		}
+	// The tab bar above its editor
+	HWND paneWidget() const override { return _pane; }
 
-		createIconSets();
+	// Shows or hides the whole view
+	void display(bool toShow = true) const override;
+	bool isVisible() const override { return _pane && _pane->isVisible(); }
 
-		if (_iconListIndexChoice < 0 || static_cast<size_t>(_iconListIndexChoice) >= _pIconListVector.size())
-			_iconListIndexChoice = 0;
-
-		TabBar::setImageList(_pIconListVector[_iconListIndexChoice]->getHandle());
-	}
+	// Applies the "hide tab bar" option, which leaves the editor showing
+	void syncTabBarVisibility() const;
 
 	const ScintillaEditView* getScintillaEditView() const {
 		return _pView;
@@ -83,22 +70,14 @@ public:
 
 	static void setIndividualTabColour(BufferID bufferId, int colorId);
 	int getIndividualTabColourId(int tabIndex) override;
-	
-	HIMAGELIST getImgLst(UINT index) {
-		if (index >= _pIconListVector.size())
-			index = 0;
-		return _pIconListVector[index]->getHandle();
-	}
+	bool isTabPinned(int tabIndex) override;
 
 private :
 	ScintillaEditView *_pView = nullptr;
+	HWND _pane = nullptr;
 
-	IconList _docTabIconList;
-	IconList _docTabIconListAlt;
-	IconList _docTabIconListDarkMode;
-
-	std::vector<IconList *> _pIconListVector;
-	int _iconListIndexChoice = -1;
+	std::vector<IconList> _iconSets;
+	size_t _iconSetChoice = 0;
 
 	using TabBarPlus::init;
 };

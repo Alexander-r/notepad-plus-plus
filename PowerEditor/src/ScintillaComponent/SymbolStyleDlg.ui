@@ -1,0 +1,604 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SymbolStyleDlg</class>
+ <widget class="QWidget" name="SymbolStyleDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>699</width><height>674</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QGroupBox" name="operatorDescgroupStatic">
+     <property name="nppId" stdset="0"><number>24101</number></property>
+     <property name="title"><string>Operators style</string></property>
+     <layout class="QVBoxLayout" name="layout2">
+      <item>
+       <layout class="QHBoxLayout" name="layout3">
+        <item>
+         <widget class="QPushButton" name="operatorStyler">
+          <property name="nppId" stdset="0"><number>24113</number></property>
+          <property name="text"><string>Styler</string></property>
+          <property name="autoDefault"><bool>false</bool></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer4">
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="layout5">
+        <item row="0" column="0">
+         <widget class="QLabel" name="operator1Static">
+          <property name="nppId" stdset="0"><number>24116</number></property>
+          <property name="text"><string>Operators 1</string></property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLabel" name="operator2Static">
+          <property name="nppId" stdset="0"><number>24117</number></property>
+          <property name="text"><string>Operators 2 (separators required)</string></property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QPlainTextEdit" name="operator1Edit">
+          <property name="nppId" stdset="0"><number>24114</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QPlainTextEdit" name="operator2Edit">
+          <property name="nppId" stdset="0"><number>24115</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <layout class="QGridLayout" name="layout6">
+     <item row="0" column="0">
+      <widget class="QGroupBox" name="delimiter1DescgroupStatic">
+       <property name="nppId" stdset="0"><number>24201</number></property>
+       <property name="title"><string>Delimiter 1 style</string></property>
+       <layout class="QVBoxLayout" name="layout7">
+        <item>
+         <layout class="QHBoxLayout" name="layout8">
+          <item>
+           <widget class="QPushButton" name="delimiter1Styler">
+            <property name="nppId" stdset="0"><number>24223</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer9">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QGridLayout" name="layout10">
+          <item row="0" column="0">
+           <widget class="QLabel" name="delimiter1BoundaryopenStatic">
+            <property name="nppId" stdset="0"><number>24220</number></property>
+            <property name="text"><string>Open:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLabel" name="delimiter1EscapeStatic">
+            <property name="nppId" stdset="0"><number>24221</number></property>
+            <property name="text"><string>Escape:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="2">
+           <widget class="QLabel" name="delimiter1BoundarycloseStatic">
+            <property name="nppId" stdset="0"><number>24222</number></property>
+            <property name="text"><string>Close:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QPlainTextEdit" name="delimiter1BoundaryopenEdit">
+            <property name="nppId" stdset="0"><number>24217</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QPlainTextEdit" name="delimiter1EscapeEdit">
+            <property name="nppId" stdset="0"><number>24218</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QPlainTextEdit" name="delimiter1BoundarycloseEdit">
+            <property name="nppId" stdset="0"><number>24219</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="0" column="1">
+      <widget class="QGroupBox" name="delimiter2DescgroupStatic">
+       <property name="nppId" stdset="0"><number>24301</number></property>
+       <property name="title"><string>Delimiter 2 style</string></property>
+       <layout class="QVBoxLayout" name="layout11">
+        <item>
+         <layout class="QHBoxLayout" name="layout12">
+          <item>
+           <widget class="QPushButton" name="delimiter2Styler">
+            <property name="nppId" stdset="0"><number>24323</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer13">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QGridLayout" name="layout14">
+          <item row="0" column="0">
+           <widget class="QLabel" name="delimiter2BoundaryopenStatic">
+            <property name="nppId" stdset="0"><number>24320</number></property>
+            <property name="text"><string>Open:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLabel" name="delimiter2EscapeStatic">
+            <property name="nppId" stdset="0"><number>24321</number></property>
+            <property name="text"><string>Escape:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="2">
+           <widget class="QLabel" name="delimiter2BoundarycloseStatic">
+            <property name="nppId" stdset="0"><number>24322</number></property>
+            <property name="text"><string>Close:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QPlainTextEdit" name="delimiter2BoundaryopenEdit">
+            <property name="nppId" stdset="0"><number>24317</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QPlainTextEdit" name="delimiter2EscapeEdit">
+            <property name="nppId" stdset="0"><number>24318</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QPlainTextEdit" name="delimiter2BoundarycloseEdit">
+            <property name="nppId" stdset="0"><number>24319</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="1" column="0">
+      <widget class="QGroupBox" name="delimiter3DescgroupStatic">
+       <property name="nppId" stdset="0"><number>24401</number></property>
+       <property name="title"><string>Delimiter 3 style</string></property>
+       <layout class="QVBoxLayout" name="layout15">
+        <item>
+         <layout class="QHBoxLayout" name="layout16">
+          <item>
+           <widget class="QPushButton" name="delimiter3Styler">
+            <property name="nppId" stdset="0"><number>24423</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer17">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QGridLayout" name="layout18">
+          <item row="0" column="0">
+           <widget class="QLabel" name="delimiter3BoundaryopenStatic">
+            <property name="nppId" stdset="0"><number>24420</number></property>
+            <property name="text"><string>Open:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLabel" name="delimiter3EscapeStatic">
+            <property name="nppId" stdset="0"><number>24421</number></property>
+            <property name="text"><string>Escape:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="2">
+           <widget class="QLabel" name="delimiter3BoundarycloseStatic">
+            <property name="nppId" stdset="0"><number>24422</number></property>
+            <property name="text"><string>Close:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QPlainTextEdit" name="delimiter3BoundaryopenEdit">
+            <property name="nppId" stdset="0"><number>24417</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QPlainTextEdit" name="delimiter3EscapeEdit">
+            <property name="nppId" stdset="0"><number>24418</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QPlainTextEdit" name="delimiter3BoundarycloseEdit">
+            <property name="nppId" stdset="0"><number>24419</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <widget class="QGroupBox" name="delimiter4DescgroupStatic">
+       <property name="nppId" stdset="0"><number>24451</number></property>
+       <property name="title"><string>Delimiter 4 style</string></property>
+       <layout class="QVBoxLayout" name="layout19">
+        <item>
+         <layout class="QHBoxLayout" name="layout20">
+          <item>
+           <widget class="QPushButton" name="delimiter4Styler">
+            <property name="nppId" stdset="0"><number>24473</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer21">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QGridLayout" name="layout22">
+          <item row="0" column="0">
+           <widget class="QLabel" name="delimiter4BoundaryopenStatic">
+            <property name="nppId" stdset="0"><number>24470</number></property>
+            <property name="text"><string>Open:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLabel" name="delimiter4EscapeStatic">
+            <property name="nppId" stdset="0"><number>24471</number></property>
+            <property name="text"><string>Escape:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="2">
+           <widget class="QLabel" name="delimiter4BoundarycloseStatic">
+            <property name="nppId" stdset="0"><number>24472</number></property>
+            <property name="text"><string>Close:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QPlainTextEdit" name="delimiter4BoundaryopenEdit">
+            <property name="nppId" stdset="0"><number>24467</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QPlainTextEdit" name="delimiter4EscapeEdit">
+            <property name="nppId" stdset="0"><number>24468</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QPlainTextEdit" name="delimiter4BoundarycloseEdit">
+            <property name="nppId" stdset="0"><number>24469</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="2" column="0">
+      <widget class="QGroupBox" name="delimiter5DescgroupStatic">
+       <property name="nppId" stdset="0"><number>24501</number></property>
+       <property name="title"><string>Delimiter 5 style</string></property>
+       <layout class="QVBoxLayout" name="layout23">
+        <item>
+         <layout class="QHBoxLayout" name="layout24">
+          <item>
+           <widget class="QPushButton" name="delimiter5Styler">
+            <property name="nppId" stdset="0"><number>24523</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer25">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QGridLayout" name="layout26">
+          <item row="0" column="0">
+           <widget class="QLabel" name="delimiter5BoundaryopenStatic">
+            <property name="nppId" stdset="0"><number>24520</number></property>
+            <property name="text"><string>Open:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLabel" name="delimiter5EscapeStatic">
+            <property name="nppId" stdset="0"><number>24521</number></property>
+            <property name="text"><string>Escape:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="2">
+           <widget class="QLabel" name="delimiter5BoundarycloseStatic">
+            <property name="nppId" stdset="0"><number>24522</number></property>
+            <property name="text"><string>Close:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QPlainTextEdit" name="delimiter5BoundaryopenEdit">
+            <property name="nppId" stdset="0"><number>24517</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QPlainTextEdit" name="delimiter5EscapeEdit">
+            <property name="nppId" stdset="0"><number>24518</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QPlainTextEdit" name="delimiter5BoundarycloseEdit">
+            <property name="nppId" stdset="0"><number>24519</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="2" column="1">
+      <widget class="QGroupBox" name="delimiter6DescgroupStatic">
+       <property name="nppId" stdset="0"><number>24551</number></property>
+       <property name="title"><string>Delimiter 6 style</string></property>
+       <layout class="QVBoxLayout" name="layout27">
+        <item>
+         <layout class="QHBoxLayout" name="layout28">
+          <item>
+           <widget class="QPushButton" name="delimiter6Styler">
+            <property name="nppId" stdset="0"><number>24573</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer29">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QGridLayout" name="layout30">
+          <item row="0" column="0">
+           <widget class="QLabel" name="delimiter6BoundaryopenStatic">
+            <property name="nppId" stdset="0"><number>24570</number></property>
+            <property name="text"><string>Open:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLabel" name="delimiter6EscapeStatic">
+            <property name="nppId" stdset="0"><number>24571</number></property>
+            <property name="text"><string>Escape:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="2">
+           <widget class="QLabel" name="delimiter6BoundarycloseStatic">
+            <property name="nppId" stdset="0"><number>24572</number></property>
+            <property name="text"><string>Close:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QPlainTextEdit" name="delimiter6BoundaryopenEdit">
+            <property name="nppId" stdset="0"><number>24567</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QPlainTextEdit" name="delimiter6EscapeEdit">
+            <property name="nppId" stdset="0"><number>24568</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QPlainTextEdit" name="delimiter6BoundarycloseEdit">
+            <property name="nppId" stdset="0"><number>24569</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="3" column="0">
+      <widget class="QGroupBox" name="delimiter7DescgroupStatic">
+       <property name="nppId" stdset="0"><number>24601</number></property>
+       <property name="title"><string>Delimiter 7 style</string></property>
+       <layout class="QVBoxLayout" name="layout31">
+        <item>
+         <layout class="QHBoxLayout" name="layout32">
+          <item>
+           <widget class="QPushButton" name="delimiter7Styler">
+            <property name="nppId" stdset="0"><number>24623</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer33">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QGridLayout" name="layout34">
+          <item row="0" column="0">
+           <widget class="QLabel" name="delimiter7BoundaryopenStatic">
+            <property name="nppId" stdset="0"><number>24620</number></property>
+            <property name="text"><string>Open:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLabel" name="delimiter7EscapeStatic">
+            <property name="nppId" stdset="0"><number>24621</number></property>
+            <property name="text"><string>Escape:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="2">
+           <widget class="QLabel" name="delimiter7BoundarycloseStatic">
+            <property name="nppId" stdset="0"><number>24622</number></property>
+            <property name="text"><string>Close:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QPlainTextEdit" name="delimiter7BoundaryopenEdit">
+            <property name="nppId" stdset="0"><number>24617</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QPlainTextEdit" name="delimiter7EscapeEdit">
+            <property name="nppId" stdset="0"><number>24618</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QPlainTextEdit" name="delimiter7BoundarycloseEdit">
+            <property name="nppId" stdset="0"><number>24619</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="3" column="1">
+      <widget class="QGroupBox" name="delimiter8DescgroupStatic">
+       <property name="nppId" stdset="0"><number>24651</number></property>
+       <property name="title"><string>Delimiter 8 style</string></property>
+       <layout class="QVBoxLayout" name="layout35">
+        <item>
+         <layout class="QHBoxLayout" name="layout36">
+          <item>
+           <widget class="QPushButton" name="delimiter8Styler">
+            <property name="nppId" stdset="0"><number>24673</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer37">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QGridLayout" name="layout38">
+          <item row="0" column="0">
+           <widget class="QLabel" name="delimiter8BoundaryopenStatic">
+            <property name="nppId" stdset="0"><number>24670</number></property>
+            <property name="text"><string>Open:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLabel" name="delimiter8EscapeStatic">
+            <property name="nppId" stdset="0"><number>24671</number></property>
+            <property name="text"><string>Escape:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="2">
+           <widget class="QLabel" name="delimiter8BoundarycloseStatic">
+            <property name="nppId" stdset="0"><number>24672</number></property>
+            <property name="text"><string>Close:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QPlainTextEdit" name="delimiter8BoundaryopenEdit">
+            <property name="nppId" stdset="0"><number>24667</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QPlainTextEdit" name="delimiter8EscapeEdit">
+            <property name="nppId" stdset="0"><number>24668</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QPlainTextEdit" name="delimiter8BoundarycloseEdit">
+            <property name="nppId" stdset="0"><number>24669</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <spacer name="spacer39">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

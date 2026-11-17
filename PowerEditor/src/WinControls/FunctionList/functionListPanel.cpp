@@ -16,9 +16,26 @@
 
 #include "json.hpp"
 #include "functionListPanel.h"
+
+#include <QAction>
+#include <QDialog>
+#include <QHBoxLayout>
+#include <QKeyEvent>
+#include <QLineEdit>
+#include <QMenu>
+#include <QScrollBar>
+#include <QShortcut>
+#include <QToolButton>
+#include <QTreeWidget>
+#include <QVBoxLayout>
+
+#include <fstream>
+
+#include <json.hpp>
+
+#include "NppResources.h"
 #include "ScintillaEditView.h"
 #include "localization.h"
-#include <fstream>
 
 using nlohmann::json;
 using namespace std;
@@ -35,21 +52,16 @@ FunctionListPanel::~FunctionListPanel()
 	{
 		delete s;
 	}
+}
 
-	if (_hFontSearchEdit != nullptr)
-	{
-		::DeleteObject(_hFontSearchEdit);
-		_hFontSearchEdit = nullptr;
-	}
+QString FunctionListPanel::searchText() const
+{
+	return _hSearchEdit->text();
+}
 
-	for (auto hImgList : _iconListVector)
-	{
-		if (hImgList != nullptr)
-		{
-			::ImageList_Destroy(hImgList);
-		}
-	}
-	_iconListVector.clear();
+void FunctionListPanel::setSearchText(const std::wstring& text)
+{
+	_hSearchEdit->setText(QString::fromStdWString(text));
 }
 
 void FunctionListPanel::addEntry(const wchar_t *nodeName, const wchar_t *displayText, size_t pos)
@@ -127,10 +139,9 @@ void FunctionListPanel::sortOrUnsort()
 		_pTreeView->sort(_pTreeView->getRoot(), true);
 	else
 	{
-		wchar_t text2search[MAX_PATH] = { '\0' };
-		::SendMessage(_hSearchEdit, WM_GETTEXT, MAX_PATH, reinterpret_cast<LPARAM>(text2search));
+		const wstring text2search = searchText().toStdWString();
 
-		if (text2search[0] == '\0') // main view
+		if (text2search.empty()) // main view
 		{
 			_pTreeView->customSorting(_pTreeView->getRoot(), categorySortFunc, 0, true);
 		}
@@ -246,12 +257,8 @@ bool FunctionListPanel::serialize(const wstring & outputFilename)
 
 void FunctionListPanel::reload()
 {
-	bool isScrollBarOn = GetWindowLongPtr(_treeView.getHSelf(), GWL_STYLE) & WS_VSCROLL;
 	//get scroll position
-	if (isScrollBarOn)
-	{
-		GetScrollInfo(_treeView.getHSelf(), SB_VERT, &si);
-	}
+	const int scrollPosition = _treeView.tree()->verticalScrollBar()->value();
 
 	// clean up
 	_findLine = -1;
@@ -260,13 +267,11 @@ void FunctionListPanel::reload()
 	bool isOK = _treeView.retrieveFoldingStateTo(currentTree, _treeView.getRoot());
 	if (isOK)
 	{
-		wchar_t text2Search[MAX_PATH] = { '\0' };
-		::SendMessage(_hSearchEdit, WM_GETTEXT, MAX_PATH, reinterpret_cast<LPARAM>(text2Search));
 		bool isSorted =  shouldSort();
-		addInStateArray(currentTree, text2Search, isSorted);
+		addInStateArray(currentTree, searchText().toStdWString().c_str(), isSorted);
 	}
 	removeAllEntries();
-	::SendMessage(_hSearchEdit, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(L""));
+	setSearchText(L"");
 	setSort(false);
 
 	_foundFuncInfos.clear();
@@ -317,14 +322,14 @@ void FunctionListPanel::reload()
 		TreeParams *previousParams = getFromStateArray(fullFilePath);
 		if (!previousParams)
 		{
-			::SendMessage(_hSearchEdit, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(L""));
+			setSearchText(L"");
 			setSort(NppParameters::getInstance().getNppGUI()._shouldSortFunctionList);
 			sortOrUnsort();
 			_treeView.expand(root);
 		}
 		else
 		{
-			::SendMessage(_hSearchEdit, WM_SETTEXT, 0, reinterpret_cast<LPARAM>((previousParams->_searchParameters)._text2Find.c_str()));
+			setSearchText((previousParams->_searchParameters)._text2Find);
 
 			bool isSort = (previousParams->_searchParameters)._doSort;
 			setSort(isSort);
@@ -335,40 +340,24 @@ void FunctionListPanel::reload()
 		}
 	}
 
-	// invalidate the editor rect
-	::InvalidateRect(_hSearchEdit, NULL, TRUE);
+	updateSearchEditColor();
 
 	//set scroll position
-	if (isScrollBarOn)
-	{
-		SetScrollInfo(_treeView.getHSelf(), SB_VERT, &si, TRUE);
-	}
+	_treeView.tree()->verticalScrollBar()->setValue(scrollPosition);
 }
 
 void FunctionListPanel::initPreferencesMenu()
 {
 	NativeLangSpeaker* pNativeSpeaker = NppParameters::getInstance().getNativeLangSpeaker();
-	const NppGUI& nppGUI = NppParameters::getInstance().getNppGUI();
+	NppGUI& nppGUI = NppParameters::getInstance().getNppGUI();
 
 	wstring shouldSortFunctionListStr = pNativeSpeaker->getAttrNameStr(L"Sort functions (A to Z) by default", FL_FUNCTIONLISTROOTNODE, FL_PREFERENCE_INITIALSORT);
 
-	_hPreferencesMenu = ::CreatePopupMenu();
-	::InsertMenu(_hPreferencesMenu, 0, MF_BYCOMMAND, FL_PREFERENCES_INITIALSORT_ID, shouldSortFunctionListStr.c_str());
-	::CheckMenuItem(_hPreferencesMenu, FL_PREFERENCES_INITIALSORT_ID, MF_BYCOMMAND | (nppGUI._shouldSortFunctionList ? MF_CHECKED : MF_UNCHECKED));
-}
-
-void FunctionListPanel::showPreferencesMenu()
-{
-	RECT rectToolbar{};
-	RECT rectPreferencesButton{};
-	::GetWindowRect(_hToolbarMenu, &rectToolbar);
-	::SendMessage(_hToolbarMenu, TB_GETRECT, IDC_PREFERENCEBUTTON_FUNCLIST, reinterpret_cast<LPARAM>(&rectPreferencesButton));
-
-	::TrackPopupMenu(_hPreferencesMenu,
-		NppParameters::getInstance().getNativeLangSpeaker()->isRTL() ? TPM_RIGHTALIGN | TPM_LAYOUTRTL : TPM_LEFTALIGN,
-		rectToolbar.left + rectPreferencesButton.left,
-		rectToolbar.top + rectPreferencesButton.bottom,
-		0, _hSelf, NULL);
+	_hPreferencesMenu = std::make_unique<QMenu>();
+	QAction* action = _hPreferencesMenu->addAction(QString::fromStdWString(shouldSortFunctionListStr));
+	action->setCheckable(true);
+	action->setChecked(nppGUI._shouldSortFunctionList);
+	QObject::connect(action, &QAction::toggled, _hSelf, [&nppGUI](bool isOn) { nppGUI._shouldSortFunctionList = isOn; });
 }
 
 void FunctionListPanel::markEntry()
@@ -394,7 +383,6 @@ void FunctionListPanel::markEntry()
 void FunctionListPanel::findMarkEntry(HTREEITEM htItem, LONG line)
 {
 	HTREEITEM cItem{};
-	TVITEM tvItem{};
 	for (; htItem != NULL; htItem = _treeView.getNextSibling(htItem))
 	{
 		cItem = _treeView.getChildFrom(htItem);
@@ -404,11 +392,7 @@ void FunctionListPanel::findMarkEntry(HTREEITEM htItem, LONG line)
 		}
 		else
 		{
-			tvItem.hItem = htItem;
-			tvItem.mask = TVIF_IMAGE | TVIF_PARAM;
-			::SendMessage(_treeViewSearchResult.getHSelf(), TVM_GETITEM, 0, reinterpret_cast<LPARAM>(&tvItem));
-
-			wstring *posStr = reinterpret_cast<wstring *>(tvItem.lParam);
+			wstring *posStr = reinterpret_cast<wstring *>(_treeView.getItemParam(htItem));
 			if (posStr)
 			{
 				int pos = _wtoi(posStr->c_str());
@@ -454,7 +438,6 @@ void FunctionListPanel::init(HINSTANCE hInst, HWND hPere, ScintillaEditView **pp
 		{
 			if (doesDirectoryExist(funcListDefaultXmlPath.c_str()))
 			{
-				::CopyFile(funcListDefaultXmlPath.c_str(), funcListXmlPath.c_str(), TRUE);
 				_funcParserMgr.init(funcListXmlPath, funcListDefaultXmlPath, ppEditView);
 			}
 		}
@@ -470,26 +453,18 @@ void FunctionListPanel::init(HINSTANCE hInst, HWND hPere, ScintillaEditView **pp
 			_funcParserMgr.init(funcListDefaultXmlPath, funcListDefaultXmlPath, ppEditView);
 		}
 	}
-
-	//init scrollinfo structure
-	ZeroMemory(&si, sizeof(si));
-	si.cbSize = sizeof(si);
-	si.fMask = SIF_POS;
 }
 
 bool FunctionListPanel::openSelection(const TreeView & treeView)
 {
-	TVITEM tvItem{};
-	tvItem.mask = TVIF_IMAGE | TVIF_PARAM;
-	tvItem.hItem = treeView.getSelection();
-	::SendMessage(treeView.getHSelf(), TVM_GETITEM, 0, reinterpret_cast<LPARAM>(&tvItem));
-
-	if (tvItem.iImage == INDEX_ROOT || tvItem.iImage == INDEX_NODE)
+	const HTREEITEM selection = treeView.getSelection();
+	const int image = treeView.getItemImage(selection);
+	if (!selection || image == INDEX_ROOT || image == INDEX_NODE)
 	{
 		return false;
 	}
 
-	wstring *posStr = reinterpret_cast<wstring *>(tvItem.lParam);
+	wstring *posStr = reinterpret_cast<wstring *>(treeView.getItemParam(selection));
 	if (!posStr)
 		return false;
 
@@ -504,87 +479,63 @@ bool FunctionListPanel::openSelection(const TreeView & treeView)
 	return true;
 }
 
-void FunctionListPanel::notified(LPNMHDR notification)
+void FunctionListPanel::focusOnEditor() const
 {
-	if (notification->code == TTN_GETDISPINFO)
-	{
-		LPTOOLTIPTEXT lpttt = (LPTOOLTIPTEXT)notification;
-		lpttt->hinst = NULL;
+	::PostMessage(_hParent, WM_COMMAND, SCEN_SETFOCUS << 16, reinterpret_cast<LPARAM>((*_ppEditView)->getHSelf()));
+}
 
-		if (notification->idFrom == IDC_SORTBUTTON_FUNCLIST)
-		{
-			wcscpy_s(lpttt->szText, _sortTipStr.c_str());
-		}
-		else if (notification->idFrom == IDC_RELOADBUTTON_FUNCLIST)
-		{
-			wcscpy_s(lpttt->szText, _reloadTipStr.c_str());
-		}
-		else if (notification->idFrom == IDC_PREFERENCEBUTTON_FUNCLIST)
-		{
-			wcscpy_s(lpttt->szText, _preferenceTipStr.c_str());
-		}
+void FunctionListPanel::onReturnKey(const TreeView& treeView)
+{
+	if (!openSelection(treeView))
+	{
+		treeView.toggleExpandCollapse(treeView.getSelection());
+		return;
 	}
-	else if (notification->hwndFrom == _treeView.getHSelf() || notification->hwndFrom == _treeViewSearchResult.getHSelf())
+	focusOnEditor();
+}
+
+void FunctionListPanel::connectTree(TreeView& treeView)
+{
+	QTreeWidget* tree = treeView.tree();
+	TreeView* pTree = &treeView;
+
+	tree->setExpandsOnDoubleClick(true);
+	QObject::connect(tree, &QTreeWidget::itemDoubleClicked, _hSelf, [this, pTree]()
 	{
-		const TreeView & treeView = notification->hwndFrom == _treeView.getHSelf()?_treeView:_treeViewSearchResult;
-		switch (notification->code)
-		{
-			case NM_DBLCLK:
-			{
-				openSelection(treeView);
-				PostMessage(_hParent, WM_COMMAND, SCEN_SETFOCUS << 16, reinterpret_cast<LPARAM>((*_ppEditView)->getHSelf()));
-			}
-			break;
+		if (openSelection(*pTree))
+			focusOnEditor();
+	});
 
-			case NM_RETURN:
-				SetWindowLongPtr(_hSelf, DWLP_MSGRESULT, 1); // remove beep
-			break;
-
-			case TVN_KEYDOWN:
-			{
-				const auto ptvkd = reinterpret_cast<LPNMTVKEYDOWN>(notification);
-
-				if (ptvkd->wVKey == VK_RETURN)
-				{
-					if (!openSelection(treeView))
-					{
-						HTREEITEM hItem = treeView.getSelection();
-						treeView.toggleExpandCollapse(hItem);
-						break;
-					}
-					PostMessage(_hParent, WM_COMMAND, SCEN_SETFOCUS << 16, reinterpret_cast<LPARAM>((*_ppEditView)->getHSelf()));
-				}
-				else if (ptvkd->wVKey == VK_TAB)
-				{
-					::SetFocus(_hSearchEdit);
-					SetWindowLongPtr(_hSelf, DWLP_MSGRESULT, 1); // remove beep
-				}
-				else if (ptvkd->wVKey == VK_ESCAPE)
-				{
-					::SendMessage(_hSearchEdit, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(L""));
-					SetWindowLongPtr(_hSelf, DWLP_MSGRESULT, 1); // remove beep
-					PostMessage(_hParent, WM_COMMAND, SCEN_SETFOCUS << 16, reinterpret_cast<LPARAM>((*_ppEditView)->getHSelf()));
-				}
-			}
-			break;
-		}
-	}
-	else if (notification->code == DMN_SWITCHIN)
+	const auto addKey = [this, tree](int key, auto handler)
 	{
+		auto* shortcut = new QShortcut(QKeySequence(key), tree);
+		shortcut->setContext(Qt::WidgetShortcut);
+		QObject::connect(shortcut, &QShortcut::activated, _hSelf, handler);
+	};
+	addKey(Qt::Key_Return, [this, pTree]() { onReturnKey(*pTree); });
+	addKey(Qt::Key_Enter, [this, pTree]() { onReturnKey(*pTree); });
+	addKey(Qt::Key_Escape, [this]()
+	{
+		setSearchText(L"");
+		focusOnEditor();
+	});
+}
+
+void FunctionListPanel::onDockingNotify(const NMHDR& notification)
+{
+	if (notification.code == DMN_SWITCHIN)
 		reload();
-	}
-	else if (notification->code == DMN_CLOSE)
-	{
+	else if (notification.code == DMN_CLOSE)
 		::SendMessage(_hParent, WM_COMMAND, IDM_VIEW_FUNC_LIST, 0);
-	}
+	else
+		DockingDlgInterface::onDockingNotify(notification);
 }
 
 void FunctionListPanel::searchFuncAndSwitchView()
 {
-	wchar_t text2search[MAX_PATH] = { '\0' };
-	::SendMessage(_hSearchEdit, WM_GETTEXT, MAX_PATH, reinterpret_cast<LPARAM>(text2search));
+	const wstring text2search = searchText().toStdWString();
 
-	if (text2search[0] == '\0')
+	if (text2search.empty())
 	{
 		_treeViewSearchResult.display(false);
 		_treeView.display(true);
@@ -608,10 +559,9 @@ void FunctionListPanel::searchFuncAndSwitchView()
 		_treeViewSearchResult.expand(_treeViewSearchResult.getRoot());
 		_treeView.display(false);
 		_pTreeView = &_treeViewSearchResult;
-
-		// invalidate the editor rect
-		::InvalidateRect(_hSearchEdit, NULL, TRUE);
 	}
+
+	updateSearchEditColor();
 
 	// restore selected sorting
 	if (shouldSort())
@@ -620,372 +570,98 @@ void FunctionListPanel::searchFuncAndSwitchView()
 		_pTreeView->customSorting(_pTreeView->getRoot(), categorySortFunc, 0, true);
 }
 
-static LRESULT CALLBACK funclstToolbarProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR /*dwRefData*/)
+// Make edit field red if not found
+void FunctionListPanel::updateSearchEditColor() const
 {
-	switch (message)
+	bool textFound = true;
+	if (!searchText().isEmpty())
 	{
-		case WM_NCDESTROY:
-		{
-			::RemoveWindowSubclass(hwnd, funclstToolbarProc, uIdSubclass);
-			break;
-		}
-
-		case WM_CTLCOLOREDIT :
-		{
-			return ::SendMessage(::GetParent(hwnd), WM_CTLCOLOREDIT, wParam, lParam);
-		}
+		// children on root found, or no root (no parser): use the default color
+		const HTREEITEM searchViewRoot = _treeViewSearchResult.getRoot();
+		textFound = !searchViewRoot || _treeViewSearchResult.getChildFrom(searchViewRoot);
 	}
-	return ::DefSubclassProc(hwnd, message, wParam, lParam);
-}
 
-static LRESULT CALLBACK funclstSearchEditProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR /*dwRefData*/)
-{
-	switch (message)
-	{
-		case WM_NCDESTROY:
-		{
-			::RemoveWindowSubclass(hwnd, funclstSearchEditProc, uIdSubclass);
-			break;
-		}
-
-		case WM_CHAR:
-		{
-			if (wParam == VK_ESCAPE)
-			{
-				::SendMessage(hwnd, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(L""));
-				return 0;
-			}
-			else if (wParam == VK_TAB)
-			{
-				::SendMessage(GetParent(hwnd), WM_COMMAND, VK_TAB, 1);
-				return 0;
-			}
-		}
-	}
-	return ::DefSubclassProc(hwnd, message, wParam, lParam);
+	_hSearchEdit->setStyleSheet(textFound ? QString{} : QStringLiteral("QLineEdit { background-color: #FF5050; color: white; }"));
 }
 
 bool FunctionListPanel::shouldSort()
 {
-	TBBUTTONINFO tbbuttonInfo{};
-	tbbuttonInfo.cbSize = sizeof(TBBUTTONINFO);
-	tbbuttonInfo.dwMask = TBIF_STATE;
-
-	::SendMessage(_hToolbarMenu, TB_GETBUTTONINFO, IDC_SORTBUTTON_FUNCLIST, reinterpret_cast<LPARAM>(&tbbuttonInfo));
-
-	return (tbbuttonInfo.fsState & TBSTATE_CHECKED) != 0;
+	return _sortButton->isChecked();
 }
 
 void FunctionListPanel::setSort(bool isEnabled)
 {
-	TBBUTTONINFO tbbuttonInfo{};
-	tbbuttonInfo.cbSize = sizeof(TBBUTTONINFO);
-	tbbuttonInfo.dwMask = TBIF_STATE;
-	tbbuttonInfo.fsState = isEnabled ? TBSTATE_ENABLED | TBSTATE_CHECKED : TBSTATE_ENABLED;
-	::SendMessage(_hToolbarMenu, TB_SETBUTTONINFO, IDC_SORTBUTTON_FUNCLIST, reinterpret_cast<LPARAM>(&tbbuttonInfo));
+	_sortButton->setChecked(isEnabled);
 }
 
-intptr_t CALLBACK FunctionListPanel::run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam)
+void FunctionListPanel::create(DockedWidgetData* data, bool isRTL)
 {
-	switch (message)
+	DockingDlgInterface::create(data, isRTL);
+
+	initPreferencesMenu();
+
+	NppParameters& nppParam = NppParameters::getInstance();
+	NativeLangSpeaker *pNativeSpeaker = nppParam.getNativeLangSpeaker();
+	_sortTipStr = pNativeSpeaker->getAttrNameStr(_sortTipStr.c_str(), FL_FUNCTIONLISTROOTNODE, FL_SORTLOCALNODENAME);
+	_reloadTipStr = pNativeSpeaker->getAttrNameStr(_reloadTipStr.c_str(), FL_FUNCTIONLISTROOTNODE, FL_RELOADLOCALNODENAME);
+	_preferenceTipStr = pNativeSpeaker->getAttrNameStr(_preferenceTipStr.c_str(), FL_FUNCTIONLISTROOTNODE, FL_PREFERENCESLOCALNODENAME);
+
+	const auto makeButton = [this](int lightIcon, int darkIcon, const wstring& tip)
 	{
-		// Make edit field red if not found
-		case WM_CTLCOLOREDIT :
-		{
-			wchar_t text2search[MAX_PATH] = { '\0' };
-			::SendMessage(_hSearchEdit, WM_GETTEXT, MAX_PATH, reinterpret_cast<LPARAM>(text2search));
-			bool textFound = false;
-			if (text2search[0] == '\0')
-			{
-				textFound = true; // no text, use the default color
-			}
+		auto* button = new QToolButton(_hSelf);
+		button->setAutoRaise(true);
+		button->setToolTip(QString::fromStdWString(tip));
+		addThemedButton(button, lightIcon, darkIcon);
+		return button;
+	};
 
-			if (!textFound)
-			{
-				HTREEITEM searchViewRoot = _treeViewSearchResult.getRoot();
-				if (searchViewRoot)
-				{
-					if (_treeViewSearchResult.getChildFrom(searchViewRoot))
-					{
-						textFound = true; // children on root found, use the default color
-					}
-				}
-				else
-				{
-					textFound = true; // no root (no parser), use the default color
-				}
-			}
+	_hSearchEdit = new QLineEdit(_hSelf);
+	_hSearchEdit->setProperty("nppId", IDC_SEARCHFIELD_FUNCLIST);
+	_hSearchEdit->setClearButtonEnabled(true);
 
-			auto hdc = reinterpret_cast<HDC>(wParam);
+	_sortButton = makeButton(IDI_FUNCLIST_SORTBUTTON, IDI_FUNCLIST_SORTBUTTON_DM, _sortTipStr);
+	_sortButton->setCheckable(true);
+	_sortButton->setProperty("nppId", IDC_SORTBUTTON_FUNCLIST);
+	QToolButton* reloadButton = makeButton(IDI_FUNCLIST_RELOADBUTTON, IDI_FUNCLIST_RELOADBUTTON_DM, _reloadTipStr);
+	reloadButton->setProperty("nppId", IDC_RELOADBUTTON_FUNCLIST);
+	QToolButton* preferenceButton = makeButton(IDI_FUNCLIST_PREFERENCEBUTTON, IDI_FUNCLIST_PREFERENCEBUTTON_DM, _preferenceTipStr);
+	preferenceButton->setProperty("nppId", IDC_PREFERENCEBUTTON_FUNCLIST);
+	preferenceButton->setPopupMode(QToolButton::InstantPopup);
+	preferenceButton->setMenu(_hPreferencesMenu.get());
 
-			if (NppDarkMode::isEnabled())
-			{
-				if (textFound)
-				{
-					return NppDarkMode::onCtlColorCtrl(hdc);
-				}
-				else // text not found
-				{
-					return NppDarkMode::onCtlColorError(hdc);
-				}
-			}
+	auto* tools = new QHBoxLayout;
+	tools->setContentsMargins(2, 2, 2, 2);
+	tools->setSpacing(2);
+	tools->addWidget(_hSearchEdit, 1);
+	tools->addWidget(_sortButton);
+	tools->addWidget(reloadButton);
+	tools->addWidget(preferenceButton);
 
-			if (textFound)
-			{
-				return FALSE;
-			}
+	std::vector<int> imgIds = _treeView.getImageIds(
+		{ IDI_FUNCLIST_ROOT, IDI_FUNCLIST_NODE, IDI_FUNCLIST_LEAF }
+		, { IDI_FUNCLIST_ROOT_DM, IDI_FUNCLIST_NODE_DM, IDI_FUNCLIST_LEAF_DM }
+		, { IDI_FUNCLIST_ROOT2, IDI_FUNCLIST_NODE2, IDI_FUNCLIST_LEAF2 }
+	);
 
-			// text not found
-			// if the text not found modify the background color of the editor
-			static HBRUSH hBrushBackground = CreateSolidBrush(BCKGRD_COLOR);
-			SetTextColor(hdc, TXT_COLOR);
-			SetBkColor(hdc, BCKGRD_COLOR);
-			return reinterpret_cast<LRESULT>(hBrushBackground);
-		}
+	_treeView.init(_hInst, _hSelf, IDC_LIST_FUNCLIST);
+	_treeView.setImageList(imgIds);
+	_treeViewSearchResult.init(_hInst, _hSelf, IDC_LIST_FUNCLIST_AUX);
+	_treeViewSearchResult.setImageList(imgIds);
+	_treeView.makeLabelEditable(false);
 
-		case WM_INITDIALOG:
-		{
-			FunctionListPanel::initPreferencesMenu();
+	auto* layout = new QVBoxLayout(_hSelf);
+	layout->setContentsMargins(0, 0, 0, 0);
+	layout->setSpacing(2);
+	layout->addLayout(tools);
+	layout->addWidget(_treeView.getHSelf(), 1);
+	layout->addWidget(_treeViewSearchResult.getHSelf(), 1);
 
-			NppParameters& nppParam = NppParameters::getInstance();
+	_treeView.display();
 
-			setDpi();
-			const int editWidth = _dpiManager.scale(100);
-			const int editWidthSep = _dpiManager.scale(105); //editWidth + 5
-			const int editHeight = _dpiManager.scale(20);
+	connectTree(_treeView);
+	connectTree(_treeViewSearchResult);
 
-			// Create toolbar menu
-			constexpr DWORD style = WS_CHILD | WS_VISIBLE | TBSTYLE_FLAT | TBSTYLE_LIST | TBSTYLE_TRANSPARENT | TBSTYLE_TOOLTIPS;
-			_hToolbarMenu = CreateWindowEx(0,TOOLBARCLASSNAME,NULL, style,
-								0,0,0,0,_hSelf,nullptr, _hInst, NULL);
-
-			const DWORD tbExStyle = static_cast<DWORD>(::SendMessage(_hToolbarMenu, TB_GETEXTENDEDSTYLE, 0, 0));
-			::SendMessage(_hToolbarMenu, TB_SETEXTENDEDSTYLE, 0, tbExStyle | TBSTYLE_EX_DOUBLEBUFFER);
-
-			::SetWindowSubclass(_hToolbarMenu, funclstToolbarProc, static_cast<UINT_PTR>(SubclassID::first), 0);
-
-			const int iconSizeDyn = _dpiManager.scale(16);
-			constexpr int nbIcons = 3;
-			int iconIDs[nbIcons] = { IDI_FUNCLIST_SORTBUTTON, IDI_FUNCLIST_RELOADBUTTON, IDI_FUNCLIST_PREFERENCEBUTTON };
-			int iconDarkModeIDs[nbIcons] = { IDI_FUNCLIST_SORTBUTTON_DM, IDI_FUNCLIST_RELOADBUTTON_DM, IDI_FUNCLIST_PREFERENCEBUTTON_DM };
-
-			// Create an image lists for the toolbar icons
-			HIMAGELIST hImageList = ImageList_Create(iconSizeDyn, iconSizeDyn, ILC_COLOR32 | ILC_MASK, nbIcons, 0);
-			HIMAGELIST hImageListDm = ImageList_Create(iconSizeDyn, iconSizeDyn, ILC_COLOR32 | ILC_MASK, nbIcons, 0);
-			_iconListVector.push_back(hImageList);
-			_iconListVector.push_back(hImageListDm);
-
-			for (size_t i = 0; i < nbIcons; ++i)
-			{
-				int icoID = iconIDs[i];
-				HICON hIcon = nullptr;
-				DPIManagerV2::loadIcon(_hInst, MAKEINTRESOURCE(icoID), iconSizeDyn, iconSizeDyn, &hIcon, LR_LOADMAP3DCOLORS | LR_LOADTRANSPARENT);
-				ImageList_AddIcon(_iconListVector.at(0), hIcon);
-				::DestroyIcon(hIcon);
-				hIcon = nullptr;
-
-				icoID = iconDarkModeIDs[i];
-				DPIManagerV2::loadIcon(_hInst, MAKEINTRESOURCE(icoID), iconSizeDyn, iconSizeDyn, &hIcon, LR_LOADMAP3DCOLORS | LR_LOADTRANSPARENT);
-				ImageList_AddIcon(_iconListVector.at(1), hIcon);
-				::DestroyIcon(hIcon); // Clean up the loaded icon
-			}
-
-			// Attach the image list to the toolbar
-			::SendMessage(_hToolbarMenu, TB_SETIMAGELIST, 0, reinterpret_cast<LPARAM>(_iconListVector.at(NppDarkMode::isEnabled() ? 1 : 0)));
-
-			// Place holder of search text field
-			TBBUTTON tbButtons[1 + nbIcons]{};
-
-			tbButtons[0].idCommand = 0;
-			tbButtons[0].iBitmap = editWidthSep;
-			tbButtons[0].fsState = TBSTATE_ENABLED;
-			tbButtons[0].fsStyle = BTNS_SEP; //This is just a separator (blank space)
-			tbButtons[0].iString = 0;
-
-			tbButtons[1].idCommand = IDC_SORTBUTTON_FUNCLIST;
-			tbButtons[1].iBitmap = 0;
-			tbButtons[1].fsState = TBSTATE_ENABLED;
-			tbButtons[1].fsStyle = BTNS_CHECK;
-			tbButtons[1].iString = 0;
-
-			tbButtons[2].idCommand = IDC_RELOADBUTTON_FUNCLIST;
-			tbButtons[2].iBitmap = 1;
-			tbButtons[2].fsState = TBSTATE_ENABLED;
-			tbButtons[2].fsStyle = BTNS_BUTTON;
-			tbButtons[2].iString = 0;
-
-			tbButtons[3].idCommand = IDC_PREFERENCEBUTTON_FUNCLIST;
-			tbButtons[3].iBitmap = 2;
-			tbButtons[3].fsState = TBSTATE_ENABLED;
-			tbButtons[3].fsStyle = BTNS_BUTTON;
-			tbButtons[3].iString = 0;
-
-			::SendMessage(_hToolbarMenu, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
-			::SendMessage(_hToolbarMenu, TB_SETBUTTONSIZE, 0, MAKELONG(iconSizeDyn, iconSizeDyn));
-			::SendMessage(_hToolbarMenu, TB_ADDBUTTONS, sizeof(tbButtons) / sizeof(TBBUTTON), reinterpret_cast<LPARAM>(&tbButtons));
-			::SendMessage(_hToolbarMenu, TB_AUTOSIZE, 0, 0);
-
-			ShowWindow(_hToolbarMenu, SW_SHOW);
-
-			// tips text for toolbar buttons
-			NativeLangSpeaker *pNativeSpeaker = nppParam.getNativeLangSpeaker();
-			_sortTipStr = pNativeSpeaker->getAttrNameStr(_sortTipStr.c_str(), FL_FUNCTIONLISTROOTNODE, FL_SORTLOCALNODENAME);
-			_reloadTipStr = pNativeSpeaker->getAttrNameStr(_reloadTipStr.c_str(), FL_FUNCTIONLISTROOTNODE, FL_RELOADLOCALNODENAME);
-			_preferenceTipStr = pNativeSpeaker->getAttrNameStr(_preferenceTipStr.c_str(), FL_FUNCTIONLISTROOTNODE, FL_PREFERENCESLOCALNODENAME);
-
-			_hSearchEdit = CreateWindowEx(WS_EX_CLIENTEDGE, WC_EDIT, NULL,
-								WS_CHILD | WS_VISIBLE | ES_AUTOVSCROLL,
-								2, 2, editWidth, editHeight,
-								_hToolbarMenu, reinterpret_cast<HMENU>(IDC_SEARCHFIELD_FUNCLIST), _hInst, 0 );
-
-			::SetWindowSubclass(_hSearchEdit, funclstSearchEditProc, static_cast<UINT_PTR>(SubclassID::first), 0);
-
-			if (_hFontSearchEdit == nullptr)
-			{
-				LOGFONT lf{ _dpiManager.getDefaultGUIFontForDpi() };
-				_hFontSearchEdit = ::CreateFontIndirect(&lf);
-			}
-
-			if (_hFontSearchEdit != nullptr)
-			{
-				::SendMessage(_hSearchEdit, WM_SETFONT, reinterpret_cast<WPARAM>(_hFontSearchEdit), MAKELPARAM(TRUE, 0));
-			}
-
-			std::vector<int> imgIds = _treeView.getImageIds(
-				{ IDI_FUNCLIST_ROOT, IDI_FUNCLIST_NODE, IDI_FUNCLIST_LEAF }
-				, { IDI_FUNCLIST_ROOT_DM, IDI_FUNCLIST_NODE_DM, IDI_FUNCLIST_LEAF_DM }
-				, { IDI_FUNCLIST_ROOT2, IDI_FUNCLIST_NODE2, IDI_FUNCLIST_LEAF2 }
-			);
-
-			_treeView.init(_hInst, _hSelf, IDC_LIST_FUNCLIST);
-			_treeView.setImageList(imgIds);
-			_treeViewSearchResult.init(_hInst, _hSelf, IDC_LIST_FUNCLIST_AUX);
-			_treeViewSearchResult.setImageList(imgIds);
-			
-			_treeView.makeLabelEditable(false);
-
-			_treeView.display();
-
-			NppDarkMode::autoSubclassAndThemeChildControls(_hSelf);
-			NppDarkMode::autoSubclassAndThemeWindowNotify(_hSelf);
-
-			return TRUE;
-		}
-
-		case NPPM_INTERNAL_REFRESHDARKMODE:
-		{
-			if (static_cast<BOOL>(lParam) != TRUE)
-			{
-				NppDarkMode::autoThemeChildControls(_hSelf);
-				::SendMessage(_hToolbarMenu, TB_SETIMAGELIST, 0, reinterpret_cast<LPARAM>(_iconListVector.at(NppDarkMode::isEnabled() ? 1 : 0)));
-			}
-			else
-			{
-				NppDarkMode::setTreeViewStyle(_treeView.getHSelf());
-			}
-
-			std::vector<int> imgIds = _treeView.getImageIds(
-				{ IDI_FUNCLIST_ROOT, IDI_FUNCLIST_NODE, IDI_FUNCLIST_LEAF }
-				, { IDI_FUNCLIST_ROOT_DM, IDI_FUNCLIST_NODE_DM, IDI_FUNCLIST_LEAF_DM }
-				, { IDI_FUNCLIST_ROOT2, IDI_FUNCLIST_NODE2, IDI_FUNCLIST_LEAF2 }
-			);
-
-			_treeView.setImageList(imgIds);
-			_treeViewSearchResult.setImageList(imgIds);
-
-			return TRUE;
-		}
-
-		case WM_DESTROY:
-			_treeView.destroy();
-			_treeViewSearchResult.destroy();
-			::DestroyMenu(_hPreferencesMenu);
-			::DestroyWindow(_hToolbarMenu);
-			break;
-
-		case WM_COMMAND :
-		{
-			if (HIWORD(wParam) == EN_CHANGE)
-			{
-				switch (LOWORD(wParam))
-				{
-					case  IDC_SEARCHFIELD_FUNCLIST:
-					{
-						searchFuncAndSwitchView();
-						return TRUE;
-					}
-				}
-			}
-			else if (wParam == VK_TAB)
-			{
-				if (_treeViewSearchResult.isVisible())
-					::SetFocus(_treeViewSearchResult.getHSelf());
-				else
-					::SetFocus(_treeView.getHSelf());
-				return TRUE;
-			}
-
-			switch (LOWORD(wParam))
-			{
-				case IDC_SORTBUTTON_FUNCLIST:
-				{
-					sortOrUnsort();
-				}
-				return TRUE;
-
-				case IDC_RELOADBUTTON_FUNCLIST:
-				{
-					reload();
-				}
-				return TRUE;
-
-				case IDC_PREFERENCEBUTTON_FUNCLIST:
-				{
-					showPreferencesMenu();
-				}
-				return TRUE;
-
-				case FL_PREFERENCES_INITIALSORT_ID:
-				{
-					bool& shouldSortFunctionList = NppParameters::getInstance().getNppGUI()._shouldSortFunctionList;
-					shouldSortFunctionList = !shouldSortFunctionList;
-					::CheckMenuItem(_hPreferencesMenu, FL_PREFERENCES_INITIALSORT_ID, MF_BYCOMMAND | (shouldSortFunctionList ? MF_CHECKED : MF_UNCHECKED));
-				}
-				return TRUE;
-			}
-		}
-		break;
-
-		case WM_NOTIFY:
-		{
-			notified(reinterpret_cast<LPNMHDR>(lParam));
-		}
-		return TRUE;
-
-		case WM_SIZE:
-		{
-			int width = LOWORD(lParam);
-			int height = HIWORD(lParam);
-			int extraValue = _dpiManager.scale(4);
-
-			RECT toolbarMenuRect;
-			::GetClientRect(_hToolbarMenu, &toolbarMenuRect);
-
-			::MoveWindow(_hToolbarMenu, 0, 0, width, toolbarMenuRect.bottom, TRUE);
-
-			HWND hwnd = _treeView.getHSelf();
-			if (hwnd)
-				::MoveWindow(hwnd, 0, toolbarMenuRect.bottom + extraValue, width, height - toolbarMenuRect.bottom - extraValue, TRUE);
-
-			HWND hwnd_aux = _treeViewSearchResult.getHSelf();
-			if (hwnd_aux)
-				::MoveWindow(hwnd_aux, 0, toolbarMenuRect.bottom + extraValue, width, height - toolbarMenuRect.bottom - extraValue, TRUE);
-
-			break;
-		}
-
-		default :
-			return DockingDlgInterface::run_dlgProc(message, wParam, lParam);
-	}
-	return DockingDlgInterface::run_dlgProc(message, wParam, lParam);
+	QObject::connect(_hSearchEdit, &QLineEdit::textChanged, _hSelf, [this]() { searchFuncAndSwitchView(); });
+	QObject::connect(_sortButton, &QToolButton::clicked, _hSelf, [this]() { sortOrUnsort(); });
+	QObject::connect(reloadButton, &QToolButton::clicked, _hSelf, [this]() { reload(); });
 }

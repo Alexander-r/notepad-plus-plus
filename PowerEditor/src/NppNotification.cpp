@@ -15,6 +15,13 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
+#include <QStandardPaths>
+#include <QAction>
+#include <QApplication>
+#include <QCursor>
+#include <QMenu>
+#include <QPoint>
+
 #include "localization.h"
 #include "Notepad_plus_Window.h"
 #include "functionListPanel.h"
@@ -27,6 +34,16 @@
 #include "shortcut.h"
 
 using namespace std;
+
+namespace
+{
+	void getCursorPos(POINT& p)
+	{
+		const QPoint position = QCursor::pos();
+		p.x = position.x();
+		p.y = position.y();
+	}
+}
 
 // Only for 2 main Scintilla editors
 BOOL Notepad_plus::notify(SCNotification *notification)
@@ -67,7 +84,7 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 
 				// While the text modification, we make sure the link beblow the modification will be reprocessed
 				_linkTriggered = true;
-				::InvalidateRect(notifyView->getHSelf(), NULL, TRUE);
+				notifyView->redraw();
 
 				// for the backup system
 				buffer->setModifiedStatus(true);
@@ -86,7 +103,7 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 
 			if (notification->modificationType & SC_MOD_CHANGEINDICATOR)
 			{
-				::InvalidateRect(notifyView->getHSelf(), NULL, FALSE);
+				notifyView->redraw();
 			}
 			break;
 		}
@@ -188,15 +205,15 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 			if ((notification->margin == ScintillaEditView::_SC_MARGE_SYMBOL) && !notification->modifiers)
 			{
 				POINT p;
-				::GetCursorPos(&p);
+				getCursorPos(p);
 				const MenuPosition& menuPos = MenuPosition::getMenuPosition("search-bookmark");
-				HMENU hSearchMenu = ::GetSubMenu(_mainMenuHandle, menuPos._x);
+				HMENU hSearchMenu = nppSubMenuAt(_mainMenuHandle, menuPos._x);
 				if (hSearchMenu)
 				{
-					HMENU hBookmarkMenu = ::GetSubMenu(hSearchMenu, menuPos._y);
+					HMENU hBookmarkMenu = nppSubMenuAt(hSearchMenu, menuPos._y);
 					if (hBookmarkMenu)
 					{
-						TrackPopupMenu(hBookmarkMenu, 0, p.x, p.y, 0, _pPublicInterface->getHSelf(), NULL);
+						hBookmarkMenu->exec(QCursor::pos());
 					}
 				}
 			}
@@ -402,36 +419,7 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 				// Open URL
 				wstring url = notifyView->getGenericTextAsString(static_cast<size_t>(startPos), static_cast<size_t>(endPos));
 
-				if (isUncFileUrl(url))
-				{
-					const std::string urlUTF8 = wstring2string(url, CP_UTF8);
-					if (!nppParam.isServerAllowed(urlUTF8.c_str())) // is in the serverWhiteList.xml ?
-					{
-						if (nppParam.networkPathAlwaysAction() == NppParameters::networkPathAlwaysAsk)
-						{
-							NetworkPathWarningBox networkPathWarningBox;
-							networkPathWarningBox.init(_pPublicInterface->getHinst(), _pPublicInterface->getHSelf(), url, "title2");
-							networkPathWarningBox.doDialog(_nativeLangSpeaker.isRTL());
-							int buttonID = networkPathWarningBox.getClickedButtonId();
-
-							networkPathWarningBox.destroy();
-
-							if (buttonID == IDCANCEL || buttonID == IDNO) // Skip once or Always skip
-							{
-								return FALSE;
-							}
-						}
-						else if (nppParam.networkPathAlwaysAction() == NppParameters::networkPathAlwaysSkip)
-						{
-							return FALSE;
-						}
-						else if (nppParam.networkPathAlwaysAction() == NppParameters::networkPathAlwaysLoad)
-						{
-							// do nothing, continue to load the file
-						}
-					}
-				}
-				::ShellExecute(_pPublicInterface->getHSelf(), L"open", url.c_str(), NULL, NULL, SW_SHOW);
+				openWithDesktop(url);
 			}
 			break;
 		}
@@ -708,12 +696,10 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 					const Buffer* currentBufMain = _mainEditView.getCurrentBuffer();
 					const Buffer* currentBufSub = _subEditView.getCurrentBuffer();
 
-					RECT rect{};
-					TabCtrl_GetItemRect(pTabDocView->getHSelf(), tbHdr->_tabOrigin, &rect);
+					const QPoint global = pTabDocView->tabs()->mapToGlobal(pTabDocView->tabs()->tabRect(tbHdr->_tabOrigin).bottomLeft());
 					POINT p{};
-					p.x = rect.left;
-					p.y = rect.bottom;
-					::ClientToScreen(pTabDocView->getHSelf(), &p);
+					p.x = global.x();
+					p.y = global.y();
 
 					if (pBuf != currentBufMain && pBuf != currentBufSub) // if hover on other tab
 					{
@@ -780,15 +766,15 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 		case TCN_TABDROPPED:
 		{
 			TabBarPlus *sender = reinterpret_cast<TabBarPlus *>(notification->nmhdr.idFrom);
-			bool isInCtrlStat = (::GetKeyState(VK_LCONTROL) & 0x80000000) != 0;
+			bool isInCtrlStat = (QApplication::queryKeyboardModifiers() & Qt::ControlModifier) != 0;
 			if (notification->nmhdr.code == TCN_TABDROPPEDOUTSIDE)
 			{
 				POINT p = sender->getDraggingPoint();
 
-				//It's the coordinate of screen, so we can call
-				//"WindowFromPoint" function without converting the point
-				HWND hWin = ::WindowFromPoint(p);
-				if (hWin == _pEditView->getHSelf()) // In the same view group
+				//It's the coordinate of screen
+				HWND hWin = QApplication::widgetAt(QPoint(p.x, p.y));
+				const auto isWithin = [hWin](const QWidget* pane) { return pane && hWin && (pane == hWin || pane->isAncestorOf(hWin)); };
+				if (isWithin(_pEditView->getHSelf())) // In the same view group
 				{
 					if (!_tabPopupDropMenu.isCreated())
 					{
@@ -802,63 +788,20 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 					}
 					_tabPopupDropMenu.display(p);
 				}
-				else if ((hWin == _pNonDocTab->getHSelf()) ||
-						 (hWin == _pNonEditView->getHSelf())) // In the another view group
+				else if (isWithin(_pNonDocTab->paneWidget())) // In the another view group
 				{
 					docGotoAnotherEditView(isInCtrlStat?TransferClone:TransferMove);
 				}
 				else // Drop outside of current Notepad++
 				{
-					RECT nppZone{};
-					::GetWindowRect(_pPublicInterface->getHSelf(), &nppZone);
-					bool isInNppZone = (((p.x >= nppZone.left) && (p.x <= nppZone.right)) && (p.y >= nppZone.top) && (p.y <= nppZone.bottom));
+					const bool isInNppZone = _pPublicInterface->getHSelf()->frameGeometry().contains(QPoint(p.x, p.y));
 					if (isInNppZone)
 					{
 						// Do nothing
 						return TRUE;
 					}
-					wstring quotFileName = L"\"";
-					quotFileName += _pEditView->getCurrentBuffer()->getFullPathName();
-					quotFileName += L"\"";
-					COPYDATASTRUCT fileNamesData{};
-					fileNamesData.dwData = COPYDATA_FILENAMESW;
-					fileNamesData.lpData = (void *)quotFileName.c_str();
-					fileNamesData.cbData = static_cast<DWORD>((quotFileName.length() + 1) * sizeof(wchar_t));
-
-					HWND hWinParent = ::GetParent(hWin);
-					const rsize_t classNameBufferSize = MAX_PATH;
-					wchar_t className[classNameBufferSize];
-					::GetClassName(hWinParent,className, classNameBufferSize);
-					if (lstrcmp(className, _pPublicInterface->getClassName()) == 0 && hWinParent != _pPublicInterface->getHSelf()) // another Notepad++
-					{
-						int index = _pDocTab->getCurrentTabIndex();
-						BufferID bufferToClose = notifyDocTab->getBufferByIndex(index);
-						Buffer * buf = MainFileManager.getBufferByID(bufferToClose);
-						int iView = isFromPrimary?MAIN_VIEW:SUB_VIEW;
-						if (buf->isDirty())
-						{
-							_nativeLangSpeaker.messageBox("CannotMoveDoc",
-								_pPublicInterface->getHSelf(),
-								L"Document is modified, save it then try again.",
-								L"Move to new Notepad++ Instance",
-								MB_OK);
-						}
-						else
-						{
-							::SendMessage(hWinParent, NPPM_INTERNAL_SWITCHVIEWFROMHWND, 0, reinterpret_cast<LPARAM>(hWin));
-							::SendMessage(hWinParent, WM_COPYDATA, reinterpret_cast<WPARAM>(_pPublicInterface->getHSelf()), reinterpret_cast<LPARAM>(&fileNamesData));
-							if (!isInCtrlStat)
-							{
-								fileClose(bufferToClose, iView);
-								if (noOpenedDoc())
-									::SendMessage(_pPublicInterface->getHSelf(), WM_CLOSE, 0, 0);
-							}
-						}
-					}
-					else // Not Notepad++, we open it here
-					{
-						docOpenInNewInstance(isInCtrlStat?TransferClone:TransferMove, p.x, p.y);
-					}
+					// Another application's window cannot be identified here, so this is always a new instance
+					docOpenInNewInstance(isInCtrlStat?TransferClone:TransferMove, p.x, p.y);
 				}
 			}
 
@@ -913,6 +856,7 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 				return FALSE;
 
 			buf->setPinned(!isPinned);
+			notifyDocTab->refresh(); // which tabs show their pin depends on this
 
 			break;
 		}
@@ -950,7 +894,7 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 		{
 			if (notification->nmhdr.hwndFrom == _statusBar.getHSelf())
 			{
-				LPNMMOUSE lpnm = (LPNMMOUSE)notification;
+				NMMOUSE* lpnm = reinterpret_cast<NMMOUSE*>(notification);
 				if (lpnm->dwItemSpec == DWORD(STATUSBAR_TYPING_MODE))
 				{
 					bool isOverTypeMode = (_pEditView->execute(SCI_GETOVERTYPE) != 0);
@@ -994,7 +938,7 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 		{
 			if (notification->nmhdr.hwndFrom == _statusBar.getHSelf())
 			{
-				LPNMMOUSE lpnm = (LPNMMOUSE)notification;
+				NMMOUSE* lpnm = reinterpret_cast<NMMOUSE*>(notification);
 				if (lpnm->dwItemSpec == DWORD(STATUSBAR_CUR_POS))
 				{
 					command(IDM_SEARCH_GOTOLINE);
@@ -1006,29 +950,29 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 				else if (lpnm->dwItemSpec == DWORD(STATUSBAR_DOC_TYPE))
 				{
 					POINT p;
-					::GetCursorPos(&p);
-					HMENU hLangMenu = ::GetSubMenu(_mainMenuHandle, MENUINDEX_LANGUAGE);
-					TrackPopupMenu(hLangMenu, 0, p.x, p.y, 0, _pPublicInterface->getHSelf(), NULL);
+					getCursorPos(p);
+					HMENU hLangMenu = nppSubMenuAt(_mainMenuHandle, MENUINDEX_LANGUAGE);
+					hLangMenu->exec(QCursor::pos());
 				}
 				else if (lpnm->dwItemSpec == DWORD(STATUSBAR_EOF_FORMAT))
 				{
 					POINT p;
-					::GetCursorPos(&p);
+					getCursorPos(p);
 					const MenuPosition& menuPos = MenuPosition::getMenuPosition("edit-eolConversion");
-					HMENU hEditMenu = ::GetSubMenu(_mainMenuHandle, menuPos._x);
+					HMENU hEditMenu = nppSubMenuAt(_mainMenuHandle, menuPos._x);
 					if (!hEditMenu)
 						return TRUE;
-					HMENU hEolFormatMenu = ::GetSubMenu(hEditMenu, menuPos._y);
+					HMENU hEolFormatMenu = nppSubMenuAt(hEditMenu, menuPos._y);
 					if (!hEolFormatMenu)
 						return TRUE;
-					TrackPopupMenu(hEolFormatMenu, 0, p.x, p.y, 0, _pPublicInterface->getHSelf(), NULL);
+					hEolFormatMenu->exec(QCursor::pos());
 				}
 				else if (lpnm->dwItemSpec == DWORD(STATUSBAR_UNICODE_TYPE))
 				{
 					POINT p;
-					::GetCursorPos(&p);
-					HMENU hLangMenu = ::GetSubMenu(_mainMenuHandle, MENUINDEX_FORMAT);
-					TrackPopupMenu(hLangMenu, 0, p.x, p.y, 0, _pPublicInterface->getHSelf(), NULL);
+					getCursorPos(p);
+					HMENU hLangMenu = nppSubMenuAt(_mainMenuHandle, MENUINDEX_FORMAT);
+					hLangMenu->exec(QCursor::pos());
 				}
 			}
 			break;
@@ -1037,7 +981,7 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 		case NM_RCLICK :
 		{
 			POINT p;
-			::GetCursorPos(&p);
+			getCursorPos(p);
 
 			if (notification->nmhdr.hwndFrom == _mainDocTab.getHSelf())
 			{
@@ -1049,29 +993,29 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 			}
 			else if (notification->nmhdr.hwndFrom == _statusBar.getHSelf())  // From Status Bar
 			{
-				LPNMMOUSE lpnm = (LPNMMOUSE)notification;
+				NMMOUSE* lpnm = reinterpret_cast<NMMOUSE*>(notification);
 				if (lpnm->dwItemSpec == DWORD(STATUSBAR_DOC_TYPE))
 				{
-					HMENU hLangMenu = ::GetSubMenu(_mainMenuHandle, MENUINDEX_LANGUAGE);
-					TrackPopupMenu(hLangMenu, 0, p.x, p.y, 0, _pPublicInterface->getHSelf(), NULL);
+					HMENU hLangMenu = nppSubMenuAt(_mainMenuHandle, MENUINDEX_LANGUAGE);
+					hLangMenu->exec(QCursor::pos());
 				}
 				else if (lpnm->dwItemSpec == DWORD(STATUSBAR_EOF_FORMAT))
 				{
 					const MenuPosition& menuPos = MenuPosition::getMenuPosition("edit-eolConversion");
-					HMENU hEditMenu = ::GetSubMenu(_mainMenuHandle, menuPos._x);
+					HMENU hEditMenu = nppSubMenuAt(_mainMenuHandle, menuPos._x);
 					if (!hEditMenu)
 						return TRUE;
-					HMENU hEolFormatMenu = ::GetSubMenu(hEditMenu, menuPos._y);
+					HMENU hEolFormatMenu = nppSubMenuAt(hEditMenu, menuPos._y);
 					if (!hEolFormatMenu)
 						return TRUE;
-					TrackPopupMenu(hEolFormatMenu, 0, p.x, p.y, 0, _pPublicInterface->getHSelf(), NULL);
+					hEolFormatMenu->exec(QCursor::pos());
 				}
 				else if (lpnm->dwItemSpec == DWORD(STATUSBAR_UNICODE_TYPE))
 				{
 					POINT cursorPos;
-					::GetCursorPos(&cursorPos);
-					HMENU hLangMenu = ::GetSubMenu(_mainMenuHandle, MENUINDEX_FORMAT);
-					TrackPopupMenu(hLangMenu, 0, cursorPos.x, cursorPos.y, 0, _pPublicInterface->getHSelf(), NULL);
+					getCursorPos(cursorPos);
+					HMENU hLangMenu = nppSubMenuAt(_mainMenuHandle, MENUINDEX_FORMAT);
+					hLangMenu->exec(QCursor::pos());
 				}
 				return TRUE;
 			}
@@ -1129,9 +1073,10 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 					itemUnitArray.push_back(MenuItemUnit(IDM_PINTAB, L"Pin Tab"));
 					itemUnitArray.push_back(MenuItemUnit(IDM_FILE_SAVE, L"Save"));
 					itemUnitArray.push_back(MenuItemUnit(IDM_FILE_SAVEAS, L"Save As..."));
-					itemUnitArray.push_back(MenuItemUnit(IDM_FILE_OPEN_FOLDER, L"Open Containing Folder in Explorer", L"Open into"));
-					itemUnitArray.push_back(MenuItemUnit(IDM_FILE_OPEN_CMD, L"Open Containing Folder in cmd", L"Open into"));
-					itemUnitArray.push_back(MenuItemUnit(IDM_FILE_OPEN_POWERSHELL, L"Open Containing Folder in PowerShell", L"Open into"));
+					itemUnitArray.push_back(MenuItemUnit(IDM_FILE_OPEN_FOLDER, L"Open Containing Folder in File Manager", L"Open into"));
+					itemUnitArray.push_back(MenuItemUnit(IDM_FILE_OPEN_CMD, L"Open Containing Folder in Terminal", L"Open into"));
+					if (!QStandardPaths::findExecutable(QStringLiteral("pwsh")).isEmpty())
+						itemUnitArray.push_back(MenuItemUnit(IDM_FILE_OPEN_POWERSHELL, L"Open Containing Folder in PowerShell", L"Open into"));
 					itemUnitArray.push_back(MenuItemUnit(IDM_FILE_CONTAININGFOLDERASWORKSPACE, L"Open Containing Folder as Workspace", L"Open into"));
 					itemUnitArray.push_back(MenuItemUnit(0, NULL, L"Open into"));
 					itemUnitArray.push_back(MenuItemUnit(IDM_FILE_OPEN_DEFAULT_VIEWER, L"Open in Default Viewer", L"Open into"));
@@ -1173,20 +1118,12 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 				HBITMAP hBitmap = generateSolidColourMenuItemIcon(colour);
 				if (hBitmap)
 				{
-					if (!::SetMenuItemBitmaps(_tabPopupMenu.getMenuHandle(), IDM_VIEW_TAB_COLOUR_1 + i, MF_BYCOMMAND, hBitmap, hBitmap))
-					{
-						::DeleteObject(hBitmap);
-					}
-					else
-					{
-						if (_tabPopupMenu._tabColorBitmaps[i])
-							::DeleteObject(_tabPopupMenu._tabColorBitmaps[i]);
-						_tabPopupMenu._tabColorBitmaps[i] = hBitmap;
-					}
+					nppSetMenuCommandIcon(_tabPopupMenu.getMenuHandle(), IDM_VIEW_TAB_COLOUR_1 + i, *hBitmap);
+					delete hBitmap;
 				}
 			}
 
-			bool isEnable = ((::GetMenuState(_mainMenuHandle, IDM_FILE_SAVE, MF_BYCOMMAND)&MF_DISABLED) == 0);
+			bool isEnable = nppIsMenuCommandEnabled(_mainMenuHandle, IDM_FILE_SAVE);
 			_tabPopupMenu.enableItem(IDM_FILE_SAVE, isEnable);
 
 			Buffer* buf = _pEditView->getCurrentBuffer();
@@ -1246,126 +1183,18 @@ BOOL Notepad_plus::notify(SCNotification *notification)
 					isAlternative = false;
 				}
 				_nativeLangSpeaker.getAlternativeNameFromTabContextMenu(newName, IDM_PINTAB, isAlternative, defaultName);
-				::ModifyMenu(_tabPopupMenu.getMenuHandle(), IDM_PINTAB, MF_BYCOMMAND, IDM_PINTAB, newName.c_str());
+				nppSetMenuCommandText(_tabPopupMenu.getMenuHandle(), IDM_PINTAB, newName);
 			}
 			else
 			{
 				_nativeLangSpeaker.getAlternativeNameFromTabContextMenu(newName, IDM_PINTAB, false, L"Pin Tab");
-				::ModifyMenu(_tabPopupMenu.getMenuHandle(), IDM_PINTAB, MF_BYCOMMAND, IDM_PINTAB, newName.c_str());
+				nppSetMenuCommandText(_tabPopupMenu.getMenuHandle(), IDM_PINTAB, newName);
 			}
 
 			_tabPopupMenu.enableItem(IDM_PINTAB, isTabPinEnabled);
 
 			_tabPopupMenu.display(p);
 			return TRUE;
-		}
-
-		case TTN_GETDISPINFO:
-		{
-			try {
-				LPTOOLTIPTEXT lpttt = (LPTOOLTIPTEXT)notification;
-				lpttt->hinst = NULL;
-
-				POINT p;
-				::GetCursorPos(&p);
-				::MapWindowPoints(NULL, _pPublicInterface->getHSelf(), &p, 1);
-				HWND hWin = ::ChildWindowFromPointEx(_pPublicInterface->getHSelf(), p, CWP_SKIPINVISIBLE);
-				const int tipMaxLen = 1024;
-				static wchar_t docTip[tipMaxLen];
-				docTip[0] = '\0';
-
-				wstring tipTmp(L"");
-				int id = int(lpttt->hdr.idFrom);
-
-				if (hWin == _rebarTop.getHSelf())
-				{
-					getNameStrFromCmd(id, tipTmp);
-					if (tipTmp.length() >= 80)
-						return FALSE;
-
-					wcscpy_s(lpttt->szText, tipTmp.c_str());
-					return TRUE;
-				}
-				else
-				{
-					BufferID idd = BUFFER_INVALID;
-					if (hWin == _mainDocTab.getHSelf())
-						idd = _mainDocTab.getBufferByIndex(id);
-					else if (hWin == _subDocTab.getHSelf())
-						idd = _subDocTab.getBufferByIndex(id);
-					else
-						return FALSE;
-
-					Buffer* buf = MainFileManager.getBufferByID(idd);
-					if (buf == nullptr)
-						return FALSE;
-
-					tipTmp = buf->getFullPathName();
-
-
-					if (buf->isUntitled())
-					{
-						wstring tabCreatedTime = buf->tabCreatedTimeString();
-						if (!tabCreatedTime.empty())
-						{
-							tipTmp += L"\r";
-							tipTmp += tabCreatedTime;
-							SendMessage(lpttt->hdr.hwndFrom, TTM_SETMAXTIPWIDTH, 0, 200);
-						}
-					}
-					else
-					{
-						SendMessage(lpttt->hdr.hwndFrom, TTM_SETMAXTIPWIDTH, 0, -1);
-					}
-
-					if (tipTmp.length() >= tipMaxLen)
-						return FALSE;
-
-					wcscpy_s(docTip, tipTmp.c_str());
-					lpttt->lpszText = docTip;
-					return TRUE;
-				}
-			}
-			catch (...)
-			{
-				//printStr(L"ToolTip crash is caught!"));
-			}
-			break;
-		}
-
-		case RBN_HEIGHTCHANGE:
-		{
-			SendMessage(_pPublicInterface->getHSelf(), WM_SIZE, 0, 0);
-			break;
-		}
-
-		case RBN_CHEVRONPUSHED:
-		{
-			NMREBARCHEVRON * lpnm = reinterpret_cast<NMREBARCHEVRON *>(notification);
-			ReBar * notifRebar = &_rebarTop;
-			if (_rebarBottom.getHSelf() == lpnm->hdr.hwndFrom)
-				notifRebar = &_rebarBottom;
-
-			//If Notepad++ ID, use proper object
-			if (lpnm->wID == REBAR_BAR_TOOLBAR)
-			{
-				POINT pt{};
-				pt.x = lpnm->rc.left;
-				pt.y = lpnm->rc.bottom;
-				ClientToScreen(notifRebar->getHSelf(), &pt);
-				_toolBar.doPopup(pt);
-				return TRUE;
-			}
-
-			//Else forward notification to window of rebarband
-			REBARBANDINFO rbBand;
-			ZeroMemory(&rbBand, REBARBAND_SIZE);
-			rbBand.cbSize = REBARBAND_SIZE;
-
-			rbBand.fMask = RBBIM_CHILD;
-			::SendMessage(notifRebar->getHSelf(), RB_GETBANDINFO, lpnm->uBand, reinterpret_cast<LPARAM>(&rbBand));
-			::SendMessage(rbBand.hwndChild, WM_NOTIFY, 0, reinterpret_cast<LPARAM>(lpnm));
-			break;
 		}
 
 		default:

@@ -14,486 +14,362 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-#include <shlwapi.h>
-#include <stdexcept>
 #include "VerticalFileSwitcherListView.h"
-#include "Buffer.h"
+
+#include <QBrush>
+#include <QColor>
+#include <QHeaderView>
+#include <QPalette>
+#include <QSignalBlocker>
+#include <QTreeWidget>
+
+#include "IconList.h"
+#include "Parameters.h"
 #include "localization.h"
-#include "dpiManagerV2.h"
 
 using namespace std;
 
-void VerticalFileSwitcherListView::init(HINSTANCE hInst, HWND parent, HIMAGELIST hImaLst)
+namespace
+{
+	constexpr int bufferRole = Qt::UserRole + 1;
+	constexpr int viewRole = Qt::UserRole + 2;
+	constexpr int pathRole = Qt::UserRole + 3;
+	constexpr int colorRole = Qt::UserRole + 4;
+
+	int iconIndexOf(const Buffer* buf)
+	{
+		return buf->isMonitoringOn()?3:(buf->isReadOnly()?2:(buf->isDirty()?1:0));
+	}
+}
+
+void VerticalFileSwitcherListView::init(HINSTANCE hInst, HWND parent, const IconList* icons)
 {
 	Window::init(hInst, parent);
-	_hImaLst = hImaLst;
-	INITCOMMONCONTROLSEX icex{};
+	_icons = icons;
 
-	// Ensure that the common control DLL is loaded. 
-	icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-	icex.dwICC  = ICC_LISTVIEW_CLASSES;
-	InitCommonControlsEx(&icex);
-
-	// Create the list-view window in report view with label editing enabled.
-	int listViewStyles = LVS_REPORT /*| LVS_SINGLESEL*/ | LVS_AUTOARRANGE\
-						| LVS_SHAREIMAGELISTS | LVS_SHOWSELALWAYS | LVS_ALIGNTOP;
-
-	_hSelf = ::CreateWindow(WC_LISTVIEW,
-                                L"",
-                                WS_CHILD | WS_BORDER | listViewStyles,
-                                0,
-                                0,
-                                0,
-                                0,
-                                _hParent,
-                                nullptr,
-                                hInst,
-                                nullptr);
-	if (!_hSelf)
-	{
-		throw std::runtime_error("VerticalFileSwitcherListView::init : CreateWindowEx() function return null");
-	}
-
-	ListView_SetExtendedListViewStyle(_hSelf, LVS_EX_FULLROWSELECT | LVS_EX_BORDERSELECT | LVS_EX_INFOTIP | LVS_EX_DOUBLEBUFFER);
-	ListView_SetItemCountEx(_hSelf, 50, LVSICF_NOSCROLL);
-	ListView_SetImageList(_hSelf, _hImaLst, LVSIL_SMALL);
-
-	LVGROUP group{};
-	constexpr size_t headerLen = 1;
-	wchar_t header[headerLen] = L"";
-	group.cbSize = sizeof(LVGROUP);
-	group.mask = LVGF_HEADER | LVGF_GROUPID | LVGF_STATE;
-	group.pszHeader = header;
-	group.cchHeader = headerLen;
-	group.iGroupId = _groupID;
-	group.state = LVGS_COLLAPSIBLE;
-
-	LVGROUP group2 = group;
-	group2.iGroupId = _group2ID;
-
-	ListView_InsertGroup(_hSelf, -1, &group);
-	ListView_InsertGroup(_hSelf, -1, &group2);
+	auto* list = new QTreeWidget(parent);
+	_hSelf = list;
+	list->setSelectionMode(QAbstractItemView::ExtendedSelection);
+	list->setRootIsDecorated(false);
+	list->setIndentation(0);
+	list->setUniformRowHeights(true);
+	list->setAllColumnsShowFocus(true);
+	list->setExpandsOnDoubleClick(false);
+	list->setContextMenuPolicy(Qt::CustomContextMenu);
+	list->header()->setContextMenuPolicy(Qt::CustomContextMenu);
+	list->header()->setSectionsClickable(true);
+	list->header()->setSectionsMovable(false);
+	list->header()->setStretchLastSection(false);
+	list->header()->setSortIndicatorShown(false);
 }
 
 void VerticalFileSwitcherListView::destroy()
 {
-	LVITEM item{};
-	item.mask = LVIF_PARAM;
-	int nbItem = ListView_GetItemCount(_hSelf);
-	for (int i = 0 ; i < nbItem ; ++i)
-	{
-		item.iItem = i;
-		ListView_GetItem(_hSelf, &item);
-		auto* tlfs = reinterpret_cast<TaskLstFnStatus*>(item.lParam);
-		delete tlfs;
-	}
-	::DestroyWindow(_hSelf);
-	_hSelf = NULL;
-} 
+	delete _hSelf;
+	_hSelf = nullptr;
+}
+
+QTreeWidget* VerticalFileSwitcherListView::tree() const
+{
+	return static_cast<QTreeWidget*>(_hSelf);
+}
+
+bool VerticalFileSwitcherListView::infoOf(const QTreeWidgetItem* item, BufferID& bufferID, int& iView)
+{
+	if (!item || !item->data(0, bufferRole).isValid())
+		return false;
+
+	bufferID = reinterpret_cast<BufferID>(item->data(0, bufferRole).value<quintptr>());
+	iView = item->data(0, viewRole).toInt();
+	return true;
+}
 
 void VerticalFileSwitcherListView::initList()
 {
 	NppParameters& nppParams = NppParameters::getInstance();
 	NativeLangSpeaker *pNativeSpeaker = nppParams.getNativeLangSpeaker();
-	
-	const bool isListViewGroups = !nppParams.getNppGUI()._fileSwitcherDisableListViewGroups;
-	ListView_EnableGroupView(_hSelf, isListViewGroups ? TRUE : FALSE);
+	const NppGUI& nppGUI = nppParams.getNppGUI();
 
-	bool isExtColumn = !nppParams.getNppGUI()._fileSwitcherWithoutExtColumn;
-	bool isPathColumn = !nppParams.getNppGUI()._fileSwitcherWithoutPathColumn;
-
-	const UINT dpi = DPIManagerV2::getDpiForWindow(_hParent);
-	const int extWidthDyn = DPIManagerV2::scale(nppParams.getNppGUI()._fileSwitcherExtWidth, dpi);
-	const int pathWidthDyn = DPIManagerV2::scale(nppParams.getNppGUI()._fileSwitcherPathWidth, dpi);
-
-	RECT rc{};
-	::GetClientRect(_hParent, &rc);
-	int nameWidth = rc.right - rc.left;
-	int colIndex = 0;
-	if (isExtColumn)
-		nameWidth -= extWidthDyn;
-	if (isPathColumn)
-		nameWidth -= pathWidthDyn;
+	const bool isExtColumn = !nppGUI._fileSwitcherWithoutExtColumn;
+	const bool isPathColumn = !nppGUI._fileSwitcherWithoutPathColumn;
 
 	//add columns
-	wstring nameStr = pNativeSpeaker->getAttrNameStr(L"Name", FS_ROOTNODE, FS_CLMNNAME);
-	insertColumn(nameStr.c_str(), nameWidth, ++colIndex);
+	QStringList columns;
+	columns << QString::fromStdWString(pNativeSpeaker->getAttrNameStr(L"Name", FS_ROOTNODE, FS_CLMNNAME));
+	if (isExtColumn)
+		columns << QString::fromStdWString(pNativeSpeaker->getAttrNameStr(L"Ext.", FS_ROOTNODE, FS_CLMNEXT));
+	if (isPathColumn)
+		columns << QString::fromStdWString(pNativeSpeaker->getAttrNameStr(L"Path", FS_ROOTNODE, FS_CLMNPATH));
+
+	QTreeWidget* list = tree();
+	list->setColumnCount(static_cast<int>(columns.size()));
+	list->setHeaderLabels(columns);
+
+	QHeaderView* header = list->header();
+	header->setSectionResizeMode(0, QHeaderView::Stretch);
+	int column = 0;
 	if (isExtColumn)
 	{
-		wstring extStr = pNativeSpeaker->getAttrNameStr(L"Ext.", FS_ROOTNODE, FS_CLMNEXT);
-		insertColumn(extStr.c_str(), extWidthDyn, ++colIndex); //2nd column
+		++column;
+		header->setSectionResizeMode(column, QHeaderView::Interactive);
+		header->resizeSection(column, nppGUI._fileSwitcherExtWidth);
 	}
 	if (isPathColumn)
 	{
-		wstring pathStr = pNativeSpeaker->getAttrNameStr(L"Path", FS_ROOTNODE, FS_CLMNPATH);
-		insertColumn(pathStr.c_str(), pathWidthDyn, ++colIndex); //2nd column if .ext is off
+		++column;
+		header->setSectionResizeMode(column, QHeaderView::Interactive);
+		header->resizeSection(column, nppGUI._fileSwitcherPathWidth);
 	}
 
 	TaskListInfo taskListInfo;
-	static HWND nppHwnd = ::GetParent(_hParent);
-	::SendMessage(nppHwnd, WM_GETTASKLISTINFO, reinterpret_cast<WPARAM>(&taskListInfo), TRUE);
+	::SendMessage(nppMainWindow(), WM_GETTASKLISTINFO, reinterpret_cast<WPARAM>(&taskListInfo), TRUE);
 
-	for (size_t i = 0, len = taskListInfo._tlfsLst.size(); i < len ; ++i)
+	// Grouping only tells something when both views hold documents
+	bool hasMain = false;
+	bool hasSub = false;
+	for (const TaskLstFnStatus& status : taskListInfo._tlfsLst)
 	{
-		TaskLstFnStatus & fileNameStatus = taskListInfo._tlfsLst[i];
+		hasMain = hasMain || status._iView == MAIN_VIEW;
+		hasSub = hasSub || status._iView == SUB_VIEW;
+	}
 
-		TaskLstFnStatus *tl = new TaskLstFnStatus(fileNameStatus);
-
-		wchar_t fn[MAX_PATH] = { '\0' };
-		wcscpy_s(fn, ::PathFindFileName(fileNameStatus._fn.c_str()));
-
-		if (isExtColumn)
+	if (!nppGUI._fileSwitcherDisableListViewGroups && hasMain && hasSub)
+	{
+		for (int view : { MAIN_VIEW, SUB_VIEW })
 		{
-			::PathRemoveExtension(fn);
-		}
-		LVITEM item{};
-		item.mask = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM | LVIF_GROUPID;
-		
-		item.pszText = fn;
-		item.iItem = static_cast<int32_t>(i);
-		item.iSubItem = 0;
-		item.iImage = fileNameStatus._status;
-		item.lParam = reinterpret_cast<LPARAM>(tl);
-		item.iGroupId = (fileNameStatus._iView == MAIN_VIEW) ? _groupID : _group2ID;
-		ListView_InsertItem(_hSelf, &item);
-		int colIndex2 = 0;
-		if (isExtColumn)
-		{
-			ListView_SetItemText(_hSelf, i, ++colIndex2, ::PathFindExtension(fileNameStatus._fn.c_str()));
-		}
-		if (isPathColumn)
-		{
-			wchar_t dir[MAX_PATH] = { '\0' }, drive[MAX_PATH] = { '\0' };
-			_wsplitpath_s(fileNameStatus._fn.c_str(), drive, MAX_PATH, dir, MAX_PATH, NULL, 0, NULL, 0);
-			wcscat_s(drive, dir);
-			ListView_SetItemText(_hSelf, i, ++colIndex2, drive);
+			auto* group = new QTreeWidgetItem(list);
+			group->setData(0, viewRole, view);
+			group->setFlags(Qt::ItemIsEnabled);
+			group->setExpanded(true);
+			group->setFirstColumnSpanned(true);
 		}
 	}
-	_currentIndex = taskListInfo._currentIndex;
-	selectCurrentItem();
+
+	QTreeWidgetItem* current = nullptr;
+	for (size_t i = 0, len = taskListInfo._tlfsLst.size(); i < len ; ++i)
+	{
+		const TaskLstFnStatus& fileNameStatus = taskListInfo._tlfsLst[i];
+		auto* item = new QTreeWidgetItem;
+		item->setData(0, bufferRole, QVariant::fromValue(reinterpret_cast<quintptr>(fileNameStatus._bufID)));
+		item->setData(0, viewRole, fileNameStatus._iView);
+		item->setData(0, colorRole, fileNameStatus._docColor);
+		fillRow(item, fileNameStatus._fn, fileNameStatus._status);
+
+		if (QTreeWidgetItem* group = groupOf(fileNameStatus._iView))
+			group->addChild(item);
+		else
+			list->addTopLevelItem(item);
+
+		if (static_cast<int>(i) == taskListInfo._currentIndex)
+			current = item;
+	}
+
+	if (current)
+		selectOnly(current);
 	ensureVisibleCurrentItem();	// without this call the current item may become invisible after adding/removing columns
 }
 
 void VerticalFileSwitcherListView::reload()
 {
-	// Suppress redraws for performance. We target _hParent to prevent scroll bar flickering.
-	::SendMessage(_hSelf, WM_SETREDRAW, false, 0);
-	::SendMessage(_hParent, WM_SETREDRAW, false, 0);
-	removeAll();
+	tree()->clear();
 	initList();
-
-	RECT rc{};
-	::GetClientRect(_hParent, &rc);
-	resizeColumns(rc.right - rc.left);
-	::SendMessage(_hParent, WM_SETREDRAW, true, 0);
-	::SendMessage(_hSelf, WM_SETREDRAW, true, 0);
-	redrawItems();
 }
 
-void VerticalFileSwitcherListView::redrawItems()
+QTreeWidgetItem* VerticalFileSwitcherListView::groupOf(int iView) const
 {
-	int nbItem = ListView_GetItemCount(_hSelf);
-	::SendMessage(_hSelf, WM_PAINT, 0, 0);
-	ListView_RedrawItems(_hSelf, 0, nbItem - 1);
+	QTreeWidget* list = tree();
+	for (int i = 0; i < list->topLevelItemCount(); ++i)
+	{
+		QTreeWidgetItem* item = list->topLevelItem(i);
+		if (!item->data(0, bufferRole).isValid() && item->data(0, viewRole).toInt() == iView)
+			return item;
+	}
+	return nullptr;
 }
 
-BufferID VerticalFileSwitcherListView::getBufferInfoFromIndex(int index, int & view) const
+std::vector<QTreeWidgetItem*> VerticalFileSwitcherListView::rows() const
 {
-	int nbItem = ListView_GetItemCount(_hSelf);
-	if (index < 0 || index >= nbItem)
-		return BUFFER_INVALID;
+	std::vector<QTreeWidgetItem*> result;
+	QTreeWidget* list = tree();
+	for (int i = 0; i < list->topLevelItemCount(); ++i)
+	{
+		QTreeWidgetItem* top = list->topLevelItem(i);
+		if (top->data(0, bufferRole).isValid())
+			result.push_back(top);
+		for (int j = 0; j < top->childCount(); ++j)
+			result.push_back(top->child(j));
+	}
+	return result;
+}
 
-	LVITEM item{};
-	item.mask = LVIF_PARAM;
-	item.iItem = index;
-	ListView_GetItem(_hSelf, &item);
-	TaskLstFnStatus *tlfs = (TaskLstFnStatus *)item.lParam;
+void VerticalFileSwitcherListView::fillRow(QTreeWidgetItem* item, const std::wstring& fullPath, int iconIndex) const
+{
+	const NppGUI& nppGUI = NppParameters::getInstance().getNppGUI();
+	const bool isExtColumn = !nppGUI._fileSwitcherWithoutExtColumn;
+	const bool isPathColumn = !nppGUI._fileSwitcherWithoutPathColumn;
 
-	view = tlfs->_iView;
-	return static_cast<BufferID>(tlfs->_bufID);
+	const wchar_t* fileName = PathFindFileName(fullPath.c_str());
+	const wchar_t* extension = PathFindExtension(fileName);
+	const std::wstring name = isExtColumn ? std::wstring(fileName, extension) : std::wstring(fileName);
+
+	item->setText(0, QString::fromStdWString(name));
+	if (_icons && static_cast<size_t>(iconIndex) < _icons->size())
+		item->setIcon(0, _icons->icon(iconIndex));
+
+	int column = 0;
+	if (isExtColumn)
+		item->setText(++column, QString::fromWCharArray(extension));
+	if (isPathColumn)
+		item->setText(++column, QString::fromStdWString(std::wstring(fullPath.c_str(), fileName)));
+
+	item->setData(0, pathRole, QString::fromStdWString(fullPath));
+	item->setToolTip(0, QString::fromStdWString(fullPath));
+
+	const int colorID = item->data(0, colorRole).toInt();
+	const bool useColor = item->data(0, colorRole).isValid() && colorID != -1;
+	const COLORREF color = useColor ? NppParameters::getInstance().getIndividualTabColor(colorID, NppDarkMode::isThemeDark(), false) : 0;
+	for (int i = 0; i < tree()->columnCount(); ++i)
+		item->setBackground(i, useColor ? QBrush(QColor(GetRValue(color), GetGValue(color), GetBValue(color))) : QBrush());
+}
+
+QTreeWidgetItem* VerticalFileSwitcherListView::add(BufferID bufferID, int iView, int docColor)
+{
+	auto* item = new QTreeWidgetItem;
+	item->setData(0, bufferRole, QVariant::fromValue(reinterpret_cast<quintptr>(bufferID)));
+	item->setData(0, viewRole, iView);
+	item->setData(0, colorRole, docColor);
+	fillRow(item, bufferID->getFullPathName(), iconIndexOf(bufferID));
+
+	if (QTreeWidgetItem* group = groupOf(iView))
+		group->addChild(item);
+	else
+		tree()->addTopLevelItem(item);
+
+	return item;
+}
+
+QTreeWidgetItem* VerticalFileSwitcherListView::find(BufferID bufferID, int iView) const
+{
+	for (QTreeWidgetItem* item : rows())
+	{
+		BufferID id = nullptr;
+		int view = 0;
+		if (infoOf(item, id, view) && id == bufferID && view == iView)
+			return item;
+	}
+	return nullptr;
 }
 
 int VerticalFileSwitcherListView::newItem(BufferID bufferID, int iView)
 {
-	int i = find(bufferID, iView);
-	if (i == -1)
-	{
-		i = add(bufferID, iView);
-	}
-	return i;
+	if (!find(bufferID, iView))
+		selectOnly(add(bufferID, iView));
+	return 0;
 }
 
 void VerticalFileSwitcherListView::setItemIconStatus(BufferID bufferID)
 {
-	Buffer *buf = bufferID;
-	
-	wchar_t fn[MAX_PATH] = { '\0' };
-	wcscpy_s(fn, ::PathFindFileName(buf->getFileName()));
-	bool isExtColumn = !(NppParameters::getInstance()).getNppGUI()._fileSwitcherWithoutExtColumn;
-	bool isPathColumn = !(NppParameters::getInstance()).getNppGUI()._fileSwitcherWithoutPathColumn;
-	if (isExtColumn)
+	for (QTreeWidgetItem* item : rows())
 	{
-		::PathRemoveExtension(fn);
-	}
-	LVITEM item{};
-	item.pszText = fn;
-	item.iSubItem = 0;
-	item.iImage = buf->isMonitoringOn()?3:(buf->isReadOnly()?2:(buf->isDirty()?1:0));
-
-	int nbItem = ListView_GetItemCount(_hSelf);
-
-	for (int i = 0 ; i < nbItem ; ++i)
-	{
-		item.mask = LVIF_PARAM;
-		item.iItem = i;
-		ListView_GetItem(_hSelf, &item);
-		TaskLstFnStatus *tlfs = (TaskLstFnStatus *)(item.lParam);
-		if (tlfs->_bufID == bufferID)
-		{
-			tlfs->_fn = buf->getFullPathName();
-			item.mask = LVIF_TEXT | LVIF_IMAGE;
-			ListView_SetItem(_hSelf, &item);
-			int colIndex = 0;
-			if (isExtColumn)
-			{
-				ListView_SetItemText(_hSelf, i, ++colIndex, (LPTSTR)::PathFindExtension(buf->getFileName()));
-			}
-			if (isPathColumn)
-			{
-				wchar_t dir[MAX_PATH] = { '\0' }, drive[MAX_PATH] = { '\0' };
-				_wsplitpath_s(buf->getFullPathName(), drive, MAX_PATH, dir, MAX_PATH, NULL, 0, NULL, 0);
-				wcscat_s(drive, dir);
-				ListView_SetItemText(_hSelf, i, ++colIndex, drive);
-			}
-		}
+		BufferID id = nullptr;
+		int view = 0;
+		if (infoOf(item, id, view) && id == bufferID)
+			fillRow(item, bufferID->getFullPathName(), iconIndexOf(bufferID));
 	}
 }
 
 void VerticalFileSwitcherListView::setItemColor(BufferID bufferID)
 {
-	Buffer* buf = bufferID;
-
-	LVITEM item{};
-	item.mask = LVIF_PARAM;
-
-	int nbItem = ListView_GetItemCount(_hSelf);
-
-	for (int i = 0; i < nbItem; ++i)
+	for (QTreeWidgetItem* item : rows())
 	{
-		item.iItem = i;
-		ListView_GetItem(_hSelf, &item);
-		TaskLstFnStatus* tlfs = reinterpret_cast<TaskLstFnStatus*>(item.lParam);
-		if (tlfs->_bufID == bufferID)
+		BufferID id = nullptr;
+		int view = 0;
+		if (infoOf(item, id, view) && id == bufferID)
 		{
-			tlfs->_docColor = buf->getDocColorId();
-			ListView_SetItem(_hSelf, &item);
+			item->setData(0, colorRole, bufferID->getDocColorId());
+			fillRow(item, bufferID->getFullPathName(), iconIndexOf(bufferID));
 		}
 	}
-
-	redraw();
 }
 
 wstring VerticalFileSwitcherListView::getFullFilePath(size_t i) const
 {
-	size_t nbItem = ListView_GetItemCount(_hSelf);
-	if (i > nbItem)
-		return L"";
-
-	LVITEM item{};
-	item.mask = LVIF_PARAM;
-	item.iItem = static_cast<int32_t>(i);
-	ListView_GetItem(_hSelf, &item);
-	const TaskLstFnStatus *tlfs = (TaskLstFnStatus *)item.lParam;
-
-	return tlfs->_fn;
+	const std::vector<QTreeWidgetItem*> all = rows();
+	return (i < all.size()) ? all[i]->data(0, pathRole).toString().toStdWString() : wstring{};
 }
 
 int VerticalFileSwitcherListView::closeItem(BufferID bufferID, int iView)
 {
-	int i = find(bufferID, iView);
-	if (i != -1)
-		remove(i);
-	return i;
+	QTreeWidgetItem* item = find(bufferID, iView);
+	if (!item)
+		return -1;
+
+	delete item;
+	return 0;
+}
+
+void VerticalFileSwitcherListView::selectOnly(QTreeWidgetItem* item) const
+{
+	const QSignalBlocker silent(tree());
+	tree()->clearSelection();
+	if (item)
+	{
+		item->setSelected(true);
+		tree()->setCurrentItem(item);
+	}
 }
 
 void VerticalFileSwitcherListView::activateItem(BufferID bufferID, int iView)
 {
-	// Suppress redraws while we're resetting states
-	::SendMessage(_hSelf, WM_SETREDRAW, false, 0);
+	QTreeWidgetItem* item = find(bufferID, iView);
+	if (!item)
+		item = add(bufferID, iView);
 
-	// Clean all selection
-	int nbItem = ListView_GetItemCount(_hSelf);
-	for (int i = 0; i < nbItem; ++i)
-		ListView_SetItemState(_hSelf, i, 0, LVIS_FOCUSED|LVIS_SELECTED);
-
-	_currentIndex = newItem(bufferID, iView);
-	selectCurrentItem();
-	// Have to enable redraw to be able to move selection to the current item
-	::SendMessage(_hSelf, WM_SETREDRAW, true, 0);
+	selectOnly(item);
 	ensureVisibleCurrentItem();
-	redrawItems();
 }
 
-int VerticalFileSwitcherListView::add(BufferID bufferID, int iView)
+void VerticalFileSwitcherListView::ensureVisibleCurrentItem() const
 {
-	_currentIndex = ListView_GetItemCount(_hSelf);
-	Buffer *buf = bufferID;
-	const wchar_t *fileName = buf->getFileName();
-	const NppGUI& nppGUI = NppParameters::getInstance().getNppGUI();
-	TaskLstFnStatus *tl = new TaskLstFnStatus(iView, 0, buf->getFullPathName(), 0, (void *)bufferID, -1);
-
-	wchar_t fn[MAX_PATH] = { '\0' };
-	wcscpy_s(fn, ::PathFindFileName(fileName));
-	bool isExtColumn = !nppGUI._fileSwitcherWithoutExtColumn;
-	bool isPathColumn = !nppGUI._fileSwitcherWithoutPathColumn;
-	if (isExtColumn)
-	{
-		::PathRemoveExtension(fn);
-	}
-	LVITEM item{};
-	item.mask = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM | LVIF_GROUPID;
-	
-	item.pszText = fn;
-	item.iItem = _currentIndex;
-	item.iSubItem = 0;
-	item.iImage = buf->isMonitoringOn()?3:(buf->isReadOnly()?2:(buf->isDirty()?1:0));
-	item.lParam = reinterpret_cast<LPARAM>(tl);
-	item.iGroupId = (iView == MAIN_VIEW) ? _groupID : _group2ID;
-	ListView_InsertItem(_hSelf, &item);
-	int colIndex = 0;
-	if (isExtColumn)
-	{
-		ListView_SetItemText(_hSelf, _currentIndex, ++colIndex, ::PathFindExtension(fileName));
-	}
-	if (isPathColumn)
-	{
-		wchar_t dir[MAX_PATH] = { '\0' }, drive[MAX_PATH] = { '\0' };
-		_wsplitpath_s(buf->getFullPathName(), drive, MAX_PATH, dir, MAX_PATH, NULL, 0, NULL, 0);
-		wcscat_s(drive, dir);
-		ListView_SetItemText(_hSelf, _currentIndex, ++colIndex, drive);
-	}
-	selectCurrentItem();
-	
-	return _currentIndex;
+	if (_hSelf && tree()->currentItem())
+		tree()->scrollToItem(tree()->currentItem());
 }
 
-
-void VerticalFileSwitcherListView::remove(int index, bool removeFromListview)
+int VerticalFileSwitcherListView::nbSelectedFiles() const
 {
-	LVITEM item{};
-	item.mask = LVIF_PARAM;
-	item.iItem = index;
-	ListView_GetItem(_hSelf, &item);
-	TaskLstFnStatus *tlfs = (TaskLstFnStatus *)item.lParam;
-	delete tlfs;
-	
-	if (removeFromListview)
-		ListView_DeleteItem(_hSelf, index);
-}
-
-void VerticalFileSwitcherListView::removeAll()
-{
-	int nbItem = ListView_GetItemCount(_hSelf);
-	
-	for (int i = nbItem - 1; i >= 0 ; --i)
-	{
-		remove(i, false);
-	}
-	ListView_DeleteAllItems(_hSelf);
-
-	HWND colHeader = reinterpret_cast<HWND>(SendMessage(_hSelf, LVM_GETHEADER, 0, 0));
-	int columnCount = static_cast<int32_t>(SendMessage(colHeader, HDM_GETITEMCOUNT, 0, 0));
-
-	for (int i = 0; i < columnCount; ++i)
-	{
-		ListView_DeleteColumn(_hSelf, 0);
-	}
-}
-
-int VerticalFileSwitcherListView::find(BufferID bufferID, int iView) const
-{
-	LVITEM item{};
-	bool found = false;
-	int nbItem = ListView_GetItemCount(_hSelf);
-	int i = 0;
-	for (; i < nbItem ; ++i)
-	{
-		item.mask = LVIF_PARAM;
-		item.iItem = i;
-		ListView_GetItem(_hSelf, &item);
-		const TaskLstFnStatus *tlfs = (TaskLstFnStatus *)item.lParam;
-		if (tlfs->_bufID == bufferID && tlfs->_iView == iView)
-		{
-			found =  true;
-			break;
-		}
-	}
-	return (found?i:-1);	
-}
-
-void VerticalFileSwitcherListView::insertColumn(const wchar_t *name, int width, int index)
-{
-	LVCOLUMN lvColumn{};
- 
-	lvColumn.mask = LVCF_TEXT | LVCF_WIDTH;
-	lvColumn.cx = width;
-	lvColumn.pszText = (wchar_t *)name;
-	ListView_InsertColumn(_hSelf, index, &lvColumn); // index is not 0 based but 1 based
-}
-
-void VerticalFileSwitcherListView::resizeColumns(int totalWidth)
-{
-	NppParameters& nppParams = NppParameters::getInstance();
-	bool isExtColumn = !nppParams.getNppGUI()._fileSwitcherWithoutExtColumn;
-	bool isPathColumn = !nppParams.getNppGUI()._fileSwitcherWithoutPathColumn;
-
-	const UINT dpi = DPIManagerV2::getDpiForWindow(_hParent);
-	const int extWidthDyn = DPIManagerV2::scale(nppParams.getNppGUI()._fileSwitcherExtWidth, dpi);
-	const int pathWidthDyn = DPIManagerV2::scale(nppParams.getNppGUI()._fileSwitcherPathWidth, dpi);
-
-	int totalColWidthDynExceptName = 0;
-	int colIndex = 0;
-
-	if (isExtColumn)
-	{
-		totalColWidthDynExceptName += extWidthDyn;
-		ListView_SetColumnWidth(_hSelf, ++colIndex, extWidthDyn);
-	}
-	if (isPathColumn)
-	{
-		totalColWidthDynExceptName += pathWidthDyn;
-		ListView_SetColumnWidth(_hSelf, ++colIndex, pathWidthDyn);
-	}
-
-	const auto style = ::GetWindowLongPtr(_hSelf, GWL_STYLE);
-	if ((style & WS_VSCROLL) == WS_VSCROLL)
-	{
-		totalColWidthDynExceptName += ::GetSystemMetrics(SM_CXVSCROLL);
-	}
-
-	ListView_SetColumnWidth(_hSelf, 0, totalWidth - totalColWidthDynExceptName);
+	int count = 0;
+	for (const QTreeWidgetItem* item : rows())
+		count += item->isSelected() ? 1 : 0;
+	return count;
 }
 
 std::vector<BufferViewInfo> VerticalFileSwitcherListView::getSelectedFiles(bool reverse) const
 {
 	std::vector<BufferViewInfo> files;
-	LVITEM item{};
-	int nbItem = ListView_GetItemCount(_hSelf);
-	int i = 0;
-	for (; i < nbItem ; ++i)
+	for (const QTreeWidgetItem* item : rows())
 	{
-		int isSelected = ListView_GetItemState(_hSelf, i, LVIS_SELECTED);
-		bool isChosen = reverse?isSelected != LVIS_SELECTED:isSelected == LVIS_SELECTED;
-		if (isChosen)
-		{
-			item.mask = LVIF_PARAM;
-			item.iItem = i;
-			ListView_GetItem(_hSelf, &item);
-
-			TaskLstFnStatus *tlfs = (TaskLstFnStatus *)item.lParam;
-			files.push_back(BufferViewInfo(static_cast<BufferID>(tlfs->_bufID), tlfs->_iView));
-		}
+		BufferID id = nullptr;
+		int view = 0;
+		if (item->isSelected() != reverse && infoOf(item, id, view))
+			files.push_back(BufferViewInfo(id, view));
 	}
-
 	return files;
+}
+
+void VerticalFileSwitcherListView::sortBy(int column, int direction)
+{
+	QHeaderView* header = tree()->header();
+	const Qt::SortOrder order = (direction == SORT_DIRECTION_DOWN) ? Qt::DescendingOrder : Qt::AscendingOrder;
+	header->setSortIndicatorShown(direction != SORT_DIRECTION_NONE);
+	header->setSortIndicator(column, order);
+	if (direction != SORT_DIRECTION_NONE)
+		tree()->sortItems(column, order);
+}
+
+void VerticalFileSwitcherListView::setColours(COLORREF background, COLORREF text)
+{
+	QPalette palette = tree()->palette();
+	palette.setColor(QPalette::Base, QColor(GetRValue(background), GetGValue(background), GetBValue(background)));
+	palette.setColor(QPalette::Text, QColor(GetRValue(text), GetGValue(text), GetBValue(text)));
+	tree()->setPalette(palette);
 }

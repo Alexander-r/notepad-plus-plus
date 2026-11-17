@@ -1,5 +1,5 @@
 // This file is part of Notepad++ project
-// Copyright (C)2006 Jens Lorenz <jens.plugin.npp@gmx.de>
+// Copyright (c) 2021 adzm / Adam D. Walling
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,1007 +14,473 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
-#include <stdexcept>
 #include "DockingManager.h"
-#include "DockingSplitter.h"
-#include "DockingCont.h"
-#include "Gripper.h"
-#include "Parameters.h"
 
-using namespace std;
+#include <QCloseEvent>
+#include <QDockWidget>
+#include <QHideEvent>
+#include <QIcon>
+#include <QMainWindow>
+#include <QShowEvent>
+#include <QTabBar>
 
-BOOL DockingManager::_isRegistered = FALSE;
+#include <QTimer>
 
-//Window of event handling DockingManager (can only be one)
-static	HWND			hWndServer	= NULL;
-//Next hook in line
-static	HHOOK			gWinCallHook = NULL;
-LRESULT CALLBACK focusWndProc(int nCode, WPARAM wParam, LPARAM lParam);
+#include <algorithm>
+#include <memory>
 
-// Callback function that handles messages (to test focus)
-LRESULT CALLBACK focusWndProc(int nCode, WPARAM wParam, LPARAM lParam)
+#include "NppMessages.h"
+
+namespace
 {
-	if (nCode == HC_ACTION && hWndServer)
+	constexpr int floatingContainerIndex = DOCKCONT_MAX;
+
+	Qt::DockWidgetArea areaOf(int iCont)
 	{
-		DockingManager *pDockingManager = (DockingManager *)::GetWindowLongPtr(hWndServer, GWLP_USERDATA);
-		if (pDockingManager)
+		switch (iCont)
 		{
-			vector<DockingCont*> & vcontainer = pDockingManager->getContainerInfo();
-			CWPSTRUCT * pCwp = (CWPSTRUCT*)lParam;
-			if (pCwp->message == WM_KILLFOCUS)
-			{
-				for (int i = 0; i < DOCKCONT_MAX; ++i)
-				{
-					vcontainer[i]->SetActive(FALSE);	//deactivate all containers
-				}
-			}
-			else if (pCwp->message == WM_SETFOCUS)
-			{
-				for (int i = 0; i < DOCKCONT_MAX; ++i)
-				{
-					vcontainer[i]->SetActive(IsChild(vcontainer[i]->getHSelf(), pCwp->hwnd));	//activate the container that contains the window with focus, this can be none
-				}
-			}
+			case CONT_LEFT: return Qt::LeftDockWidgetArea;
+			case CONT_RIGHT: return Qt::RightDockWidgetArea;
+			case CONT_TOP: return Qt::TopDockWidgetArea;
+			case CONT_BOTTOM: return Qt::BottomDockWidgetArea;
+			default: return Qt::NoDockWidgetArea;
 		}
 	}
-	return CallNextHookEx(gWinCallHook, nCode, wParam, lParam);
-}
 
-DockingManager::DockingManager()
-{
-	memset(_iContMap, -1, CONT_MAP_MAX * sizeof(int));
-
-	_iContMap[0] = CONT_LEFT;
-	_iContMap[1] = CONT_RIGHT;
-	_iContMap[2] = CONT_TOP;
-	_iContMap[3] = CONT_BOTTOM;
-
-	// create four containers with splitters
-	for (int i = 0; i < DOCKCONT_MAX; ++i)
+	class PanelDock final : public QDockWidget
 	{
-		DockingCont *_pDockCont = new DockingCont;
-		_vContainer.push_back(_pDockCont);
+	public:
+		PanelDock(DockingManager* manager, DockedPanel* panel, QWidget* parent) : QDockWidget(parent), _manager(manager), _panel(panel) {}
 
-		DockingSplitter *_pSplitter = new DockingSplitter;
-		_vSplitter.push_back(_pSplitter);
+		// The dock outlives the manager, as it belongs to the main window, and is then on its own
+		void detach()
+		{
+			_manager = nullptr;
+			_panel = nullptr;
+		}
+
+	protected:
+		void closeEvent(QCloseEvent* event) override
+		{
+			// The panel is asked first, as on Windows, and stays open when it answers DMN_CLOSE with nonzero
+			if (_manager && _manager->panelClosed(_panel))
+			{
+				event->ignore();
+				return;
+			}
+			QDockWidget::closeEvent(event);
+		}
+
+		void showEvent(QShowEvent* event) override
+		{
+			QDockWidget::showEvent(event);
+			if (_manager)
+				_manager->panelShown(_panel);
+		}
+
+		void hideEvent(QHideEvent* event) override
+		{
+			if (_manager)
+				_manager->panelHidden(_panel);
+			QDockWidget::hideEvent(event);
+		}
+
+	private:
+		DockingManager* _manager;
+		DockedPanel* _panel;
+	};
+
+	QString titleOf(const DockedWidgetData& data)
+	{
+		QString title = QString::fromWCharArray(data.pszName ? data.pszName : L"");
+		if ((data.uMask & DWS_ADDINFO) && data.pszAddInfo && data.pszAddInfo[0])
+			title += QStringLiteral(" - ") + QString::fromWCharArray(data.pszAddInfo);
+		return title;
 	}
 }
+
+std::vector<DockedWidgetData*> DockingCont::getDataOfAllTb() const
+{
+	std::vector<DockedWidgetData*> result;
+	for (DockedPanel* panel : _panels)
+		result.push_back(&panel->_data);
+	return result;
+}
+
+std::vector<DockedWidgetData*> DockingCont::getDataOfVisTb() const
+{
+	std::vector<DockedWidgetData*> result;
+	for (DockedPanel* panel : _panels)
+	{
+		if (panel->_dock->isVisible())
+			result.push_back(&panel->_data);
+	}
+	return result;
+}
+
+bool DockingCont::isTbVis(const DockedWidgetData* data) const
+{
+	for (const DockedPanel* panel : _panels)
+	{
+		if (&panel->_data == data)
+			return panel->_dock->isVisible();
+	}
+	return false;
+}
+
+DockedWidgetData* DockingCont::findDockedWidgetByWnd(HWND hClient) const
+{
+	for (DockedPanel* panel : _panels)
+	{
+		if (panel->_data.hClient == hClient)
+			return &panel->_data;
+	}
+	return nullptr;
+}
+
+int DockingCont::getActiveTb() const
+{
+	// The panel on top of its tab group
+	for (size_t i = 0; i < _panels.size(); ++i)
+	{
+		if (_panels[i]->_dock->isVisible() && !_panels[i]->_dock->visibleRegion().isEmpty())
+			return static_cast<int>(i);
+	}
+	return _panels.empty() ? -1 : 0;
+}
+
+bool DockingCont::isVisible() const
+{
+	return std::any_of(_panels.begin(), _panels.end(), [](const DockedPanel* panel) { return panel->_dock->isVisible(); });
+}
+
+void DockingCont::getWindowRect(RECT& rc) const
+{
+	rc = {};
+	if (!_panels.empty())
+	{
+		const QRect frame = _panels.front()->_dock->frameGeometry();
+		rc.left = frame.left();
+		rc.top = frame.top();
+		rc.right = frame.left() + frame.width();
+		rc.bottom = frame.top() + frame.height();
+	}
+}
+
+void DockingCont::doDialog(bool toShow) const
+{
+	for (const DockedPanel* panel : _panels)
+		panel->_dock->setVisible(toShow);
+}
+
+DockingManager::DockingManager() = default;
 
 DockingManager::~DockingManager()
 {
-	// delete 4 splitters
-	for (int i = 0; i < DOCKCONT_MAX; ++i)
-	{
-		delete _vSplitter[i];
-	}
+	detachPanels();
 }
 
-void DockingManager::init(HINSTANCE hInst, HWND hParent, Window ** ppWin)
+void DockingManager::detachPanels()
 {
-	Window::init(hInst, hParent);
+	for (const auto& panel : _panels)
+		static_cast<PanelDock*>(panel->_dock)->detach();
+}
 
-	if (!_isRegistered)
-	{
-		WNDCLASS clz{};
-
-		clz.style = 0;
-		clz.lpfnWndProc = staticWinProc;
-		clz.cbClsExtra = 0;
-		clz.cbWndExtra = 0;
-		clz.hInstance = _hInst;
-		clz.hIcon = NULL;
-		clz.hCursor = ::LoadCursor(NULL, IDC_ARROW);
-		clz.hbrBackground = NULL;
-		clz.lpszMenuName = NULL;
-		clz.lpszClassName = DSPC_CLASS_NAME;
-
-		if (!::RegisterClass(&clz))
-		{
-			throw std::runtime_error("DockingManager::init : RegisterClass() function failed");
-		}
-		_isRegistered = TRUE;
-	}
-
-	_hSelf = ::CreateWindowEx(
-					0,
-					DSPC_CLASS_NAME,
-					L"",
-					WS_CHILD | WS_CLIPCHILDREN,
-					CW_USEDEFAULT, CW_USEDEFAULT,
-					CW_USEDEFAULT, CW_USEDEFAULT,
-					_hParent,
-					NULL,
-					_hInst,
-					(LPVOID)this);
-
-	if (!_hSelf)
-	{
-		throw std::runtime_error("DockingManager::init : CreateWindowEx() function return null");
-	}
-
-	setClientWnd(ppWin);
-
-	// create docking container
-	for (int iCont = 0; iCont < DOCKCONT_MAX; ++iCont)
-	{
-		_vContainer[iCont]->init(_hInst, _hSelf);
-		_vContainer[iCont]->doDialog(false);
-		::SetParent(_vContainer[iCont]->getHSelf(), _hParent);
-
-		if ((iCont == CONT_TOP) || (iCont == CONT_BOTTOM))
-			_vSplitter[iCont]->init(_hInst, _hParent, _hSelf, DMS_HORIZONTAL);
-		else
-			_vSplitter[iCont]->init(_hInst, _hParent, _hSelf, DMS_VERTICAL);
-	}
-	// register window event hooking
-	if (!hWndServer)
-		hWndServer = _hSelf;
-	CoInitialize(NULL);
-	if (!gWinCallHook)	//only set if not already done
-		gWinCallHook = ::SetWindowsHookEx(WH_CALLWNDPROC, focusWndProc, hInst, GetCurrentThreadId());
-
-	if (!gWinCallHook)
-	{
-		throw std::runtime_error("DockingManager::init : SetWindowsHookEx() function return null");
-	}
-
-	_dockData.hWnd = _hSelf;
-
-	_isInitialized = TRUE;
+void DockingManager::init(HINSTANCE hInst, QMainWindow* mainWindow)
+{
+	Window::init(hInst, mainWindow);
+	_mainWindow = mainWindow;
+	_hSelf = mainWindow;
+	mainWindow->setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowTabbedDocks | QMainWindow::AllowNestedDocks | QMainWindow::GroupedDragging);
+	mainWindow->setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::South);
 }
 
 void DockingManager::destroy()
 {
-	::DestroyWindow(_hSelf);
+	_containerPointers.clear();
+	_containers.clear();
+	detachPanels();
+	_panels.clear(); // the dock widgets belong to the main window
+	_hSelf = nullptr;
 }
 
-LRESULT CALLBACK DockingManager::staticWinProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+DockedPanel* DockingManager::findPanel(HWND hClient) const
 {
-	DockingManager *pDockingManager = NULL;
-	switch (message)
+	for (const auto& panel : _panels)
 	{
-		case WM_NCCREATE :
-			pDockingManager = static_cast<DockingManager *>(reinterpret_cast<LPCREATESTRUCT>(lParam)->lpCreateParams);
-			pDockingManager->_hSelf = hwnd;
-			::SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pDockingManager));
-			return TRUE;
-
-		default :
-			pDockingManager = reinterpret_cast<DockingManager *>(::GetWindowLongPtr(hwnd, GWLP_USERDATA));
-			if (!pDockingManager)
-				return ::DefWindowProc(hwnd, message, wParam, lParam);
-			return pDockingManager->runProc(hwnd, message, wParam, lParam);
+		if (panel->_data.hClient == hClient)
+			return panel.get();
 	}
+	return nullptr;
+}
+
+int DockingManager::containerOf(const DockedPanel* panel) const
+{
+	if (panel->_dock->isFloating())
+		return floatingContainerIndex;
+
+	switch (_mainWindow->dockWidgetArea(panel->_dock))
+	{
+		case Qt::LeftDockWidgetArea: return CONT_LEFT;
+		case Qt::RightDockWidgetArea: return CONT_RIGHT;
+		case Qt::TopDockWidgetArea: return CONT_TOP;
+		case Qt::BottomDockWidgetArea: return CONT_BOTTOM;
+		default: return floatingContainerIndex;
+	}
+}
+
+std::vector<DockingCont*>& DockingManager::getContainerInfo()
+{
+	_containers.clear();
+	_containerPointers.clear();
+	for (int i = 0; i <= floatingContainerIndex; ++i)
+	{
+		_containers.push_back(std::make_unique<DockingCont>(i));
+		_containerPointers.push_back(_containers.back().get());
+	}
+	for (const auto& panel : _panels)
+		_containers[containerOf(panel.get())]->_panels.push_back(panel.get());
+	return _containerPointers;
+}
+
+void DockingManager::place(DockedPanel* panel, int iCont)
+{
+	const Qt::DockWidgetArea area = areaOf(iCont);
+	if (area == Qt::NoDockWidgetArea)
+	{
+		// A floating panel, where it was last
+		_mainWindow->addDockWidget(Qt::LeftDockWidgetArea, panel->_dock);
+		panel->_dock->setFloating(true);
+		const RECT& rc = panel->_data.rcFloat;
+		if (rc.right > rc.left && rc.bottom > rc.top)
+			panel->_dock->setGeometry(rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top);
+		return;
+	}
+
+	// Panels of the same area share it as tabs
+	QDockWidget* sibling = nullptr;
+	for (const auto& other : _panels)
+	{
+		if (other.get() != panel && !other->_dock->isFloating() && _mainWindow->dockWidgetArea(other->_dock) == area)
+		{
+			sibling = other->_dock;
+			break;
+		}
+	}
+	_mainWindow->addDockWidget(area, panel->_dock);
+	if (sibling)
+		_mainWindow->tabifyDockWidget(sibling, panel->_dock);
+}
+
+void DockingManager::createDockableDlg(DockedWidgetData data, int iCont, bool isVisible)
+{
+	auto panel = std::make_unique<DockedPanel>();
+	panel->_data = data;
+	auto* dock = new PanelDock(this, panel.get(), _mainWindow);
+	panel->_dock = dock;
+
+	dock->setObjectName(QString::fromWCharArray(data.pszModuleName ? data.pszModuleName : L"") + u'#' + QString::number(data.dlgID));
+	dock->setWindowTitle(titleOf(data));
+	if ((data.uMask & DWS_ICONTAB) && data.hIconTab)
+		dock->setWindowIcon(*data.hIconTab);
+	dock->setWidget(data.hClient);
+
+	// A panel that comes into view or goes out of it hears about it, as it may have to catch up. The signal comes
+	// before the layout has placed the panel, so the answer is only known afterwards.
+	HWND client = data.hClient;
+	auto wasVisible = std::make_shared<bool>(false);
+	QObject::connect(dock, &QDockWidget::visibilityChanged, dock, [dock, client, wasVisible]()
+	{
+		QTimer::singleShot(0, dock, [dock, client, wasVisible]()
+		{
+			const bool isVisible = dock->isVisible() && !dock->visibleRegion().isEmpty();
+			if (isVisible == *wasVisible)
+				return;
+
+			*wasVisible = isVisible;
+			NMHDR nmhdr{};
+			nmhdr.code = isVisible ? DMN_SWITCHIN : DMN_SWITCHOFF;
+			nmhdr.hwndFrom = client;
+			::SendMessage(client, WM_NOTIFY, 0, reinterpret_cast<LPARAM>(&nmhdr));
+		});
+	});
+
+	// The panel is told when it is torn off or docked again, as the Document Map then has to redraw its view
+	QObject::connect(dock, &QDockWidget::topLevelChanged, dock, [this, dock, client](bool isFloating)
+	{
+		const auto notifyPanel = [client](UINT code)
+		{
+			NMHDR nmhdr{};
+			nmhdr.code = code;
+			nmhdr.hwndFrom = client;
+			::SendMessage(client, WM_NOTIFY, 0, reinterpret_cast<LPARAM>(&nmhdr));
+		};
+
+		if (isFloating)
+		{
+			notifyPanel(DMN_FLOAT);
+			notifyPanel(DMN_FLOATDROPPED);
+			return;
+		}
+
+		int position = CONT_LEFT;
+		switch (_mainWindow ? _mainWindow->dockWidgetArea(dock) : Qt::LeftDockWidgetArea)
+		{
+			case Qt::RightDockWidgetArea: position = CONT_RIGHT; break;
+			case Qt::TopDockWidgetArea: position = CONT_TOP; break;
+			case Qt::BottomDockWidgetArea: position = CONT_BOTTOM; break;
+			default: break;
+		}
+		notifyPanel(DMN_DOCK | (static_cast<UINT>(position) << 16)); // the position in the high word, as on Windows
+	});
+
+	// Without a position from the last session, the panel goes where it asks to by default
+	if (iCont < 0 || iCont >= DOCKCONT_MAX)
+	{
+		if (iCont < 0 && !(data.uMask & DWS_DF_FLOATING))
+			iCont = static_cast<int>((data.uMask & 0x30000000) >> 28);
+		else
+			iCont = floatingContainerIndex;
+	}
+
+	DockedPanel* placed = panel.get();
+	_panels.push_back(std::move(panel));
+	place(placed, iCont);
+	dock->setVisible(isVisible);
 }
 
 void DockingManager::updateContainerInfo(HWND hClient)
 {
-	for (size_t iCont = 0, len = _vContainer.size(); iCont < len; ++iCont)
+	if (const DockedPanel* panel = findPanel(hClient))
 	{
-		if (_vContainer[iCont]->updateInfo(hClient) == TRUE)
+		panel->_dock->setWindowTitle(titleOf(panel->_data));
+		if ((panel->_data.uMask & DWS_ICONTAB) && panel->_data.hIconTab)
+			panel->_dock->setWindowIcon(*panel->_data.hIconTab);
+	}
+}
+
+void DockingManager::setActiveTab(int iCont, int iItem)
+{
+	std::vector<DockingCont*>& containers = getContainerInfo();
+	if (iCont >= 0 && static_cast<size_t>(iCont) < containers.size())
+	{
+		const auto& panels = containers[iCont]->_panels;
+		if (iItem >= 0 && static_cast<size_t>(iItem) < panels.size())
+			panels[iItem]->_dock->raise();
+	}
+}
+
+void DockingManager::showDockableDlg(HWND hDlg, bool view)
+{
+	if (const DockedPanel* panel = findPanel(hDlg))
+	{
+		panel->_dock->setVisible(view);
+		if (view)
+			panel->_dock->raise();
+	}
+}
+
+void DockingManager::showDockableDlg(const wchar_t* pszName, bool view)
+{
+	for (const auto& panel : _panels)
+	{
+		if (panel->_data.pszName && std::wcscmp(panel->_data.pszName, pszName) == 0)
 		{
-			break;
+			panel->_dock->setVisible(view);
+			if (view)
+				panel->_dock->raise();
+			return;
 		}
 	}
 }
 
 void DockingManager::showFloatingContainers(bool show)
 {
-	for (size_t i=0; i < _vContainer.size(); i++)
+	for (const auto& panel : _panels)
 	{
-		size_t iElementCnt = _vContainer[i]->getElementCnt();
-		if (iElementCnt > 0)
-		{
-			if (0 < ::SendMessage(_vContainer[i]->getTabWnd(), TCM_GETITEMCOUNT, 0, 0)) // any real item(s)?
-				_vContainer[i]->display(show);
-		}
+		if (panel->_dock->isFloating())
+			panel->_dock->setVisible(show);
 	}
 }
 
-LRESULT DockingManager::runProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+void DockingManager::getDockInfo(tDockMgr *pDockData) const
 {
-	switch (message)
-	{
-		case WM_ERASEBKGND:
-		{
-			if (!NppDarkMode::isEnabled())
-			{
-				break;
-			}
-
-			RECT rc{};
-			::GetClientRect(hwnd, &rc);
-			::FillRect(reinterpret_cast<HDC>(wParam), &rc, NppDarkMode::getDlgBackgroundBrush());
-			return TRUE;
-		}
-
-		case WM_NCACTIVATE:
-		{
-			// activate/deactivate titlebar of docked widgets
-			for (size_t iCont = DOCKCONT_MAX, len = _vContainer.size(); iCont < len; ++iCont)
-			{
-				::SendMessage(_vContainer[iCont]->getHSelf(), WM_NCACTIVATE, wParam, static_cast<LPARAM>(-1));
-			}
-
-			if (static_cast<int>(lParam) != -1)
-			{
-				::SendMessage(_hParent, WM_NCACTIVATE, wParam, static_cast<LPARAM>(-1));
-			}
-			break;
-		}
-		case WM_MOVE:
-		case WM_SIZE:
-		{
-			resize();
-			break;
-		}
-		case WM_DESTROY:
-		{
-			// unregister window event hooking BEFORE EVERYTHING ELSE
-			if (hWndServer == hwnd)
-			{
-				UnhookWindowsHookEx(gWinCallHook);
-				gWinCallHook = NULL;
-				hWndServer = NULL;
-			}
-
-			// destroy containers
-			for (int32_t i = static_cast<int32_t>(_vContainer.size()); i > 0; i--)
-			{
-				_vContainer[i-1]->destroy();
-				delete _vContainer[i-1];
-			}
-			CoUninitialize();
-			break;
-		}
-		case DMM_LBUTTONUP:	//is this message still relevant?
-		{
-			if (::GetActiveWindow() != _hParent)
-				break;
-
-			// set respective activate state
-			for (int i = 0; i < DOCKCONT_MAX; ++i)
-			{
-				_vContainer[i]->SetActive(IsChild(_vContainer[i]->getHSelf(), ::GetFocus()));
-			}
-			return TRUE;
-		}
-
-		case DMM_MOVE:
-		{
-			Gripper *pGripper = new Gripper;
-			pGripper->init(_hInst, _hParent);
-			pGripper->startGrip(reinterpret_cast<DockingCont*>(lParam), this);
-			break;
-		}
-
-		case DMM_MOVE_SPLITTER:
-		{
-			int offset = static_cast<int32_t>(wParam);
-
-			NppGUI& nppGUI = (NppParameters::getInstance()).getNppGUI();
-
-			for (int iCont = 0; iCont < DOCKCONT_MAX; ++iCont)
-			{
-				if (_vSplitter[iCont]->getHSelf() == reinterpret_cast<HWND>(lParam))
-				{
-					RECT rcPanelCaption{};
-					if (::GetWindowRect(_vContainer[iCont]->getCaptionWnd(), &rcPanelCaption))
-					{
-						LONG currentPanelHeight = rcPanelCaption.bottom - rcPanelCaption.top;
-						if (currentPanelHeight != nppGUI._dockingData._minDockedPanelVisibility)
-						{
-							// update with current value (important for multi-monitors setups or a runtime change of display DPI)
-							nppGUI._dockingData._minDockedPanelVisibility = currentPanelHeight;
-							nppGUI._dockingData._minFloatingPanelSize.cy = currentPanelHeight;
-							nppGUI._dockingData._minFloatingPanelSize.cx = std::max(static_cast<int>(nppGUI._dockingData._minFloatingPanelSize.cy * 6),
-								::GetSystemMetrics(SM_CXMINTRACK));
-						}
-					}
-
-					switch (iCont)
-					{
-						case CONT_TOP:
-							_dockData.rcRegion[iCont].bottom -= offset;
-							if (_dockData.rcRegion[iCont].bottom < nppGUI._dockingData._minDockedPanelVisibility)
-							{
-								_dockData.rcRegion[iCont].bottom = nppGUI._dockingData._minDockedPanelVisibility;
-							}
-							if ((_rcWork.bottom < (-SPLITTER_WIDTH)) && (offset < 0))
-							{
-								_dockData.rcRegion[iCont].bottom += offset;
-							}
-							break;
-						case CONT_BOTTOM:
-							_dockData.rcRegion[iCont].bottom   += offset;
-							if (_dockData.rcRegion[iCont].bottom < nppGUI._dockingData._minDockedPanelVisibility)
-							{
-								_dockData.rcRegion[iCont].bottom   = nppGUI._dockingData._minDockedPanelVisibility;
-							}
-							if ((_rcWork.bottom < (-SPLITTER_WIDTH)) && (offset > 0))
-							{
-								_dockData.rcRegion[iCont].bottom -= offset;
-							}
-							break;
-						case CONT_LEFT:
-							_dockData.rcRegion[iCont].right    -= offset;
-							if (_dockData.rcRegion[iCont].right < nppGUI._dockingData._minDockedPanelVisibility)
-							{
-								_dockData.rcRegion[iCont].right = nppGUI._dockingData._minDockedPanelVisibility;
-							}
-							if ((_rcWork.right < SPLITTER_WIDTH) && (offset < 0))
-							{
-								_dockData.rcRegion[iCont].right += offset;
-							}
-							break;
-						case CONT_RIGHT:
-							_dockData.rcRegion[iCont].right    += offset;
-							if (_dockData.rcRegion[iCont].right < nppGUI._dockingData._minDockedPanelVisibility)
-							{
-								_dockData.rcRegion[iCont].right = nppGUI._dockingData._minDockedPanelVisibility;
-							}
-							if ((_rcWork.right < SPLITTER_WIDTH) && (offset > 0))
-							{
-								_dockData.rcRegion[iCont].right -= offset;
-							}
-							break;
-					}
-					resize();
-					break;
-				}
-			}
-			break;
-		}
-		case DMM_DOCK:
-		case DMM_FLOAT:
-		{
-			toggleActiveWidget(reinterpret_cast<DockingCont*>(lParam), message);
-			return FALSE;
-		}
-		case DMM_CLOSE:
-		{
-			DockedWidgetData	TbData	= *(reinterpret_cast<DockingCont*>(lParam))->getDataOfActiveTb();
-			LRESULT res = SendNotify(TbData.hClient, DMN_CLOSE);	// Be sure the active item is OK with closing
-			return res;
-		}
-		case DMM_FLOATALL:
-		{
-			toggleVisWidget(reinterpret_cast<DockingCont*>(lParam), DMM_FLOAT);
-			return FALSE;
-		}
-		case DMM_DOCKALL:
-		{
-			toggleVisWidget(reinterpret_cast<DockingCont*>(lParam), DMM_DOCK);
-			return FALSE;
-		}
-
-		default :
-			break;
-	}
-
-	return ::DefWindowProc(_hSelf, message, wParam, lParam);
+	*pDockData = {};
+	pDockData->hWnd = _mainWindow;
 }
 
-void DockingManager::resize()
+int DockingManager::sizeIn(const DockedPanel* panel, int iCont) const
 {
-    reSizeTo(_rect);
+	return (iCont == CONT_LEFT || iCont == CONT_RIGHT) ? panel->_dock->width() : panel->_dock->height();
 }
 
-void DockingManager::reSizeTo(RECT & rc)
+int DockingManager::getDockedContSize(int iCont) const
 {
-	// store current size of client area
-	_rect = rc;
+	if (iCont < 0 || iCont >= DOCKCONT_MAX)
+		return 0;
 
-	// prepare size of work area
-	_rcWork	= rc;
-
-	if (_isInitialized == FALSE)
-		return;
-
-	// set top container
-	_dockData.rcRegion[CONT_TOP].left      = rc.left;
-	_dockData.rcRegion[CONT_TOP].top       = rc.top;
-	_dockData.rcRegion[CONT_TOP].right     = rc.right-rc.left;
-
-	_vSplitter[CONT_TOP]->display(false);
-
-	if (_vContainer[CONT_TOP]->isVisible())
+	for (const auto& panel : _panels)
 	{
-		_rcWork.top		+= _dockData.rcRegion[CONT_TOP].bottom + SPLITTER_WIDTH;
-		_rcWork.bottom	-= _dockData.rcRegion[CONT_TOP].bottom + SPLITTER_WIDTH;
-
-		// set size of splitter
-		RECT rcSplitter = {_dockData.rcRegion[CONT_TOP].left  ,
-					  _dockData.rcRegion[CONT_TOP].top + _dockData.rcRegion[CONT_TOP].bottom,
-					  _dockData.rcRegion[CONT_TOP].right ,
-					  SPLITTER_WIDTH};
-		_vSplitter[CONT_TOP]->reSizeTo(rcSplitter);
+		if (containerOf(panel.get()) == iCont && panel->_dock->isVisible())
+			return sizeIn(panel.get(), iCont);
 	}
-
-	// set bottom container
-	_dockData.rcRegion[CONT_BOTTOM].left   = rc.left;
-	_dockData.rcRegion[CONT_BOTTOM].top    = rc.top + rc.bottom - _dockData.rcRegion[CONT_BOTTOM].bottom;
-	_dockData.rcRegion[CONT_BOTTOM].right  = rc.right-rc.left;
-
-	// create temporary rect for bottom container
-	RECT		rcBottom	= _dockData.rcRegion[CONT_BOTTOM];
-
-	_vSplitter[CONT_BOTTOM]->display(false);
-
-	if (_vContainer[CONT_BOTTOM]->isVisible())
-	{
-		_rcWork.bottom	-= _dockData.rcRegion[CONT_BOTTOM].bottom + SPLITTER_WIDTH;
-
-		// correct the visibility of bottom container when height is NULL
-		if (_rcWork.bottom < rc.top)
-		{
-			rcBottom.top     = _rcWork.top + rc.top + SPLITTER_WIDTH;
-			rcBottom.bottom += _rcWork.bottom - rc.top;
-			_rcWork.bottom = rc.top;
-		}
-		if ((rcBottom.bottom + SPLITTER_WIDTH) < 0)
-		{
-			_rcWork.bottom = rc.bottom - _dockData.rcRegion[CONT_TOP].bottom;
-		}
-
-		// set size of splitter
-		RECT rcSplitter = {rcBottom.left,
-					  rcBottom.top - SPLITTER_WIDTH,
-					  rcBottom.right,
-					  SPLITTER_WIDTH};
-		_vSplitter[CONT_BOTTOM]->reSizeTo(rcSplitter);
-	}
-
-	// set left container
-	_dockData.rcRegion[CONT_LEFT].left     = rc.left;
-	_dockData.rcRegion[CONT_LEFT].top      = _rcWork.top;
-	_dockData.rcRegion[CONT_LEFT].bottom   = _rcWork.bottom;
-
-	_vSplitter[CONT_LEFT]->display(false);
-
-	if (_vContainer[CONT_LEFT]->isVisible())
-	{
-		_rcWork.left		+= _dockData.rcRegion[CONT_LEFT].right + SPLITTER_WIDTH;
-		_rcWork.right	-= _dockData.rcRegion[CONT_LEFT].right + SPLITTER_WIDTH;
-
-		// set size of splitter
-		RECT rcSplitter = {_dockData.rcRegion[CONT_LEFT].right,
-					  _dockData.rcRegion[CONT_LEFT].top,
-					  SPLITTER_WIDTH,
-					  _dockData.rcRegion[CONT_LEFT].bottom};
-		_vSplitter[CONT_LEFT]->reSizeTo(rcSplitter);
-	}
-
-	// set right container
-	_dockData.rcRegion[CONT_RIGHT].left    = rc.right - _dockData.rcRegion[CONT_RIGHT].right;
-	_dockData.rcRegion[CONT_RIGHT].top     = _rcWork.top;
-	_dockData.rcRegion[CONT_RIGHT].bottom  = _rcWork.bottom;
-
-	// create temporary rect for right container
-	RECT		rcRight		= _dockData.rcRegion[CONT_RIGHT];
-
-	_vSplitter[CONT_RIGHT]->display(false);
-	if (_vContainer[CONT_RIGHT]->isVisible())
-	{
-		_rcWork.right	-= _dockData.rcRegion[CONT_RIGHT].right + SPLITTER_WIDTH;
-
-		// correct the visibility of right container when width is NULL
-		if (_rcWork.right < 15)
-		{
-			rcRight.left    = _rcWork.left + 15 + SPLITTER_WIDTH;
-			rcRight.right  += _rcWork.right - 15;
-			_rcWork.right	= 15;
-		}
-
-		// set size of splitter
-		RECT rcSplitter = {rcRight.left - SPLITTER_WIDTH,
-					  rcRight.top,
-					  SPLITTER_WIDTH,
-					  rcRight.bottom};
-		_vSplitter[CONT_RIGHT]->reSizeTo(rcSplitter);
-	}
-
-	// set window positions of container
-	if (_vContainer[CONT_BOTTOM]->isVisible())
-	{
-		::SetWindowPos(_vContainer[CONT_BOTTOM]->getHSelf(), NULL,
-					   rcBottom.left  ,
-					   rcBottom.top   ,
-					   rcBottom.right ,
-					   rcBottom.bottom,
-					   SWP_NOZORDER);
-		_vSplitter[CONT_BOTTOM]->display();
-	}
-
-	if (_vContainer[CONT_TOP]->isVisible())
-	{
-		::SetWindowPos(_vContainer[CONT_TOP]->getHSelf(), NULL,
-					   _dockData.rcRegion[CONT_TOP].left  ,
-					   _dockData.rcRegion[CONT_TOP].top   ,
-					   _dockData.rcRegion[CONT_TOP].right ,
-					   _dockData.rcRegion[CONT_TOP].bottom,
-					   SWP_NOZORDER);
-		_vSplitter[CONT_TOP]->display();
-	}
-
-	if (_vContainer[CONT_RIGHT]->isVisible())
-	{
-		::SetWindowPos(_vContainer[CONT_RIGHT]->getHSelf(), NULL,
-					   rcRight.left  ,
-					   rcRight.top   ,
-					   rcRight.right ,
-					   rcRight.bottom,
-					   SWP_NOZORDER);
-		_vSplitter[CONT_RIGHT]->display();
-	}
-
-	if (_vContainer[CONT_LEFT]->isVisible())
-	{
-		::SetWindowPos(_vContainer[CONT_LEFT]->getHSelf(), NULL,
-					   _dockData.rcRegion[CONT_LEFT].left  ,
-					   _dockData.rcRegion[CONT_LEFT].top   ,
-					   _dockData.rcRegion[CONT_LEFT].right ,
-					   _dockData.rcRegion[CONT_LEFT].bottom,
-					   SWP_NOZORDER);
-		_vSplitter[CONT_LEFT]->display();
-	}
-	(*_ppMainWindow)->reSizeTo(_rcWork);
-}
-
-void DockingManager::createDockableDlg(DockedWidgetData data, int iCont, bool isVisible)
-{
-	// try to make bmp icon transparent
-	if ((data.uMask & DWS_ICONTAB) == DWS_ICONTAB && data.hIconTab != nullptr)
-	{
-		const int iconSize = DPIManagerV2::scale(g_dockingContTabIconSize, data.hClient);
-		HIMAGELIST hImageList = ::ImageList_Create(iconSize, iconSize, ILC_COLOR32 | ILC_MASK, 0, 0);
-		::ImageList_AddIcon(hImageList, data.hIconTab);
-		::DestroyIcon(data.hIconTab);
-		data.hIconTab = ::ImageList_GetIcon(hImageList, 0, ILD_TRANSPARENT);
-		::ImageList_Destroy(hImageList);
-	}
-
-	if ((data.uMask & DWS_USEOWNDARKMODE) != DWS_USEOWNDARKMODE && NppDarkMode::isEnabledForPlugins())
-	{
-		NppDarkMode::autoSubclassAndThemePluginDockWindow(data.hClient);
-	}
-
-	// create additional containers if necessary
-	RECT				rc			= {0,0,0,0};
-	DockingCont*		pCont		= NULL;
-
-	// if floated rect not set
-	if (memcmp(&data.rcFloat, &rc, sizeof(RECT)) == 0)
-	{
-		// set default rect state
-		::GetWindowRect(data.hClient, &data.rcFloat);
-
-		// test if dialog is first time created
-		if (iCont == -1)
-		{
-			// set default visible state
-			isVisible = (::IsWindowVisible(data.hClient) == TRUE);
-
-			if (data.uMask & DWS_DF_FLOATING)
-			{
-				// create new container
-				pCont = new DockingCont;
-				_vContainer.push_back(pCont);
-
-				// initialize
-				pCont->init(_hInst, _hSelf);
-				pCont->doDialog(isVisible, true);
-
-				// get previous position and set container id
-				data.iPrevCont = (data.uMask & 0x30000000) >> 28;
-				iCont = static_cast<int32_t>(_vContainer.size()) - 1;
-			}
-			else
-			{
-				// set position
-				iCont = (data.uMask & 0x30000000) >> 28;
-
-				// previous container is not selected
-				data.iPrevCont = -1;
-			}
-		}
-	}
-	// if one of the container was not created before
-	else if ((iCont >= DOCKCONT_MAX) || (data.iPrevCont >= DOCKCONT_MAX))
-	{
-        // test if current container is in floating state
-		if (iCont >= DOCKCONT_MAX)
-		{
-			// Safe guard: exceed array capacity, reject gracefully without crashing the app
-			if (iCont >= CONT_MAP_MAX)
-				return;
-
-			// no mapping for available store mapping
-			if (_iContMap[iCont] == -1)
-			{
-				// create new container
-				pCont = new DockingCont;
-				_vContainer.push_back(pCont);
-
-				// initialize and map container id
-				pCont->init(_hInst, _hSelf);
-				pCont->doDialog(isVisible, true);
-				_iContMap[iCont] = static_cast<int32_t>(_vContainer.size()) - 1;
-			}
-
-			// get current container from map
-			iCont = _iContMap[iCont];
-		}
-		// previous container is in floating state
-		else
-		{
-			// Safe guard: if previous container state is out of range, reset to -1 (no previous floating state) without creating dummy windows
-			if (data.iPrevCont >= CONT_MAP_MAX)
-			{
-				data.iPrevCont = -1;
-			}
-			else
-			{
-				// no mapping for available store mapping
-				if (_iContMap[data.iPrevCont] == -1)
-				{
-					// create new container
-					pCont = new DockingCont;
-					_vContainer.push_back(pCont);
-
-					// initialize and map container id
-					pCont->init(_hInst, _hSelf);
-					pCont->doDialog(false, true);
-					pCont->reSizeToWH(data.rcFloat);
-					_iContMap[data.iPrevCont] = static_cast<int32_t>(_vContainer.size()) - 1;
-				}
-				data.iPrevCont = _iContMap[data.iPrevCont];
-			}
-		}
-	}
-
-	// attach docked widget
-	if (_vContainer.size() > static_cast<size_t>(iCont) && _vContainer[iCont] != nullptr)
-	{
-		_vContainer[iCont]->createDockedWidget(data);
-		for (const auto& cont : _vContainer)
-		{
-			if (cont->isVisible() && cont != _vContainer[iCont])
-			{
-				::RedrawWindow(cont->getHSelf(), nullptr, nullptr, RDW_INVALIDATE);
-			}
-		}
-	}
-
-	// notify client zone
-	if (iCont < DOCKCONT_MAX)
-		SendNotify(data.hClient, MAKELONG(DMN_DOCK, iCont));
-	else
-	{
-		SendNotify(data.hClient, MAKELONG(DMN_FLOAT, iCont));
-
-		// Startup restore of a floating panel may skip WM_SIZE for this dialog.
-		// Force one layout pass so the list control gets a valid size.
-		RECT rc{};
-		::GetClientRect(data.hClient, &rc);
-		::SendMessage(data.hClient, WM_SIZE, 0, MAKELPARAM(rc.right - rc.left, rc.bottom - rc.top));
-	}
-}
-
-void DockingManager::setActiveTab(int iCont, int iItem)
-{
-	// Ensure iCont is within [0, CONT_MAP_MAX) before accessing _iContMap
-	// Bail out early if iItem is invalid (-1) to avoid redundant no-op calls
-	if ((iCont == -1) || (iCont >= CONT_MAP_MAX) || (_iContMap[iCont] == -1) || (iItem == -1))
-		return;
-
-	_vContainer[_iContMap[iCont]]->setActiveTb(iItem);
-}
-
-void DockingManager::showDockableDlg(HWND hDlg, BOOL view)
-{
-	for (size_t i = 0, len = _vContainer.size(); i < len; ++i)
-	{
-		DockedWidgetData *pTbData = _vContainer[i]->findDockedWidgetByWnd(hDlg);
-		if (pTbData != NULL)
-		{
-			_vContainer[i]->showDockedWidget(pTbData, view);
-			return;
-		}
-	}
-}
-
-void DockingManager::showDockableDlg(wchar_t* pszName, BOOL view)
-{
-	for (size_t i = 0, len = _vContainer.size(); i < len; ++i)
-	{
-		DockedWidgetData *pTbData = _vContainer[i]->findDockedWidgetByName(pszName);
-		if (pTbData != NULL)
-		{
-			_vContainer[i]->showDockedWidget(pTbData, view);
-			return;
-		}
-	}
-}
-
-LRESULT DockingManager::SendNotify(HWND hWnd, UINT message)
-{
-	NMHDR nmhdr{};
-	nmhdr.code		= message;
-	nmhdr.hwndFrom	= _hParent;
-	nmhdr.idFrom	= ::GetDlgCtrlID(_hParent);
-	::SendMessage(hWnd, WM_NOTIFY, nmhdr.idFrom, reinterpret_cast<LPARAM>(&nmhdr));
-	return ::GetWindowLongPtr(hWnd, DWLP_MSGRESULT);
+	return _contSizes[iCont];
 }
 
 void DockingManager::setDockedContSize(int iCont, int iSize)
 {
-	if ((iCont == CONT_TOP) || (iCont == CONT_BOTTOM))
-		_dockData.rcRegion[iCont].bottom = iSize;
-	else if ((iCont == CONT_LEFT) || (iCont == CONT_RIGHT))
-		_dockData.rcRegion[iCont].right = iSize;
-	else
+	if (iCont < 0 || iCont >= DOCKCONT_MAX)
 		return;
-	resize();
-}
 
-int DockingManager::getDockedContSize(int iCont)
-{
-	if ((iCont == CONT_TOP) || (iCont == CONT_BOTTOM))
-		return _dockData.rcRegion[iCont].bottom;
-	else if ((iCont == CONT_LEFT) || (iCont == CONT_RIGHT))
-		return _dockData.rcRegion[iCont].right;
-	else
-		return -1;
-}
-
-DockingCont* DockingManager::toggleActiveWidget(DockingCont* pContSrc, UINT message, BOOL bNew, LPRECT prcFloat)
-{
-	DockedWidgetData			TbData		= *pContSrc->getDataOfActiveTb();
-	int				iContSrc	= getContainerIndex(pContSrc);
-	int				iContPrev	= TbData.iPrevCont;
-	BOOL			isCont		= doesContExist(iContPrev);
-	DockingCont*	pContTgt	= NULL;
-
-	// if new float position is given
-	if (prcFloat != NULL)
+	_contSizes[iCont] = iSize;
+	const Qt::Orientation orientation = (iCont == CONT_LEFT || iCont == CONT_RIGHT) ? Qt::Horizontal : Qt::Vertical;
+	for (const auto& panel : _panels)
 	{
-		TbData.rcFloat = *prcFloat;
-	}
-
-	if ((isCont == FALSE) || (bNew == TRUE))
-	{
-		// find an empty container
-		int	iContNew = findEmptyContainerIndex();
-
-		if (iContNew == -1)
+		if (containerOf(panel.get()) == iCont)
 		{
-			// if no free container is available create a new one
-			pContTgt = new DockingCont;
-			pContTgt->init(_hInst, _hSelf);
-			pContTgt->doDialog(true, true);
-
-			// change only on toggling
-			if ((bNew == FALSE) || (!pContSrc->isFloating()))
-				TbData.iPrevCont = iContSrc;
-
-			pContTgt->createDockedWidget(TbData);
-			_vContainer.push_back(pContTgt);
-		}
-		else
-		{
-			// set new target
-			pContTgt = _vContainer[iContNew];
-
-			// change only on toggling
-			if ((pContSrc->isFloating()) != (pContTgt->isFloating()))
-                TbData.iPrevCont = iContSrc;
-
-			pContTgt->createDockedWidget(TbData);
+			_mainWindow->resizeDocks({panel->_dock}, {iSize}, orientation);
+			return;
 		}
 	}
-	else
-	{
-		// set new target
-		pContTgt = _vContainer[iContPrev];
-
-		// change data normaly
-		TbData.iPrevCont = iContSrc;
-		pContTgt->createDockedWidget(TbData);
-	}
-
-	// notify client app
-	SendNotify(TbData.hClient, MAKELONG(message==DMM_DOCK?DMN_DOCK:DMN_FLOAT, getContainerIndex(pContTgt)));
-
-	// remove docked widget from source
-	_vContainer[iContSrc]->removeDockedWidget(TbData);
-
-	return pContTgt;
 }
 
-DockingCont* DockingManager::toggleVisWidget(DockingCont* pContSrc, UINT message, LPRECT prcFloat)
+void DockingManager::panelShown(const DockedPanel* panel)
 {
-	vector<DockedWidgetData*>	vTbData		= pContSrc->getDataOfVisTb();
-	DockedWidgetData*			pTbData		= pContSrc->getDataOfActiveTb();
+	// A panel that comes into an area with no other panel in view takes the size that the area had
+	if (!_mainWindow)
+		return;
+	const int iCont = containerOf(panel);
+	if (iCont >= DOCKCONT_MAX || _contSizes[iCont] <= 0)
+		return;
 
-	int					iContSrc	= getContainerIndex(pContSrc);
-	int					iContPrev	= pTbData->iPrevCont;
-	BOOL				isCont		= doesContExist(iContPrev);
-	DockingCont*		pContTgt	= NULL;
-
-	// at first hide container and resize
-	pContSrc->doDialog(false);
-	resize();
-
-	for (size_t iTb = 0, len = vTbData.size(); iTb < len; ++iTb)
+	for (const auto& other : _panels)
 	{
-		// get data one by another
-		DockedWidgetData		TbData = *vTbData[iTb];
-
-		// if new float position is given
-		if (prcFloat != NULL)
-		{
-			TbData.rcFloat = *prcFloat;
-		}
-
-		if (isCont == FALSE)
-		{
-            // create new container
-			pContTgt = new DockingCont;
-			pContTgt->init(_hInst, _hSelf);
-			pContTgt->doDialog(true, true);
-
-			TbData.iPrevCont = iContSrc;
-			pContTgt->createDockedWidget(TbData);
-			_vContainer.push_back(pContTgt);
-
-			// now container exists
-			isCont	= TRUE;
-			iContPrev = getContainerIndex(pContTgt);
-		}
-		else
-		{
-			// set new target
-			pContTgt = _vContainer[iContPrev];
-
-			TbData.iPrevCont = iContSrc;
-			pContTgt->createDockedWidget(TbData);
-		}
-
-		SendNotify(TbData.hClient, MAKELONG(message==DMM_DOCK?DMN_DOCK:DMN_FLOAT, getContainerIndex(pContTgt)));
-
-		// remove docked widget from anywhere
-		_vContainer[iContSrc]->removeDockedWidget(TbData);
+		if (other.get() != panel && containerOf(other.get()) == iCont && other->_dock->isVisible())
+			return;
 	}
-
-	_vContainer[iContPrev]->setActiveTb(pTbData);
-	return pContTgt;
+	const Qt::Orientation orientation = (iCont == CONT_LEFT || iCont == CONT_RIGHT) ? Qt::Horizontal : Qt::Vertical;
+	_mainWindow->resizeDocks({panel->_dock}, {_contSizes[iCont]}, orientation);
 }
 
-void DockingManager::toggleActiveWidget(DockingCont* pContSrc, DockingCont* pContTgt)
+void DockingManager::panelHidden(const DockedPanel* panel)
 {
-	DockedWidgetData		TbData		= *pContSrc->getDataOfActiveTb();
+	// The area keeps the size it had, unless the panel was never laid out in it
+	if (!_mainWindow || !_mainWindow->isVisible())
+		return;
+	const int iCont = containerOf(panel);
+	if (iCont >= DOCKCONT_MAX)
+		return;
 
-	toggleWidget(pContSrc, pContTgt, TbData);
+	const int size = sizeIn(panel, iCont);
+	const int minimum = (iCont == CONT_LEFT || iCont == CONT_RIGHT) ? panel->_dock->minimumSizeHint().width() : panel->_dock->minimumSizeHint().height();
+	if (size > minimum)
+		_contSizes[iCont] = size;
 }
 
-void DockingManager::toggleVisWidget(DockingCont* pContSrc, DockingCont* pContTgt)
+bool DockingManager::panelClosed(DockedPanel* panel)
 {
-	vector<DockedWidgetData*> dwDataVect = pContSrc->getDataOfVisTb();
-	DockedWidgetData* dwData = pContSrc->getDataOfActiveTb();
-
-	// at first hide container and resize
-	pContSrc->doDialog(false);
-	resize();
-
-	for (size_t iTb = 0, len = dwDataVect.size(); iTb < len; ++iTb)
-	{
-		// get data one by another
-		toggleWidget(pContSrc, pContTgt, *(dwDataVect[iTb]));
-	}
-	pContTgt->setActiveTb(dwData);
-}
-
-void DockingManager::toggleWidget(DockingCont* pContSrc, DockingCont* pContTgt, DockedWidgetData dwData)
-{
-	int iContSrc = getContainerIndex(pContSrc);
-	int iContTgt = getContainerIndex(pContTgt);
-
-	// test if container state changes from docking to floating or vice versa
-	if (((iContSrc <  DOCKCONT_MAX) && (iContTgt >= DOCKCONT_MAX)) ||
-		((iContSrc >= DOCKCONT_MAX) && (iContTgt <  DOCKCONT_MAX)))
-	{
-		// change states
-		dwData.iPrevCont = iContSrc;
-	}
-
-	// notify client app
-	if (iContTgt < DOCKCONT_MAX)
-		SendNotify(dwData.hClient, MAKELONG(DMN_DOCK, iContTgt));
-	else
-		SendNotify(dwData.hClient, MAKELONG(DMN_FLOAT, iContTgt));
-
-	// create new docked widget
-	pContTgt->createDockedWidget(dwData);
-
-	// remove docked widget from source
-	_vContainer[iContSrc]->removeDockedWidget(dwData);
-}
-
-BOOL DockingManager::doesContExist(size_t iCont)
-{
-	if (iCont < _vContainer.size())
-	{
-		return TRUE;
-	}
-
-	return FALSE;
-}
-
-int DockingManager::getContainerIndex(DockingCont* pCont)
-{
-	for (size_t iCont = 0, len = _vContainer.size(); iCont < len; ++iCont)
-	{
-		if (_vContainer[iCont] == pCont)
-		{
-			return static_cast<int32_t>(iCont);
-		}
-	}
-
-	return -1;
-}
-
-int DockingManager::findEmptyContainerIndex()
-{
-	int iRetCont = -1;
-	const size_t dockingContVectorSize = _vContainer.size();
-	const size_t prevDockListBufSize = dockingContVectorSize + 1;
-	BOOL* pPrevDockList = new BOOL[prevDockListBufSize];
-	BOOL* pArrayPos = &pPrevDockList[1]; // make a room for the possible iPrevCont==-1 later
-
-	// reset all entries
-	for (size_t iCont = 0, len = prevDockListBufSize; iCont < len; ++iCont)
-	{
-		pPrevDockList[iCont] = FALSE;
-	}
-
-	// search for used floating containers
-	for (size_t iCont = 0; iCont < DOCKCONT_MAX; ++iCont)
-	{
-		vector<DockedWidgetData*> vTbData = _vContainer[iCont]->getDataOfAllTb();
-
-		for (size_t iTb = 0, len = vTbData.size(); iTb < len; ++iTb)
-		{
-			if ((vTbData[iTb]->iPrevCont < static_cast<int>(dockingContVectorSize)) && (vTbData[iTb]->iPrevCont >= -1))
-			{
-				pArrayPos[vTbData[iTb]->iPrevCont] = TRUE;
-			}
-			else
-			{
-				// ? invalid config.xml input data
-				assert((vTbData[iTb]->iPrevCont < static_cast<int>(dockingContVectorSize)) && (vTbData[iTb]->iPrevCont >= -1));
-				vTbData[iTb]->iPrevCont = -1; // reset (local copy only)
-			}
-		}
-	}
-
-	// find free container
-	for (size_t iCont = DOCKCONT_MAX, len = dockingContVectorSize; iCont < len; ++iCont)
-	{
-		if (pArrayPos[iCont] == FALSE)
-		{
-			// and test if container is hidden
-			if (!_vContainer[iCont]->isVisible())
-			{
-				iRetCont = static_cast<int32_t>(iCont);
-				break;
-			}
-		}
-	}
-
-	delete [] pPrevDockList;
-
-	// search for empty arrays
-	return iRetCont;
+	NMHDR nmhdr{};
+	nmhdr.code = DMN_CLOSE;
+	nmhdr.hwndFrom = _mainWindow;
+	return ::SendMessage(panel->_data.hClient, WM_NOTIFY, 0, reinterpret_cast<LPARAM>(&nmhdr)) != 0;
 }

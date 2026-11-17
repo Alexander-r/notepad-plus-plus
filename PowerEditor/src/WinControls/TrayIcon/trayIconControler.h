@@ -17,24 +17,33 @@
 
 #pragma once
 
-#include <windows.h>
+#include <memory>
 
-#define ADD     NIM_ADD
-#define REMOVE  NIM_DELETE
+#include "NppPlatform.h"
+
+class QIcon;
+class QSystemTrayIcon;
+
+inline constexpr DWORD ADD = 0;
+inline constexpr DWORD REMOVE = 2;
 
 // code d'erreur
-#define INCORRECT_OPERATION     1
-#define OPERATION_INCOHERENT    2
+inline constexpr int INCORRECT_OPERATION = 1;
+inline constexpr int OPERATION_INCOHERENT = 2;
 
+// The icon in the desktop's notification area. It reports clicks to the window as the message uCBMsg, with the
+// WM_LBUTTONUP, WM_MBUTTONUP or WM_RBUTTONUP of the action in lParam.
 class trayIconControler
 {
 public:
-  trayIconControler(HWND hwnd, UINT uID, UINT uCBMsg, HICON hicon, const wchar_t *tip);
-  int doTrayIcon(DWORD op);
-  bool isInTray() const { return _isIconShown; }
-  int reAddTrayIcon();
+	trayIconControler(HWND hwnd, UINT uID, UINT uCBMsg, QIcon* hicon, const wchar_t *tip);
+	~trayIconControler();
+
+	int doTrayIcon(DWORD op);
+	bool isInTray() const { return _isIconShown; }
+	int reAddTrayIcon();
 
 private:
-  NOTIFYICONDATA _nid;
-  bool _isIconShown = false;
+	std::unique_ptr<QSystemTrayIcon> _icon;
+	bool _isIconShown = false;
 };

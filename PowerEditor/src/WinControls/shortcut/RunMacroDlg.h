@@ -16,14 +16,10 @@
 
 // created by Daniel Volk mordorpost@volkarts.com
 
-
 #pragma once
-
-#include <windows.h>
 
 #include "RunMacroDlg_rc.h"
 #include "StaticDialog.h"
-#include "dpiManagerV2.h"
 
 class RunMacroDlg : public StaticDialog
 {
@@ -31,22 +27,7 @@ public :
 	RunMacroDlg() = default;
 	~RunMacroDlg() override = default;
 
-	void doDialog(bool isRTL = false) {
-		if (!isCreated())
-		{
-			const auto dpiContext = DPIManagerV2::setThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-			create(IDD_RUN_MACRO_DLG, isRTL);
-			DPIManagerV2::setThreadDpiAwarenessContext(dpiContext);
-		}
-		else
-		{
-			// Shortcut might have been updated for current session
-			// So reload the macro list (issue #4526)
-			initMacroList();
-			::ShowWindow(_hSelf, SW_SHOW);
-			::SendMessageW(_hSelf, DM_REPOSITION, 0, 0);
-		}
-	}
+	void doDialog(bool isRTL = false);
 
 	void initMacroList();
 
@@ -55,8 +36,6 @@ public :
 	int getMacro2Exec() const;
 
 private :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-
 	int _times = 1;
 	int _macroIndex = 0;
 };

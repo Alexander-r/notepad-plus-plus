@@ -17,13 +17,20 @@
 
 #pragma once
 
-#include "Window.h"
-#include "TaskListDlg.h"
-#include "Buffer.h"
+#include <string>
+#include <vector>
 
-#define SORT_DIRECTION_NONE     -1
-#define SORT_DIRECTION_UP     0
-#define SORT_DIRECTION_DOWN   1
+#include "Buffer.h"
+#include "TaskListDlg.h"
+#include "Window.h"
+
+class IconList;
+class QTreeWidget;
+class QTreeWidgetItem;
+
+inline constexpr int SORT_DIRECTION_NONE = -1;
+inline constexpr int SORT_DIRECTION_UP = 0;
+inline constexpr int SORT_DIRECTION_DOWN = 1;
 
 #define FS_ROOTNODE					"DocList"
 #define FS_CLMNNAME					"ColumnName"
@@ -31,67 +38,49 @@
 #define FS_CLMNPATH					"ColumnPath"
 #define FS_LVGROUPS					"ListGroups"
 
-
+// The documents of the two views, one under the other when "group by view" is on.
 class VerticalFileSwitcherListView : public Window
 {
 public:
 	VerticalFileSwitcherListView() = default;
 	~VerticalFileSwitcherListView() override = default;
 
-	virtual void init(HINSTANCE hInst, HWND parent, HIMAGELIST hImaLst);
+	void init(HINSTANCE hInst, HWND parent, const IconList* icons);
 	void destroy() override;
 	void initList();
-	BufferID getBufferInfoFromIndex(int index, int & view) const;
-	void setBgColour(int i) {
-		ListView_SetItemState(_hSelf, i, LVIS_SELECTED|LVIS_FOCUSED, 0xFF);
-	}
+
+	void setIcons(const IconList* icons) { _icons = icons; }
+
 	int newItem(BufferID bufferID, int iView);
 	int closeItem(BufferID bufferID, int iView);
 	void activateItem(BufferID bufferID, int iView);
 	void setItemIconStatus(BufferID bufferID);
 	std::wstring getFullFilePath(size_t i) const;
 	void setItemColor(BufferID bufferID);
-	
-	void insertColumn(const wchar_t *name, int width, int index);
-	void resizeColumns(int totalWidth);
-	void deleteColumn(size_t i) {
-		ListView_DeleteColumn(_hSelf, i);
-	}
-	int nbSelectedFiles() const {
-		return static_cast<int32_t>(SendMessage(_hSelf, LVM_GETSELECTEDCOUNT, 0, 0));
-	}
 
+	int nbSelectedFiles() const;
 	std::vector<BufferViewInfo> getSelectedFiles(bool reverse = false) const;
 	void reload();
-	void redrawItems();
-	void ensureVisibleCurrentItem() const {
-		ListView_EnsureVisible(_hSelf, _currentIndex, false);
-	}
+	void ensureVisibleCurrentItem() const;
 
-	void setBackgroundColor(COLORREF bgColour) {
-		ListView_SetBkColor(_hSelf, bgColour);
-		ListView_SetTextBkColor(_hSelf, bgColour);
-		redraw(true);
-	}
+	void sortBy(int column, int direction);
 
-	void setForegroundColor(COLORREF fgColour) {
-		ListView_SetTextColor(_hSelf, fgColour);
-		redraw(true);
-	}
+	void setColours(COLORREF background, COLORREF text);
 
-protected:
-	HIMAGELIST _hImaLst = nullptr;
+	QTreeWidget* tree() const;
 
-	int _currentIndex = 0;
+	// The document of a row, with its view. False for a group row.
+	static bool infoOf(const QTreeWidgetItem* item, BufferID& bufferID, int& iView);
 
-	static const int _groupID = 1;
-	static const int _group2ID = 2;
+private:
+	const IconList* _icons = nullptr;
 
-	int find(BufferID bufferID, int iView) const;
-	int add(BufferID bufferID, int iView);
-	void remove(int index, bool removeFromListview = true);
-	void removeAll();
-	void selectCurrentItem() const {
-		ListView_SetItemState(_hSelf, _currentIndex, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-	}
+	QTreeWidgetItem* find(BufferID bufferID, int iView) const;
+	QTreeWidgetItem* add(BufferID bufferID, int iView, int docColor = -1);
+	void fillRow(QTreeWidgetItem* item, const std::wstring& fullPath, int iconIndex) const;
+	QTreeWidgetItem* groupOf(int iView) const;
+	std::vector<QTreeWidgetItem*> rows() const;
+	void selectOnly(QTreeWidgetItem* item) const;
+
+	using Window::init;
 };

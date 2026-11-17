@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <windows.h>
-
 #include <algorithm>
 #include <cwchar>
 #include <exception>
@@ -34,8 +32,9 @@
 #include "PluginInterface.h"
 #include "resource.h"
 
-using PFUNCISUNICODE = BOOL (__cdecl*)();
-class PluginViewList;
+using PFUNCISUNICODE = BOOL (*)();
+
+class QLibrary;
 
 struct PluginCommand
 {
@@ -48,16 +47,9 @@ struct PluginCommand
 struct PluginInfo
 {
 	PluginInfo() = default;
-	~PluginInfo()
-	{
-		if (_pluginMenu)
-			::DestroyMenu(_pluginMenu);
+	~PluginInfo();
 
-		if (_hLib)
-			::FreeLibrary(_hLib);
-	}
-
-	HINSTANCE _hLib = nullptr;
+	std::unique_ptr<QLibrary> _hLib;
 	HMENU _pluginMenu = nullptr;
 
 	PFUNCSETINFO _pFuncSetInfo = nullptr;
@@ -77,7 +69,7 @@ struct LoadedDllInfo
 {
 	std::wstring _fullFilePath;
 	std::wstring _fileName;
-	std::wstring _displayName; // the plugin module's name, without '.dll'
+	std::wstring _displayName; // the plugin module's name, without '.so'
 
 	LoadedDllInfo(const std::wstring& fullFilePath, const std::wstring& fileName)
 		: _fullFilePath(fullFilePath), _fileName(fileName), _displayName(fileName.substr(0, fileName.find_last_of('.')))
@@ -86,25 +78,24 @@ struct LoadedDllInfo
 
 class PluginsManager
 {
-friend class PluginsAdminDlg;
 public:
 	PluginsManager() : _dynamicIDAlloc(ID_PLUGINS_CMD_DYNAMIC, ID_PLUGINS_CMD_DYNAMIC_LIMIT),
 					   _markerAlloc(MARKER_PLUGINS, MARKER_PLUGINS_LIMIT),
 					   _indicatorAlloc(INDICATOR_PLUGINS, INDICATOR_PLUGINS_LIMIT + 1)	{}
-	~PluginsManager() = default;
+	~PluginsManager();
 
 	void init(const NppData & nppData)
 	{
 		_nppData = nppData;
 	}
 
-	bool loadPlugins(const wchar_t* dir = nullptr, const PluginViewList* pluginUpdateInfoList = nullptr, PluginViewList* pluginIncompatibleList = nullptr);
+	bool loadPlugins(const wchar_t* dir = nullptr);
 
 	void runPluginCommand(size_t i);
 	void runPluginCommand(const wchar_t *pluginName, int commandID);
 
 	void addInMenuFromPMIndex(int i);
-	HMENU initMenu(HMENU hMenu, bool enablePluginAdmin = false);
+	HMENU initMenu(HMENU hMenu);
 	static bool getShortcutByCmdID(int cmdID, ShortcutKey* sk);
 	static bool removeShortcutByCmdID(int cmdID);
 
@@ -158,7 +149,7 @@ private:
 
 	bool isInLoadedDlls(const wchar_t* fn) const {
 		return std::any_of(_loadedDlls.begin(), _loadedDlls.end(),
-			[&fn](const auto& dll) { return ::_wcsicmp(fn, dll._fileName.c_str()) == 0; });
+			[&fn](const auto& dll) { return _wcsicmp(fn, dll._fileName.c_str()) == 0; });
 	}
 
 	void addInLoadedDlls(const wchar_t *fullPath, const wchar_t *fn) {

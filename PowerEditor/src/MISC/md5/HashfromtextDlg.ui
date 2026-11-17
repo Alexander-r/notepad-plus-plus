@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>HashfromtextDlg</class>
+ <widget class="QDialog" name="HashfromtextDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>529</width><height>318</height></rect></property>
+  <property name="windowTitle"><string>Generate MD5 digest</string></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QCheckBox" name="hashEachlineCheck">
+     <property name="nppId" stdset="0"><number>1932</number></property>
+     <property name="text"><string>Treat each line as a &amp;separate string</string></property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPlainTextEdit" name="hashTextEdit">
+     <property name="nppId" stdset="0"><number>1931</number></property>
+     <property name="tabChangesFocus"><bool>true</bool></property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPlainTextEdit" name="hashResultFomtextEdit">
+     <property name="nppId" stdset="0"><number>1933</number></property>
+     <property name="readOnly"><bool>true</bool></property>
+     <property name="tabChangesFocus"><bool>true</bool></property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="layout2">
+     <item>
+      <spacer name="spacer3">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="hashFromtextToclipboardButton">
+       <property name="nppId" stdset="0"><number>1934</number></property>
+       <property name="text"><string>Co&amp;py to Clipboard</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancel">
+       <property name="nppId" stdset="0"><number>2</number></property>
+       <property name="text"><string>&amp;Close</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -17,15 +17,10 @@
 
 #pragma once
 
-#include <windows.h>
-
-#include <cwchar>
 #include <stdexcept>
 
 #include "ScintillaEditView.h"
 #include "StaticDialog.h"
-#include "Window.h"
-#include "dpiManagerV2.h"
 #include "resource.h"
 
 class GoToLineDlg : public StaticDialog
@@ -40,50 +35,20 @@ public :
 		_ppEditView = ppEditView;
 	}
 
-	void doDialog(bool isRTL = false) {
-		if (!isCreated())
-		{
-			const auto dpiContext = DPIManagerV2::setThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-			create(IDD_GOLINE, isRTL);
-			DPIManagerV2::setThreadDpiAwarenessContext(dpiContext);
-		}
-		display();
-	}
+	void doDialog(bool isRTL = false);
 
-	void display(bool toShow = true) const override {
-		Window::display(toShow);
-		if (toShow)
-		{
-			updateLinesNumbers();
-			::SetFocus(::GetDlgItem(_hSelf, ID_GOLINE_EDIT));
-			::SendMessageW(_hSelf, DM_REPOSITION, 0, 0);
-		}
-		else
-		{
-			// clean Line Edit
-			::SetDlgItemText(_hSelf, ID_GOLINE_EDIT, L"");
-		}
-	}
+	void display(bool toShow = true) const override;
 
 	void updateLinesNumbers() const;
 
 protected :
 	enum mode {go2line, go2offsset};
 	mode _mode = go2line;
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
 
 private :
+	void onGo();
+
 	ScintillaEditView **_ppEditView = nullptr;
 
-	using Window::init;
-
-	long long getLine() const {
-		static constexpr int maxLen = 256;
-		wchar_t goLineEditStr[maxLen]{};
-		const UINT count = ::GetDlgItemTextW(_hSelf, ID_GOLINE_EDIT, goLineEditStr, maxLen);
-		if (count == 0)
-			return -1;
-		wchar_t* p_end = nullptr;
-		return std::wcstoll(goLineEditStr, &p_end, 10);
-	}
+	long long getLine() const;
 };

@@ -15,11 +15,18 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-#include <windows.h>
-
-#include <shlwapi.h>
-#include <uxtheme.h> // for EnableThemeDialogTexture
-#include <windowsx.h> // for GET_X_LPARAM, GET_Y_LPARAM
+#include <QAction>
+#include <QApplication>
+#include <QGuiApplication>
+#include <QClipboard>
+#include <QCursor>
+#include <QMainWindow>
+#include <QMenu>
+#include <QMenuBar>
+#include <QMimeData>
+#include <QStyleHints>
+#include <QThread>
+#include <QTimer>
 
 #include <algorithm>
 #include <atomic>
@@ -71,6 +78,7 @@
 #include "dpiManagerV2.h"
 #include "fileBrowser.h"
 #include "functionListPanel.h"
+#include "NppResources.h"
 #include "menuCmdID.h"
 #include "preference_rc.h"
 #include "resource.h"
@@ -80,7 +88,6 @@
 using namespace std;
 
 std::atomic<bool> g_bNppExitFlag{ false };
-const UINT WM_TASKBARCREATED = ::RegisterWindowMessage(L"TaskbarCreated");
 
 
 struct SortTaskListPred final
@@ -102,206 +109,6 @@ struct SortTaskListPred final
 	}
 };
 
-// app-restart feature needs Win10 20H1+ (builds 18963+), but it was quietly introduced earlier in the Fall Creators Update (b1709+)
-static bool SetOSAppRestart()
-{
-	NppParameters& nppParam = NppParameters::getInstance();
-	if (nppParam.getWinVersion() < WV_WIN10)
-		return false; // unsupported
-
-	bool bRet = false;
-	bool bUnregister = nppParam.isRegForOSAppRestartDisabled();
-
-	wstring nppIssueLog;
-
-	wchar_t wszCmdLine[RESTART_MAX_CMD_LINE] = { 0 };
-	DWORD cchCmdLine = _countof(wszCmdLine);
-	DWORD dwPreviousFlags = 0;
-	HRESULT hr = ::GetApplicationRestartSettings(::GetCurrentProcess(), wszCmdLine, &cchCmdLine, &dwPreviousFlags);
-	if (bUnregister)
-	{
-		// unregistering (disabling) request
-
-		if (hr == HRESULT_FROM_WIN32(ERROR_NOT_FOUND))
-		{
-			// has not been registered before, nothing to do here
-			bRet = true;
-		}
-		else
-		{
-			if (hr == S_OK)
-			{
-				// has been already registered before, try to unregister
-				if (::UnregisterApplicationRestart() == S_OK)
-				{
-					bRet = true;
-				}
-			}
-		}
-	}
-	else
-	{
-		// registering request
-
-		if (hr == S_OK)
-			::UnregisterApplicationRestart(); // remove a previous registration 1st
-
-		if (nppParam.getCmdLineString().length() < RESTART_MAX_CMD_LINE)
-		{
-			// do not restart the process:
-			// RESTART_NO_CRASH  (1) ... for termination due to application crashes
-			// RESTART_NO_HANG   (2) ... for termination due to application hangs
-			// RESTART_NO_PATCH  (4) ... for termination due to patch installations
-			// RESTART_NO_REBOOT (8) ... when the system is rebooted
-			hr = ::RegisterApplicationRestart(nppParam.getCmdLineString().c_str(), RESTART_NO_CRASH | RESTART_NO_HANG | RESTART_NO_PATCH);
-			if (hr == S_OK)
-			{
-				bRet = true;
-			}
-		}
-	}
-
-	return bRet;
-}
-
-static bool isSenderTrusted(HWND hSenderWnd)
-{
-	if (hSenderWnd == NULL || !::IsWindow(hSenderWnd))
-		return false;
-
-	DWORD dwProcessId = 0;
-	if (::GetWindowThreadProcessId(hSenderWnd, &dwProcessId) == 0 || dwProcessId == 0)
-		return false;
-
-	if (dwProcessId == ::GetCurrentProcessId())
-		return false; // same-process - the same Notepad++ instance never send itself WM_COPYDATA - could be fake -> reject
-
-	HANDLE hProcess = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, dwProcessId);
-	if (!hProcess)
-		return false;
-
-	bool isTrusted = false;
-
-	// Integrity level: require Medium or higher (blocks Low-IL sandboxes)
-	HANDLE hToken = NULL;
-	if (::OpenProcessToken(hProcess, TOKEN_QUERY, &hToken))
-	{
-		BYTE tokenBuffer[sizeof(TOKEN_MANDATORY_LABEL) + SECURITY_MAX_SID_SIZE]{};
-		DWORD dwLength = 0;
-		if (::GetTokenInformation(hToken, TokenIntegrityLevel, tokenBuffer, sizeof(tokenBuffer), &dwLength))
-		{
-			PTOKEN_MANDATORY_LABEL pTIL = reinterpret_cast<PTOKEN_MANDATORY_LABEL>(tokenBuffer);
-			DWORD dwIntegrityLevel = *::GetSidSubAuthority(
-				pTIL->Label.Sid,
-				(DWORD)(UCHAR)(*::GetSidSubAuthorityCount(pTIL->Label.Sid) - 1));
-
-			if (dwIntegrityLevel >= SECURITY_MANDATORY_MEDIUM_RID)
-				isTrusted = true;
-		}
-		::CloseHandle(hToken);
-	}
-
-	// Executable identity: require it to be this same binary (another Notepad++ instance with the same path)
-	if (isTrusted)
-	{
-		isTrusted = false; // reset
-
-		wchar_t senderImagePath[MAX_PATH]{};
-		DWORD dwSizeSender = MAX_PATH;
-		wchar_t selfImagePath[MAX_PATH]{};
-		DWORD dwSizeSelf = MAX_PATH;
-
-		if (::QueryFullProcessImageNameW(hProcess, 0, senderImagePath, &dwSizeSender) &&
-			::QueryFullProcessImageNameW(::GetCurrentProcess(), 0, selfImagePath, &dwSizeSelf))
-		{
-			// unfortunately, while the QueryFullProcessImageName translates a symlink image module path stored in the process PEB to the original fullpath,
-			// it OTOH leaves the possibly used short 8.3 path there intact (e.g. Notepad++ launched via CMD "C:\Progra~1\Notepad++\notepad++.exe"),
-			// so we have to ensure the final consistency in-between the compared paths ourselves
-			wchar_t senderImageLongPath[MAX_PATH]{};
-			wchar_t selfImageLongPath[MAX_PATH]{};
-			if ((::GetLongPathNameW(senderImagePath, senderImageLongPath, MAX_PATH) > 0) &&
-				(::GetLongPathNameW(selfImagePath, selfImageLongPath, MAX_PATH) > 0))
-			{
-				isTrusted = (_wcsicmp(senderImageLongPath, selfImageLongPath) == 0);
-			}
-		}
-	}
-
-	::CloseHandle(hProcess);
-	return isTrusted;
-}
-
-LRESULT CALLBACK Notepad_plus_Window::Notepad_plus_Proc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-	if (hwnd == NULL)
-		return FALSE;
-
-	switch(message)
-	{
-		case WM_NCCREATE:
-		{
-			// First message we get the pointer of instantiated object
-			// then store it into GWLP_USERDATA index in order to retrieve afterward
-			Notepad_plus_Window *pM30ide = static_cast<Notepad_plus_Window *>((reinterpret_cast<LPCREATESTRUCT>(lParam))->lpCreateParams);
-			pM30ide->_hSelf = hwnd;
-			::SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pM30ide));
-
-			if (NppDarkMode::isExperimentalSupported())
-			{
-				NppDarkMode::enableDarkScrollBarForWindowAndChildren(hwnd);
-			}
-
-			return TRUE;
-		}
-
-		default:
-		{
-			return (reinterpret_cast<Notepad_plus_Window *>(::GetWindowLongPtr(hwnd, GWLP_USERDATA))->runProc(hwnd, message, wParam, lParam));
-		}
-	}
-}
-
-
-LRESULT Notepad_plus_Window::runProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-	switch (message)
-	{
-		case WM_CREATE:
-		{
-			try {
-				NppDarkMode::setDarkTitleBar(hwnd);
-				NppDarkMode::autoSubclassWindowMenuBar(hwnd);
-				NppDarkMode::autoSubclassCtlColor(hwnd);
-
-				_notepad_plus_plus_core._pPublicInterface = this;
-				LRESULT lRet = _notepad_plus_plus_core.init(hwnd);
-
-				if (NppDarkMode::isEnabled() && NppDarkMode::isExperimentalSupported())
-				{
-					// Inform application of the frame change.
-					::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-				}
-
-				SetOSAppRestart();
-
-				addClipboardListener();
-
-				return lRet;
-			}
-			catch (std::exception& ex)
-			{
-				::MessageBoxA(hwnd, ex.what(), "Exception On WM_CREATE", MB_OK);
-				exit(-1);
-			}
-			break;
-		}
-		default:
-		{
-			return _notepad_plus_plus_core.process(hwnd, message, wParam, lParam);
-		}
-	}
-}
-
 // Used by NPPM_GETFILENAMEATCURSOR
 static int CharacterIs(wchar_t c, const wchar_t *any)
 {
@@ -320,20 +127,17 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 	switch (message)
 	{
-		case WM_NCACTIVATE:
-		{
-			// Note: lParam is -1 to prevent endless loops of calls
-			::SendMessage(_dockingManager.getHSelf(), WM_NCACTIVATE, wParam, -1);
-			NppDarkMode::calculateTreeViewStyle();
-			return ::DefWindowProc(hwnd, message, wParam, lParam);
-		}
-
 		case WM_SETTINGCHANGE:
 		{
-			NppDarkMode::handleSettingChange(hwnd, lParam);
-
-			const bool enableDarkMode = NppDarkMode::isExperimentalActive();
+			const bool enableDarkMode = NppDarkMode::desktopPrefersDark();
 			NppGUI& nppGUI = nppParam.getNppGUI();
+
+			// The desktop's theme changed but the mode stays, so only what is drawn on the controls has to follow it
+			if (!NppDarkMode::isWindowsModeEnabled() || enableDarkMode == NppDarkMode::isEnabled())
+			{
+				NppDarkMode::refreshDarkMode(hwnd, true);
+				refreshDarkModeControls();
+			}
 
 			// Windows mode is enabled
 			// and don't change if Notepad++ is already in same mode as OS after changing OS mode
@@ -371,25 +175,13 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 				}
 				else
 				{
-					HWND hSubDlg = _preference._darkModeSubDlg.getHSelf();
-
 					// don't use IDC_RADIO_DARKMODE_FOLLOWWINDOWS, it is only for button,
 					// it calls NppDarkMode::handleSettingChange, which is not needed here
-					::SendMessage(hSubDlg, WM_COMMAND, IDC_RADIO_DARKMODE_DARKMODE, 0);
+					_preference._darkModeSubDlg.chooseDarkMode();
 				}
 			}
 
-			// let the Scintilla to update according to the possible changed OS settings
-			// (mouse wheel vertical & horizontal scroll amount, DirectWrite rendering params, base elements, style etc.)
-			::SendMessage(_mainEditView.getHSelf(), WM_SETTINGCHANGE, wParam, lParam);
-			::SendMessage(_subEditView.getHSelf(), WM_SETTINGCHANGE, wParam, lParam);
-			HWND hFindResults = _findReplaceDlg.getHFindResults();
-			if (hFindResults != NULL)
-			{
-				::SendMessage(hFindResults, WM_SETTINGCHANGE, wParam, lParam);
-			}
-
-			return ::DefWindowProc(hwnd, message, wParam, lParam);
+			return FALSE;
 		}
 
 		case NPPM_INTERNAL_REFRESHDARKMODE:
@@ -414,14 +206,6 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 			scnN.nmhdr.idFrom = _toolBar.getState();
 			_pluginsManager.notify(&scnN);
 			return TRUE;
-		}
-
-		case WM_DRAWITEM:
-		{
-			DRAWITEMSTRUCT *dis = reinterpret_cast<DRAWITEMSTRUCT *>(lParam);
-			if (dis->CtlType == ODT_TAB)
-				return ::SendMessage(dis->hwndItem, WM_DRAWITEM, wParam, lParam);
-			break;
 		}
 
 		case WM_DOCK_USERDEFINE_DLG:
@@ -715,15 +499,7 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 			if (!lParam)
 				return FALSE;
 
-			wchar_t longNameFullpath[MAX_PATH]{};
-			const wchar_t* pFilePath = reinterpret_cast<const wchar_t*>(lParam);
-			wcscpy_s(longNameFullpath, MAX_PATH, pFilePath);
-			if (wcschr(longNameFullpath, '~'))
-			{
-				::GetLongPathName(longNameFullpath, longNameFullpath, MAX_PATH);
-			}
-
-			BufferID id = MainFileManager.getBufferFromName(longNameFullpath);
+			BufferID id = MainFileManager.getBufferFromName(reinterpret_cast<const wchar_t*>(lParam));
 			if (id != BUFFER_INVALID)
 				result = doReload(id, wParam != 0);
 			
@@ -791,6 +567,7 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 			_toolBar.setCheck(IDM_VIEW_FUNC_LIST, true);
 			launchFunctionList();
 			_pFuncList->setClosed(false);
+			_pFuncList->reload(); // the window is hidden, so the panel never gets shown and asked to do this
 			_pFuncList->serialize();
 
 			::PostMessage(_pPublicInterface->getHSelf(), WM_COMMAND, IDM_FILE_EXIT, 0);
@@ -815,19 +592,9 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 		{
 			RECT rc;
 			_pPublicInterface->getClientRect(rc);
-			if (lParam == 0)
-				lParam = MAKELPARAM(rc.right - rc.left, rc.bottom - rc.top);
-
-			::MoveWindow(_rebarTop.getHSelf(), 0, 0, rc.right, _rebarTop.getHeight(), TRUE);
 			_statusBar.adjustParts(rc.right);
-			::SendMessage(_statusBar.getHSelf(), WM_SIZE, wParam, lParam);
-
-			int rebarBottomHeight = _rebarBottom.getHeight();
-			int statusBarHeight = _statusBar.getHeight();
-			::MoveWindow(_rebarBottom.getHSelf(), 0, rc.bottom - rebarBottomHeight - statusBarHeight, rc.right, rebarBottomHeight, TRUE);
-
-			getMainClientRect(rc);
-			_dockingManager.reSizeTo(rc);
+			syncCentralArea();
+			placeRestoreButton();
 
 			if (_pDocMap)
 			{
@@ -847,6 +614,11 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 		case WM_MOVE:
 		{
+			if (_pDocMap)
+			{
+				_pDocMap->doMove();
+			}
+
 			// Close AutoComplete and CallTip
 			_mainEditView.execute(SCI_AUTOCCANCEL);
 			_subEditView.execute(SCI_AUTOCCANCEL);
@@ -857,52 +629,14 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 			break;
 		}
 
-		case WM_MOVING:
-		{
-			if (_pDocMap)
-			{
-				_pDocMap->doMove();
-			}
-			result = FALSE;
-			break;
-		}
-
-		case WM_SIZING:
-		{
-			result = FALSE;
-			break;
-		}
-
 		case WM_COPYDATA:
 		{
 			if (lParam == 0)
 				return TRUE; // invalid
 
-			HWND claimed = reinterpret_cast<HWND>(wParam);
-
-			// Enshre the binary identity (full path) via recieved HWND 
-			if (!isSenderTrusted(claimed))
-				return TRUE; // reject: not another trusted instance of this same binary
-
 			COPYDATASTRUCT* pCopyData = reinterpret_cast<COPYDATASTRUCT*>(lParam);
 			if (pCopyData->lpData == nullptr || pCopyData->cbData == 0)
 				return TRUE; // invalid
-
-			if (pCopyData->dwData == NPP_COPYDATA_CONFIRM)
-				return TRUE;
-
-			// Ensure the data integrity via digest check
-			NppDigest dg;
-			if (!nppCopyDataDigest(pCopyData->dwData, pCopyData->lpData, pCopyData->cbData, dg))
-				return TRUE;
-
-			// Send back a confirmation message to the sender, so it can verify the integrity of the data
-			// Note: we will wait for the response NPP_CONFIRM_MAGIC for 1 second, then we will give up and ignore the data
-			COPYDATASTRUCT q { NPP_COPYDATA_CONFIRM, static_cast<DWORD>(dg.size()), dg.data() };
-			DWORD_PTR res = 0;
-			if (!::SendMessageTimeoutW(claimed, WM_COPYDATA, reinterpret_cast<WPARAM>(hwnd), reinterpret_cast<LPARAM>(&q), SMTO_ABORTIFHUNG | SMTO_BLOCK, 1000, &res)
-				|| res != static_cast<DWORD_PTR>(NPP_CONFIRM_MAGIC))
-				return TRUE;
 
 			switch (pCopyData->dwData)
 			{
@@ -948,9 +682,9 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 					wchar_t* fileNamesW = static_cast<wchar_t*>(pCopyData->lpData);
 
 					size_t maxChars = pCopyData->cbData / sizeof(wchar_t);
-					size_t stringLen = wcsnlen_s(fileNamesW, maxChars);
+					size_t stringLen = wcsnlen(fileNamesW, maxChars);
 
-					// If stringLen equals maxChars, wcsnlen_s hit the limit 
+					// If stringLen equals maxChars, wcsnlen hit the limit 
 					// without finding a L'\0', meaning it is NOT properly null-terminated
 					if (stringLen >= maxChars)
 					{
@@ -1074,22 +808,26 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 		case NPPM_GETNAMEPART:
 		case NPPM_GETEXTPART:
 		{
-			wchar_t str[MAX_PATH] = { '\0' };
 			// par defaut : NPPM_GETCURRENTDIRECTORY
-			wcscpy_s(str, _pEditView->getCurrentBuffer()->getFullPathName());
-			wchar_t* fileStr = str;
+			wstring path = _pEditView->getCurrentBuffer()->getFullPathName();
+			wstring fileName = PathFindFileName(path.c_str());
+			wstring fileResult;
 
 			if (message == NPPM_GETCURRENTDIRECTORY)
-				PathRemoveFileSpec(str);
-			else if (message == NPPM_GETFILENAME)
-				fileStr = PathFindFileName(str);
-			else if (message == NPPM_GETNAMEPART)
 			{
-				fileStr = PathFindFileName(str);
-				PathRemoveExtension(fileStr);
+				pathRemoveFileSpec(path);
+				fileResult = path;
 			}
+			else if (message == NPPM_GETFULLCURRENTPATH)
+				fileResult = path;
+			else if (message == NPPM_GETFILENAME)
+				fileResult = fileName;
+			else if (message == NPPM_GETNAMEPART)
+				fileResult = fileName.substr(0, PathFindExtension(fileName.c_str()) - fileName.c_str());
 			else if (message == NPPM_GETEXTPART)
-				fileStr = PathFindExtension(str);
+				fileResult = PathFindExtension(fileName.c_str());
+
+			const wchar_t* fileStr = fileResult.c_str();
 
 			// For the compatibility reasons, if wParam is 0, then we assume the size of wstring buffer (lParam) is large enough.
 			// otherwise we check if the wstring buffer size is enough for the wstring to copy.
@@ -1210,25 +948,19 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 		case NPPM_GETNPPFULLFILEPATH:
 		case NPPM_GETNPPDIRECTORY:
 		{
-			constexpr int strSize = MAX_PATH;
-			wchar_t str[strSize]{};
-
-			::GetModuleFileName(NULL, str, strSize);
-
-			if (message == NPPM_GETNPPDIRECTORY)
-				PathRemoveFileSpec(str);
+			const wstring str = (message == NPPM_GETNPPDIRECTORY ? QCoreApplication::applicationDirPath() : QCoreApplication::applicationFilePath()).toStdWString();
 
 			// For the compatibility reason, if wParam is 0, then we assume the size of wstring buffer (lParam) is large enough.
 			// otherwise we check if the wstring buffer size is enough for the wstring to copy.
 			if (wParam != 0)
 			{
-				if (lstrlen(str) >= int(wParam))
+				if (str.length() >= wParam)
 				{
 					return FALSE;
 				}
 			}
 
-			lstrcpy(reinterpret_cast<wchar_t *>(lParam), str);
+			wcscpy(reinterpret_cast<wchar_t *>(lParam), str.c_str());
 			return TRUE;
 		}
 
@@ -1376,20 +1108,13 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 		case WM_APPCOMMAND:
 		{
-			switch(GET_APPCOMMAND_LPARAM(lParam))
-			{
-				case APPCOMMAND_BROWSER_BACKWARD:
-				case APPCOMMAND_BROWSER_FORWARD:
-				{
-					size_t nbDoc = viewVisible(MAIN_VIEW) ? _mainDocTab.nbItem() : 0;
-					nbDoc += viewVisible(SUB_VIEW)?_subDocTab.nbItem():0;
-					if (nbDoc > 1)
-						activateNextDoc((GET_APPCOMMAND_LPARAM(lParam) == APPCOMMAND_BROWSER_FORWARD)?dirDown:dirUp);
-					_linkTriggered = true;
-					break;
-				}
-			}
-			return ::DefWindowProc(hwnd, message, wParam, lParam);
+			// The back and forward buttons of the mouse. wParam tells which.
+			size_t nbDoc = viewVisible(MAIN_VIEW) ? _mainDocTab.nbItem() : 0;
+			nbDoc += viewVisible(SUB_VIEW)?_subDocTab.nbItem():0;
+			if (nbDoc > 1)
+				activateNextDoc((wParam == APPCOMMAND_BROWSER_FORWARD)?dirDown:dirUp);
+			_linkTriggered = true;
+			return FALSE;
 		}
 
 		case NPPM_GETNBSESSIONFILES:
@@ -1534,7 +1259,7 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 				nmhdr.hwndFrom = (whichView == MAIN_VIEW)?_mainDocTab.getHSelf():_subDocTab.getHSelf();
 
-				nmhdr.idFrom = ::GetDlgCtrlID(nmhdr.hwndFrom);
+				nmhdr.idFrom = 0;
 				::SendMessage(hwnd, WM_NOTIFY, nmhdr.idFrom, reinterpret_cast<LPARAM>(&nmhdr));
 			}
 			return TRUE;
@@ -1939,7 +1664,7 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 		case NPPM_INTERNAL_CMDLIST_MODIFIED:
 		{
-			::DrawMenuBar(hwnd);
+			syncMenuBar();
 			return TRUE;
 		}
 
@@ -2203,7 +1928,9 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 						auto caretPos = _pEditView->execute(SCI_GETCURRENTPOS);
 						p.x = static_cast<LONG>(_pEditView->execute(SCI_POINTXFROMPOSITION, 0, caretPos));
 						p.y = static_cast<LONG>(_pEditView->execute(SCI_POINTYFROMPOSITION, 0, caretPos));
-						::ClientToScreen(activeViewHwnd, &p);
+						const QPoint global = activeViewHwnd->mapToGlobal(QPoint(p.x, p.y));
+						p.x = global.x();
+						p.y = global.y();
 					}
 					scintillaContextmenu.display(p);
 
@@ -2211,260 +1938,11 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 				}
 			}
 
-			return ::DefWindowProc(hwnd, message, wParam, lParam);
+			return FALSE;
 		}
 
 		case WM_NOTIFY:
 		{
-			const auto lpnmhdr = reinterpret_cast<LPNMHDR>(lParam);
-			if (lpnmhdr->hwndFrom == _toolBar.getHSelf())
-			{
-				switch (lpnmhdr->code)
-				{
-					case NM_CUSTOMDRAW:
-					{
-						auto nmtbcd = reinterpret_cast<LPNMTBCUSTOMDRAW>(lParam);
-						static int roundCornerValue = 0;
-
-						switch (nmtbcd->nmcd.dwDrawStage)
-						{
-							case CDDS_PREPAINT:
-							{
-								LRESULT lr = CDRF_DODEFAULT;
-								if (NppDarkMode::isEnabled())
-								{
-									if (NppDarkMode::isWindows11())
-									{
-										roundCornerValue = 5;
-									}
-
-									::FillRect(nmtbcd->nmcd.hdc, &nmtbcd->nmcd.rc, NppDarkMode::getDlgBackgroundBrush());
-									lr |= CDRF_NOTIFYITEMDRAW;
-								}
-
-								return lr;
-							}
-
-							case CDDS_ITEMPREPAINT:
-							{
-								nmtbcd->hbrMonoDither = NppDarkMode::getBackgroundBrush();
-								nmtbcd->hbrLines = NppDarkMode::getEdgeBrush();
-								nmtbcd->hpenLines = NppDarkMode::getEdgePen();
-								nmtbcd->clrText = NppDarkMode::getTextColor();
-								nmtbcd->clrTextHighlight = NppDarkMode::getTextColor();
-								nmtbcd->clrBtnFace = NppDarkMode::getBackgroundColor();
-								nmtbcd->clrBtnHighlight = NppDarkMode::getCtrlBackgroundColor();
-								nmtbcd->clrHighlightHotTrack = NppDarkMode::getHotBackgroundColor();
-								nmtbcd->nStringBkMode = TRANSPARENT;
-								nmtbcd->nHLStringBkMode = TRANSPARENT;
-
-								RECT rcItem{ nmtbcd->nmcd.rc };
-								RECT rcDrop{};
-
-								TBBUTTONINFO tbi{};
-								tbi.cbSize = sizeof(TBBUTTONINFO);
-								tbi.dwMask = TBIF_STYLE;
-								::SendMessage(lpnmhdr->hwndFrom, TB_GETBUTTONINFO, nmtbcd->nmcd.dwItemSpec, reinterpret_cast<LPARAM>(&tbi));
-								const bool isDropDown = (tbi.fsStyle & BTNS_DROPDOWN) == BTNS_DROPDOWN;
-								if (isDropDown)
-								{
-									WPARAM idx = ::SendMessage(lpnmhdr->hwndFrom, TB_COMMANDTOINDEX, nmtbcd->nmcd.dwItemSpec, 0);
-									::SendMessage(lpnmhdr->hwndFrom, TB_GETITEMDROPDOWNRECT, idx, reinterpret_cast<LPARAM>(&rcDrop));
-
-									rcItem.right = rcDrop.left;
-								}
-
-								if ((nmtbcd->nmcd.uItemState & CDIS_HOT) == CDIS_HOT)
-								{
-									auto holdBrush = ::SelectObject(nmtbcd->nmcd.hdc, NppDarkMode::getHotBackgroundBrush());
-									auto holdPen = ::SelectObject(nmtbcd->nmcd.hdc, NppDarkMode::getHotEdgePen());
-
-									::RoundRect(nmtbcd->nmcd.hdc, rcItem.left, rcItem.top, rcItem.right, rcItem.bottom, roundCornerValue, roundCornerValue);
-
-									if (isDropDown)
-									{
-										::RoundRect(nmtbcd->nmcd.hdc, rcDrop.left, rcDrop.top, rcDrop.right, rcDrop.bottom, roundCornerValue, roundCornerValue);
-									}
-
-									::SelectObject(nmtbcd->nmcd.hdc, holdBrush);
-									::SelectObject(nmtbcd->nmcd.hdc, holdPen);
-
-									nmtbcd->nmcd.uItemState &= ~(CDIS_CHECKED | CDIS_HOT);
-								}
-								else if ((nmtbcd->nmcd.uItemState & CDIS_CHECKED) == CDIS_CHECKED)
-								{
-									auto holdBrush = ::SelectObject(nmtbcd->nmcd.hdc, NppDarkMode::getCtrlBackgroundBrush());
-									auto holdPen = ::SelectObject(nmtbcd->nmcd.hdc, NppDarkMode::getEdgePen());
-
-									::RoundRect(nmtbcd->nmcd.hdc, rcItem.left, rcItem.top, rcItem.right, rcItem.bottom, roundCornerValue, roundCornerValue);
-
-									if (isDropDown)
-									{
-										::RoundRect(nmtbcd->nmcd.hdc, rcDrop.left, rcDrop.top, rcDrop.right, rcDrop.bottom, roundCornerValue, roundCornerValue);
-									}
-
-									::SelectObject(nmtbcd->nmcd.hdc, holdBrush);
-									::SelectObject(nmtbcd->nmcd.hdc, holdPen);
-
-									nmtbcd->nmcd.uItemState &= ~CDIS_CHECKED;
-								}
-
-								LRESULT lr = TBCDRF_USECDCOLORS;
-								if ((nmtbcd->nmcd.uItemState & CDIS_SELECTED) == CDIS_SELECTED)
-								{
-									lr |= TBCDRF_NOBACKGROUND;
-								}
-
-								if (isDropDown)
-								{
-									lr |= CDRF_NOTIFYPOSTPAINT;
-								}
-
-								return lr;
-							}
-
-							case CDDS_ITEMPOSTPAINT:
-							{
-
-								const UINT dpi = DPIManagerV2::getDpiForWindow(hwnd);
-								LOGFONT lf{ DPIManagerV2::getDefaultGUIFontForDpi(dpi) };
-								HFONT hFont = CreateFontIndirect(&lf);
-								auto holdFont = static_cast<HFONT>(::SelectObject(nmtbcd->nmcd.hdc, hFont));
-
-								RECT rcArrow{};
-								WPARAM idx = ::SendMessage(lpnmhdr->hwndFrom, TB_COMMANDTOINDEX, nmtbcd->nmcd.dwItemSpec, 0);
-								::SendMessage(lpnmhdr->hwndFrom, TB_GETITEMDROPDOWNRECT, idx, reinterpret_cast<LPARAM>(&rcArrow));
-								rcArrow.left += DPIManagerV2::scale(1, dpi);
-								rcArrow.bottom -= DPIManagerV2::scale(3, dpi);
-
-								COLORREF clrArrow = NppDarkMode::getTextColor();
-
-								::SetBkMode(nmtbcd->nmcd.hdc, TRANSPARENT);
-								::SetTextColor(nmtbcd->nmcd.hdc, clrArrow);
-								::DrawText(nmtbcd->nmcd.hdc, L"⏷", -1, &rcArrow, DT_NOPREFIX | DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP);
-								::SelectObject(nmtbcd->nmcd.hdc, holdFont);
-								::DeleteObject(hFont);
-
-								return CDRF_DODEFAULT;
-							}
-
-
-							default:
-								break;
-						}
-
-						return CDRF_DODEFAULT;
-					}
-
-					case TBN_DROPDOWN:
-					{
-						auto lpnmtb = reinterpret_cast<LPNMTOOLBARW>(lParam);
-						switch (lpnmtb->iItem)
-						{
-							case IDM_VIEW_ALL_CHARACTERS:
-							{
-								auto cmdIDs = { IDM_VIEW_TAB_SPACE, IDM_VIEW_EOL, IDM_VIEW_NPC, IDM_VIEW_NPC_CCUNIEOL, 0, IDM_VIEW_ALL_CHARACTERS };
-								notifyTBShowMenu(lpnmtb, "view-showSymbol", cmdIDs);
-								return TBDDRET_DEFAULT;
-							}
-
-							default:
-								break;
-						}
-						return TBDDRET_NODEFAULT;
-					}
-
-					case NM_RCLICK:
-					{
-						auto lpnmtb = reinterpret_cast<LPNMTOOLBARW>(lParam);
-						switch (lpnmtb->iItem)
-						{
-							case IDM_VIEW_ALL_CHARACTERS:
-							{
-								return notifyTBShowMenu(lpnmtb, "view-showSymbol");
-							}
-
-							default:
-								break;
-						}
-						return FALSE;
-					}
-
-					default:
-						return FALSE;
-				}
-			}
-			else if (lpnmhdr->hwndFrom == _rebarTop.getHSelf()
-				|| lpnmhdr->hwndFrom == _rebarBottom.getHSelf())
-			{
-				switch (lpnmhdr->code)
-				{
-					case NM_CUSTOMDRAW:
-					{
-						auto lpnmcd = reinterpret_cast<LPNMCUSTOMDRAW>(lParam);
-
-						switch (lpnmcd->dwDrawStage)
-						{
-							case CDDS_PREPAINT:
-							{
-								if (!NppDarkMode::isEnabled())
-								{
-									return CDRF_DODEFAULT;
-								}
-
-								::FillRect(lpnmcd->hdc, &lpnmcd->rc, NppDarkMode::getDlgBackgroundBrush());
-								REBARBANDINFO rbBand{};
-								rbBand.cbSize = sizeof(REBARBANDINFO);
-								rbBand.fMask = RBBIM_STYLE | RBBIM_CHEVRONLOCATION | RBBIM_CHEVRONSTATE;
-								::SendMessage(lpnmcd->hdr.hwndFrom, RB_GETBANDINFO, 0, reinterpret_cast<LPARAM>(&rbBand));
-
-								LRESULT lr = CDRF_DODEFAULT;
-
-								if ((rbBand.fStyle & RBBS_USECHEVRON) == RBBS_USECHEVRON
-									&& (rbBand.rcChevronLocation.right - rbBand.rcChevronLocation.left) > 0)
-								{
-									static int roundCornerValue = 0;
-									if (NppDarkMode::isWindows11())
-									{
-										roundCornerValue = 5;
-									}
-
-									const bool isHot = (rbBand.uChevronState & STATE_SYSTEM_HOTTRACKED) == STATE_SYSTEM_HOTTRACKED;
-									const bool isPressed = (rbBand.uChevronState & STATE_SYSTEM_PRESSED) == STATE_SYSTEM_PRESSED;
-
-									if (isHot)
-									{
-										NppDarkMode::paintRoundRect(lpnmcd->hdc, rbBand.rcChevronLocation, NppDarkMode::getHotEdgePen(), NppDarkMode::getHotBackgroundBrush(), roundCornerValue, roundCornerValue);
-									}
-									else if (isPressed)
-									{
-										NppDarkMode::paintRoundRect(lpnmcd->hdc, rbBand.rcChevronLocation, NppDarkMode::getEdgePen(), NppDarkMode::getCtrlBackgroundBrush(), roundCornerValue, roundCornerValue);
-									}
-
-									::SetTextColor(lpnmcd->hdc, isHot ? NppDarkMode::getTextColor() : NppDarkMode::getDarkerTextColor());
-									::SetBkMode(lpnmcd->hdc, TRANSPARENT);
-
-									constexpr auto dtFlags = DT_NOPREFIX | DT_CENTER | DT_TOP | DT_SINGLELINE | DT_NOCLIP;
-									::DrawText(lpnmcd->hdc, L"»", -1, &rbBand.rcChevronLocation, dtFlags);
-
-									lr = CDRF_SKIPDEFAULT;
-								}
-
-								return lr;
-							}
-
-							default:
-								break;
-						}
-
-						return CDRF_DODEFAULT;
-					}
-
-					default:
-						break;
-				}
-}
-
 			SCNotification *notification = reinterpret_cast<SCNotification *>(lParam);
 
 			if (notification->nmhdr.code == SCN_UPDATEUI)
@@ -2577,15 +2055,9 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 			return TRUE;
 		}
 
-		case WM_SYNCPAINT:
-		{
-			RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
-			break;
-		}
-
 		case WM_DROPFILES:
 		{
-			dropFiles(reinterpret_cast<HDROP>(wParam));
+			dropFiles(*reinterpret_cast<const std::vector<std::wstring>*>(wParam));
 			return TRUE;
 		}
 
@@ -2632,7 +2104,6 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 			if (doChangePanel) // Theme change
 			{
-				NppDarkMode::calculateTreeViewStyle();
 				auto refreshOnlyTreeView = static_cast<LPARAM>(TRUE);
 
 				// Set default fg/bg colors on internal docking dialog
@@ -2689,7 +2160,6 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 					::SendMessage(_pFileBrowser->getHSelf(), NPPM_INTERNAL_REFRESHDARKMODE, 0, refreshOnlyTreeView);
 				}
 
-				NppDarkMode::updateTreeViewStylePrev();
 			}
 
 			if (_pDocMap)
@@ -2767,11 +2237,10 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 			return TRUE;
 		}
 
-
 		case NPPM_INTERNAL_INCSEARCHBARPOSITION:
 		{
 			ReBar& rebar = nppParam.getFindHistory()._incrementalSearchBarAtTop ? _rebarTop : _rebarBottom;
-			if (::GetParent(_incrementFindDlg.getHSelf()) == rebar.getHSelf()) // already there: a rebar is the parent of its band windows
+			if (rebar.hasBand(_incrementFindDlg.getHSelf())) // already there
 				return TRUE;
 
 			// hide the band before removing it: a rebar would keep the height of a visible band
@@ -2786,14 +2255,6 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 				rebar.setIDVisible(REBAR_BAR_SEARCH, true);
 
 			::SendMessage(hwnd, WM_SIZE, 0, 0);
-			return TRUE;
-		}
-
-		case NPPM_INTERNAL_FINDDLGHIGHLIGHT:
-		{
-			if (_findReplaceDlg.isCreated())
-				_findReplaceDlg.updateMatchHighlighting();
-
 			return TRUE;
 		}
 
@@ -2820,7 +2281,7 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 			if (isForcedShuttingDown)
 				nppParam.makeEndSessionCritical();
 
-			if (::IsWindowEnabled(hwnd))
+			if (!QApplication::activeModalWidget())
 			{
 				if (MainFileManager.getNbDirtyBuffers() > 0)
 				{
@@ -2829,16 +2290,16 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 					if (!isForcedShuttingDown && isFirstQueryEndSession && !nppParam.getNppGUI().isSnapshotMode())
 					{
 						// if Notepad++ has been minimized or invisible, we need to show it 1st
-						if (::IsIconic(hwnd))
+						if (hwnd->isMinimized())
 						{
-							::ShowWindow(hwnd, SW_RESTORE);
+							hwnd->showNormal();
 						}
 						else
 						{
-							if (!::IsWindowVisible(hwnd))
+							if (!hwnd->isVisible())
 							{
 								// systray etc...
-								::ShowWindow(hwnd, SW_SHOW);
+								hwnd->show();
 								::SendMessage(hwnd, WM_SIZE, 0, 0);	// to make window fit (specially to show tool bar.)
 							}
 						}
@@ -2859,46 +2320,8 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 				// in most cases we will need to take care and programmatically close such dialogs in order to exit gracefully,
 				// otherwise the Notepad++ most probably crashes itself without any tidy-up
 
-				string strLog = "Main Notepad++ wnd is disabled by (an active modal-dlg?):  ";
-				char szBuf[MAX_PATH + 128] = { 0 };
-
-				HWND hActiveWnd = ::GetActiveWindow();
-				if (hActiveWnd)
-				{
-					if (::GetWindowTextA(hActiveWnd, szBuf, _countof(szBuf)))
-						strLog += szBuf;
-					::SendMessage(hActiveWnd, WM_CLOSE, 0, 0);
-				}
-				else
-				{
-					// no active child window, so it is most probably the system dialog box class #32770 (used e.g. by the MessageBox WINAPI)
-					// - so our main hwnd here is not the PARENT but OWNER of that top-level window
-					hActiveWnd = ::GetLastActivePopup(hwnd);
-					if (hActiveWnd)
-					{
-						if (::GetWindowTextA(hActiveWnd, szBuf, _countof(szBuf)))
-							strLog += szBuf;
-						::GetClassNameA(hActiveWnd, szBuf, _countof(szBuf));
-						if (lstrcmpiA("#32770", szBuf) == 0)
-							strLog += " (MessageBox)";
-						// we cannot use here the usual sending of the WM_CLOSE as it will not always work (e.g. for a MB_YESNO MessageBox)
-						if (!::EndDialog(hActiveWnd, 0))
-						{
-							strLog += "  -> EndDialog failed with ErrorCode: ";
-							strLog += std::to_string(::GetLastError());
-							// last attempt
-							::SendMessage(hActiveWnd, WM_SYSCOMMAND, SC_CLOSE, 0);
-						}
-					}
-					else
-					{
-						strLog += "???";
-					}
-				}
-
-				// re-test
-				if (::IsWindowEnabled(hwnd))
-					strLog += "  -> Main Notepad++ wnd has been successfully reenabled.";
+				if (QWidget* modal = QApplication::activeModalWidget())
+					modal->close();
 			}
 
 			// NOTE: This should be the last possible place to eventually register Notepad++ for the app-restart OS feature,
@@ -2956,7 +2379,7 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 				if (isSnapshotMode)
 				{
-					::LockWindowUpdate(hwnd);
+					hwnd->setUpdatesEnabled(false);
 					MainFileManager.backupCurrentBuffer();
 				}
 
@@ -2987,13 +2410,13 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 					scnN.nmhdr.code = NPPN_CANCELSHUTDOWN;
 					_pluginsManager.notify(&scnN);
 					if (isSnapshotMode)
-						::LockWindowUpdate(NULL);
+						hwnd->setUpdatesEnabled(true);
 
-					if (!::IsWindowVisible(hwnd))
+					if (!hwnd->isVisible())
 					{
 						// Notepad++ probably has not been restored from the systray
 						// - as its tray-icon was removed before, we have to show the app window otherwise we end up with no-GUI state
-						::ShowWindow(hwnd, SW_SHOW);
+						hwnd->show();
 						::SendMessage(hwnd, WM_SIZE, 0, 0);
 					}
 
@@ -3005,14 +2428,14 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 				// currently it is used only in the Notepad_plus::backupDocument worker thread,
 				// use it in such a thread like:	if (g_bNppExitFlag.load()) -> finish work of & exit the thread
 
-				_pPublicInterface->removeClipboardListener();
+				QObject::disconnect(QApplication::clipboard(), nullptr, hwnd, nullptr);
 
 				if (_beforeSpecialView._isFullScreen)	//closing, return to windowed mode
 					fullScreenToggle();
 				if (_beforeSpecialView._isPostIt)		//closing, return to windowed mode
 					postItToggle();
 
-				if (_configStyleDlg.isCreated() && ::IsWindowVisible(_configStyleDlg.getHSelf()))
+				if (_configStyleDlg.isCreated() && _configStyleDlg.getHSelf()->isVisible())
 					_configStyleDlg.restoreGlobalOverrideValues();
 
 				scnN.nmhdr.code = NPPN_SHUTDOWN;
@@ -3073,20 +2496,11 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 				}
 
 				if (isSnapshotMode)
-					::LockWindowUpdate(NULL);
+					hwnd->setUpdatesEnabled(true);
 
-				//Sends WM_DESTROY, Notepad++ will end
-				::DestroyWindow(hwnd);
-
-				if (!nppParam.isEndSessionCritical())
-				{
-					wstring updaterFullPath = nppParam.getWingupFullPath();
-					if (!updaterFullPath.empty())
-					{
-						Process updater(updaterFullPath.c_str(), nppParam.getWingupParams().c_str(), nppParam.getWingupDir().c_str());
-						updater.run(nppParam.shouldDoUAC());
-					}
-				}
+				//Notepad++ will end
+				hwnd->hide();
+				::SendMessage(hwnd, WM_DESTROY, 0, 0);
 			}
 
 			return 0; // both WM_CLOSE and a possible WM_ENDSESSION should return 0
@@ -3095,8 +2509,8 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 		case WM_DESTROY:
 		{
 			killAllChildren();
-			::PostQuitMessage(0);
-			_pPublicInterface->gNppHWND = NULL;
+			QApplication::quit();
+			_pPublicInterface->gNppHWND = nullptr;
 			return TRUE;
 		}
 
@@ -3111,8 +2525,8 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 			}
 			else
 			{
-				if (::IsIconic(hwnd))
-					::ShowWindow(hwnd, SW_RESTORE);
+				if (hwnd->isMinimized())
+					hwnd->showNormal();
 			}
 			return FALSE;
 		}
@@ -3127,49 +2541,22 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 			{
 				if (!_pTrayIco)
 				{
-					HICON icon = nullptr;
-					Notepad_plus_Window::loadTrayIcon(_pPublicInterface->getHinst(), &icon);
-					_pTrayIco = new trayIconControler(hwnd, IDI_M30ICON, NPPM_INTERNAL_MINIMIZED_TRAY, icon, L"");
+					_pTrayIco = new trayIconControler(hwnd, IDI_M30ICON, NPPM_INTERNAL_MINIMIZED_TRAY, nppLoadIcon(IDI_M30ICON), L"");
 				}
 
 				_pTrayIco->doTrayIcon(ADD);
 				_dockingManager.showFloatingContainers(false);
 				minimizeDialogs();
-				::ShowWindow(hwnd, SW_HIDE);
+				hwnd->hide();
 				return TRUE;
 			}
 
-			if ((wParam & 0xFFF0) == SC_KEYMENU && lParam == VK_SPACE) // typing Alt-Space to have the system menu of application icon in the title bar
-			{
-				_sysMenuEntering = true;
-			}
-			else if ((wParam & 0xFFF0) == SC_MOUSEMENU) // clicking the application icon in the title bar to have the system menu
-			{
-				_sysMenuEntering = true;
-			}
-
-			return ::DefWindowProc(hwnd, message, wParam, lParam);
-		}
-
-		case WM_NCRBUTTONDOWN: // right click on the title bar to have system menu (in the form of contextual menu beside of mouse cursor)
-		{
-			if (wParam == HTCAPTION)
-			{
-				_sysMenuEntering = true;
-			}
-			return ::DefWindowProc(hwnd, message, wParam, lParam);
-		}
-
-		case WM_LBUTTONDBLCLK:
-		{
-			DocTabView* curTabView = (currentView() == MAIN_VIEW) ? &_mainDocTab : &_subDocTab;
-			::SendMessage(curTabView->getHSelf(), WM_LBUTTONDBLCLK, wParam, lParam);
-
-			return TRUE;
+			return FALSE;
 		}
 
 		case WM_CLIPBOARDUPDATE:
 		{
+			_isClipboardTextKnown = false;
 			checkClipboard();
 			return 0;
 		}
@@ -3182,7 +2569,7 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 				case WM_LBUTTONUP :
 				{
 					_pEditView->grabFocus();
-					::ShowWindow(hwnd, SW_SHOW);
+					hwnd->show();
 					_dockingManager.showFloatingContainers(true);
 					restoreMinimizeDialogs();
 
@@ -3200,18 +2587,12 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 				case WM_RBUTTONUP:
 				{
-					POINT p;
-					GetCursorPos(&p);
-
-					HMENU hmenu;            // menu template
-					HMENU hTrayIconMenu;  // shortcut menu
-					hmenu = ::LoadMenu(_pPublicInterface->getHinst(), MAKEINTRESOURCE(IDR_SYSTRAYPOPUP_MENU));
-					hTrayIconMenu = ::GetSubMenu(hmenu, 0);
+					HMENU hmenu = nppCreateMenuFromTemplate(IDR_SYSTRAYPOPUP_MENU, hwnd, hwnd);
+					HMENU hTrayIconMenu = nppSubMenuAt(hmenu, 0);
 					_nativeLangSpeaker.changeLangTrayIconContexMenu(hTrayIconMenu);
-					SetForegroundWindow(hwnd);
-					TrackPopupMenu(hTrayIconMenu, TPM_LEFTALIGN, p.x, p.y, 0, hwnd, NULL);
-					PostMessage(hwnd, WM_NULL, 0, 0);
-					DestroyMenu(hmenu);
+					hwnd->activateWindow();
+					hTrayIconMenu->exec(QCursor::pos());
+					delete hmenu;
 					return TRUE;
 				}
 			}
@@ -3220,19 +2601,19 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 		case NPPM_DMMSHOW:
 		{
-			_dockingManager.showDockableDlg(reinterpret_cast<HWND>(lParam), SW_SHOW);
+			_dockingManager.showDockableDlg(reinterpret_cast<HWND>(lParam), true);
 			return TRUE;
 		}
 
 		case NPPM_DMMHIDE:
 		{
-			_dockingManager.showDockableDlg(reinterpret_cast<HWND>(lParam), SW_HIDE);
+			_dockingManager.showDockableDlg(reinterpret_cast<HWND>(lParam), false);
 			return TRUE;
 		}
 
 		case NPPM_DMMUPDATEDISPINFO:
 		{
-			if (::IsWindowVisible(reinterpret_cast<HWND>(lParam)))
+			if (reinterpret_cast<HWND>(lParam)->isVisible())
 				_dockingManager.updateContainerInfo(reinterpret_cast<HWND>(lParam));
 			return TRUE;
 		}
@@ -3250,7 +2631,7 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 		case NPPM_DMMVIEWOTHERTAB:
 		{
-			_dockingManager.showDockableDlg(reinterpret_cast<wchar_t *>(lParam), SW_SHOW);
+			_dockingManager.showDockableDlg(reinterpret_cast<wchar_t *>(lParam), true);
 			return TRUE;
 		}
 
@@ -3300,7 +2681,7 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 		case NPPM_SETMENUITEMCHECK:
 		{
-			::CheckMenuItem(_mainMenuHandle, static_cast<UINT>(wParam), MF_BYCOMMAND | (static_cast<BOOL>(lParam) ? MF_CHECKED : MF_UNCHECKED));
+			nppCheckMenuCommand(_mainMenuHandle, static_cast<UINT>(wParam), static_cast<BOOL>(lParam));
 			_toolBar.setCheck(static_cast<int>(wParam), lParam != 0);
 			return TRUE;
 		}
@@ -3318,7 +2699,7 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 		case NPPM_GETENABLETHEMETEXTUREFUNC_DEPRECATED:
 		{
-			return reinterpret_cast<LRESULT>(&EnableThemeDialogTexture);
+			return 0; // Windows themes do not exist here
 		}
 
 		case NPPM_GETPLUGINSCONFIGDIR:
@@ -3511,23 +2892,21 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 		case NPPM_HIDEMENU:
 		{
 			bool hide = (lParam == TRUE);
-			bool isHidden = ::GetMenu(hwnd) == NULL;
+			QMenuBar* menuBar = _pPublicInterface->mainWindow()->menuBar();
+			bool isHidden = menuBar->isHidden();
 			if (hide == isHidden)
 				return isHidden;
 
 			NppGUI & nppGUI = nppParam.getNppGUI();
 			nppGUI._menuBarShow = !hide;
-			if (nppGUI._menuBarShow)
-				::SetMenu(hwnd, _mainMenuHandle);
-			else
-				::SetMenu(hwnd, NULL);
+			menuBar->setVisible(nppGUI._menuBarShow);
 
 			return isHidden;
 		}
 
 		case NPPM_ISMENUHIDDEN:
 		{
-			return (::GetMenu(hwnd) == NULL);
+			return _pPublicInterface->mainWindow()->menuBar()->isHidden();
 		}
 
 		case NPPM_HIDESTATUSBAR:
@@ -3538,12 +2917,9 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 			if (show == oldVal)
 				return oldVal;
 
-			RECT rc;
-			_pPublicInterface->getClientRect(rc);
-
 			nppGUI._statusBarShow = show;
 			_statusBar.display(nppGUI._statusBarShow);
-			::SendMessage(hwnd, WM_SIZE, SIZE_RESTORED, MAKELONG(rc.bottom, rc.right));
+			::SendMessage(hwnd, WM_SIZE, 0, 0);
 			return oldVal;
 		}
 
@@ -3803,7 +3179,7 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 
 		case NPPM_DARKMODESUBCLASSANDTHEME:
 		{
-			return static_cast<LRESULT>(NppDarkMode::autoSubclassAndThemePlugin(reinterpret_cast<HWND>(lParam), static_cast<ULONG>(wParam)));
+			return wParam; // Qt themes all widgets through the application palette
 		}
 
 		case NPPM_DOCLISTDISABLEPATHCOLUMN:
@@ -3990,55 +3366,6 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 		case WM_INITMENUPOPUP:
 		{
 			_windowsMenu.initPopupMenu(reinterpret_cast<HMENU>(wParam), _pDocTab);
-			return TRUE;
-		}
-
-		case WM_ENTERMENULOOP:
-		{
-			const NppGUI & nppgui = nppParam.getNppGUI();
-			if (!nppgui._menuBarShow && !wParam && !_sysMenuEntering)
-				::SetMenu(hwnd, _mainMenuHandle);
-
-			return TRUE;
-		}
-
-		case WM_EXITMENULOOP:
-		{
-			const NppGUI & nppgui = nppParam.getNppGUI();
-			if (!nppgui._menuBarShow && !wParam && !_sysMenuEntering)
-				::SetMenu(hwnd, NULL);
-			_sysMenuEntering = false;
-			return FALSE;
-		}
-
-		case WM_DPICHANGED:
-		{
-			const UINT dpi = LOWORD(wParam);
-			_toolBar.resizeIconsDpi(dpi);
-
-			_mainEditView.setWhitespaceSize();
-			_subEditView.setWhitespaceSize();
-
-			_mainDocTab.dpiManager().setDpi(dpi);
-			_subDocTab.dpiManager().setDpi(dpi);
-			_mainDocTab.setFont();
-			_subDocTab.setFont();
-			_mainDocTab.resizeIconsDpi();
-			_subDocTab.resizeIconsDpi();
-			_mainDocTab.setCloseBtnImageList();
-			_subDocTab.setCloseBtnImageList();
-			_mainDocTab.setPinBtnImageList();
-			_subDocTab.setPinBtnImageList();
-			::SendMessage(_pPublicInterface->getHSelf(), NPPM_INTERNAL_REDUCETABBAR, 0, 0);
-
-			changeDocumentListIconSet(false);
-
-			_statusBar.setPartWidth(STATUSBAR_DOC_SIZE, DPIManagerV2::scale(220, dpi));
-			_statusBar.setPartWidth(STATUSBAR_CUR_POS, DPIManagerV2::scale(260, dpi));
-			_statusBar.setPartWidth(STATUSBAR_EOF_FORMAT, DPIManagerV2::scale(110, dpi));
-			_statusBar.setPartWidth(STATUSBAR_UNICODE_TYPE, DPIManagerV2::scale(120, dpi));
-			_statusBar.setPartWidth(STATUSBAR_TYPING_MODE, DPIManagerV2::scale(45, dpi));
-
 			return TRUE;
 		}
 
@@ -4307,19 +3634,6 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 			bool drawTabCloseButton = nppGUI._tabStatus & TAB_CLOSEBUTTON;
 			bool drawTabPinButton = nppGUI._tabStatus & TAB_PINBUTTON;
 
-			int tabDpiDynamicalWidth = _mainDocTab.dpiManager().scale((drawTabCloseButton || drawTabPinButton) ? g_TabWidthButton : g_TabWidth);
-			int tabDpiDynamicalHeight = _mainDocTab.dpiManager().scale(isReduced ? g_TabHeight : g_TabHeightLarge);
-
-			TabCtrl_SetItemSize(_mainDocTab.getHSelf(), tabDpiDynamicalWidth, tabDpiDynamicalHeight);
-			TabCtrl_SetItemSize(_subDocTab.getHSelf(), tabDpiDynamicalWidth, tabDpiDynamicalHeight);
-
-			//change the font
-			const auto& hf = _mainDocTab.getFont(isReduced);
-			if (hf)
-			{
-				::SendMessage(_mainDocTab.getHSelf(), WM_SETFONT, reinterpret_cast<WPARAM>(hf), MAKELPARAM(TRUE, 0));
-				::SendMessage(_subDocTab.getHSelf(), WM_SETFONT, reinterpret_cast<WPARAM>(hf), MAKELPARAM(TRUE, 0));
-			}
 
 			::SendMessage(_pPublicInterface->getHSelf(), WM_SIZE, 0, 0);
 
@@ -4365,11 +3679,6 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 				_subDocTab.setTabPinButtonOrder(-1);
 			}
 
-			// This part is just for updating (redraw) the tabs
-			int tabDpiDynamicalHeight = _mainDocTab.dpiManager().scale(nppParam.getNppGUI()._tabStatus & TAB_REDUCE ? g_TabHeight : g_TabHeightLarge);
-			int tabDpiDynamicalWidth = _mainDocTab.dpiManager().scale(drawTabCloseButton ? g_TabWidthButton : g_TabWidth);
-			TabCtrl_SetItemSize(_mainDocTab.getHSelf(), tabDpiDynamicalWidth, tabDpiDynamicalHeight);
-			TabCtrl_SetItemSize(_subDocTab.getHSelf(), tabDpiDynamicalWidth, tabDpiDynamicalHeight);
 
 			::SendMessage(_pPublicInterface->getHSelf(), WM_SIZE, 0, 0);
 
@@ -4420,11 +3729,6 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 				_subDocTab.setTabPinButtonOrder(-1);
 			}
 
-			// This part is just for updating (redraw) the tabs
-			int tabDpiDynamicalHeight = _mainDocTab.dpiManager().scale(nppParam.getNppGUI()._tabStatus & TAB_REDUCE ? g_TabHeight : g_TabHeightLarge);
-			int tabDpiDynamicalWidth = _mainDocTab.dpiManager().scale(drawTabPinButton ? g_TabWidthButton : g_TabWidth);
-			TabCtrl_SetItemSize(_mainDocTab.getHSelf(), tabDpiDynamicalWidth, tabDpiDynamicalHeight);
-			TabCtrl_SetItemSize(_subDocTab.getHSelf(), tabDpiDynamicalWidth, tabDpiDynamicalHeight);
 
 			::SendMessage(_pPublicInterface->getHSelf(), WM_SIZE, 0, 0);
 			_mainDocTab.refresh();
@@ -4449,22 +3753,20 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 			if (nppParam.getNppGUI()._hideMenuRightShortcuts)
 			{
 				int nbRemoved = 0;
-				const int bufferSize = 64;
-				wchar_t buffer[bufferSize];
-				int nbItem = GetMenuItemCount(_mainMenuHandle);
+				int nbItem = nppMenuItemCount(_mainMenuHandle);
 				for (int i = nbItem - 1; i >= 0; --i)
 				{
-					::GetMenuStringW(_mainMenuHandle, i, buffer, bufferSize, MF_BYPOSITION);
-					if (lstrcmp(buffer, L"✕") == 0 || lstrcmp(buffer, L"▼") == 0 || lstrcmp(buffer, L"＋") == 0)
+					const wstring itemText = nppMenuActionAt(_mainMenuHandle, i)->text().toStdWString();
+					if (itemText == L"✕" || itemText == L"▼" || itemText == L"＋")
 					{
-						::RemoveMenu(_mainMenuHandle, i, MF_BYPOSITION);
+						nppRemoveMenuItemAt(_mainMenuHandle, i);
 						++nbRemoved;
 					}
 					if (nbRemoved == 3)
 						break;
 				}
 				if (nbRemoved > 0)
-					::DrawMenuBar(hwnd);
+					syncMenuBar();
 			}
 			return TRUE;
 		}
@@ -4582,17 +3884,8 @@ LRESULT Notepad_plus::process(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 				return TRUE;
 			}
 
-			else if (message == WM_TASKBARCREATED)
-			{
-				if (!_pTrayIco)
-					return TRUE;
 
-				// re-add tray icon
-				_pTrayIco->reAddTrayIcon();
-				return TRUE;
-			}
-
-			return ::DefWindowProc(hwnd, message, wParam, lParam);
+			return FALSE;
 		}
 	}
 

@@ -17,9 +17,15 @@
 
 #pragma once
 
+#include <QKeySequence>
+
+#include <string>
+#include <vector>
+
+#include "NppKeys.h"
+#include "keys.h"
 #include "shortcutRc.h"
 #include "Scintilla.h"
-#include "StaticDialog.h"
 #include "Common.h"
 #include "menuCmdID.h"
 
@@ -65,10 +71,9 @@ struct KeyCombo {
 	UCHAR _key = 0;
 };
 
-class Shortcut : public StaticDialog {
+class Shortcut {
 public:
 	Shortcut(): _canModifyName(false) {
-		setName("");
 		_keyCombo._isCtrl = false;
 		_keyCombo._isAlt = false;
 		_keyCombo._isShift = false;
@@ -76,7 +81,6 @@ public:
 	}
 
 	Shortcut(const char* name, bool isCtrl, bool isAlt, bool isShift, UCHAR key) : _canModifyName(false) {
-		_name[0] = '\0';
 		if (name) {
 			setName(name);
 		} else {
@@ -94,14 +98,13 @@ public:
 		_canModifyName = sc._canModifyName;
 	}
 
-	BYTE getAcceleratorModifiers() {
-		return static_cast<BYTE>( FVIRTKEY | (_keyCombo._isCtrl?FCONTROL:0) | (_keyCombo._isAlt?FALT:0) | (_keyCombo._isShift?FSHIFT:0) );
-	}
+	// The key combination as Qt names it. Empty when disabled, or when the key has no Qt counterpart.
+	QKeySequence toKeySequence() const;
 
 	Shortcut & operator=(const Shortcut & sc) {
 		//Do not allow setting empty names
 		//So either we have an empty name or the other name has to be set
-		if (_name[0] == 0 || sc._name[0] != 0) {
+		if (_name.empty() || !sc._name.empty()) {
 			setName(sc.getMenuName(), sc.getName());
 		}
 		_keyCombo = sc._keyCombo;
@@ -121,9 +124,15 @@ public:
 		return !(a == b);
 	}
 
-	virtual int doDialog() {
-		return static_cast<int>(StaticDialog::myCreateDialogBoxIndirectParam(IDD_SHORTCUT_DLG, false));
+	virtual ~Shortcut() = default;
+
+	// The window the editing dialog is centered on and reports key conflicts to
+	void init(HINSTANCE, HWND parent) {
+		_hParent = parent;
 	}
+
+	// Shows the editing dialog. Returns -1 when canceled.
+	virtual int doDialog();
 
 	virtual bool isValid() const { //valid should only be used in cases where the shortcut isEnabled().
 		if (_keyCombo._key == 0)
@@ -141,25 +150,16 @@ public:
 	}
 
 	virtual std::string toString() const;					//the hotkey part
-	std::string toMenuItemString() const {					//std::wstring suitable for menu
-		std::string str = _menuName;
-		if (isEnabled())
-		{
-			str += "\t";
-			str += toString();
-		}
-		return str;
-	}
 	const KeyCombo & getKeyCombo() const {
 		return _keyCombo;
 	}
 
 	const char* getName() const {
-		return _name;
+		return _name.c_str();
 	}
 
 	const char* getMenuName() const {
-		return _menuName;
+		return _menuName.c_str();
 	}
 
 	void setName(const char* menuName, const char* shortcutName = NULL);
@@ -174,11 +174,14 @@ public:
 
 protected :
 	KeyCombo _keyCombo;
-	intptr_t CALLBACK run_dlgProc(UINT Message, WPARAM wParam, LPARAM lParam) override;
 	bool _canModifyName = false;
-	char _name[menuItemStrLenMax] {};		//normal name is plain text (for display purposes)
-	char _menuName[menuItemStrLenMax] {};	//menu name has ampersands for quick keys
-	void updateConflictState(const bool endSession = false) const;
+	std::string _name;		//normal name is plain text (for display purposes)
+	std::string _menuName;	//menu name has ampersands for quick keys
+	HWND _hParent = nullptr;
+
+	// Whether the parent knows another command using this key combination
+	bool hasKeyConflict() const;
+	void notifyEditingEnded() const;
 };
 		 
 class CommandShortcut : public Shortcut {
@@ -237,9 +240,7 @@ public:
 	std::string toString() const override;
 	std::string toString(size_t index) const;
 
-	int doDialog() override {
-		return static_cast<int>(StaticDialog::myCreateDialogBoxIndirectParam(IDD_SHORTCUTSCINT_DLG, false));
-	}
+	int doDialog() override;
 
 	//only compares the internal KeyCombos, nothing else
 	friend inline bool operator==(const ScintillaKeyMap & a, const ScintillaKeyMap & b) {
@@ -268,15 +269,11 @@ private:
 	int _menuCmdID;
 	std::vector<KeyCombo> _keyCombos;
 	size_t _size;
-	void applyToCurrentIndex();
-	void validateDialog();
-	void showCurrentSettings();
-	void updateListItem(int index);
-protected :
-	intptr_t CALLBACK run_dlgProc(UINT Message, WPARAM wParam, LPARAM lParam) override;
 };
 
 
+class QAction;
+class QListWidget;
 class Window;
 class ScintillaEditView;
 
@@ -349,26 +346,12 @@ class Accelerator { //Handles accelerator keys for Notepad++ menu, including cus
 friend class ShortcutMapper;
 public:
 	Accelerator() = default;
-	~Accelerator() {
-		if (_hAccTable)
-			::DestroyAcceleratorTable(_hAccTable);
-		if (_hIncFindAccTab)
-			::DestroyAcceleratorTable(_hIncFindAccTab);
-		if (_hFindAccTab)
-			::DestroyAcceleratorTable(_hFindAccTab);
-		if (_hAccTabSwitch)
-			::DestroyAcceleratorTable(_hAccTabSwitch);
-		delete [] _pAccelArray;
-	}
+
 	void init(HMENU hMenu, HWND menuParent) {
 		_hAccelMenu = hMenu;
 		_hMenuParent = menuParent;
 		updateShortcuts();
 	}
-	HACCEL getAccTable() const {return _hAccTable;}
-	HACCEL getIncrFindAccTable() const { return _hIncFindAccTab; }
-	HACCEL getFindAccTable() const { return _hFindAccTab; }
-	HACCEL getTabSwitchAccTable() const { return _hAccTabSwitch; }
 
 	void updateShortcuts();
 	void updateFullMenu();
@@ -376,14 +359,9 @@ public:
 private:
 	HMENU _hAccelMenu = nullptr;
 	HWND _hMenuParent = nullptr;
-	HACCEL _hAccTable = nullptr;
-	HACCEL _hIncFindAccTab = nullptr;
-	HACCEL _hFindAccTab = nullptr;
-	HACCEL _hAccTabSwitch = nullptr;
-	ACCEL *_pAccelArray = nullptr;
-	int _nbAccelItems = 0;
+	std::vector<QAction*> _hiddenActions; // commands with a shortcut but no menu item
 
-	void updateMenuItemByCommand(const CommandShortcut& csc);
+	void applyCommand(const CommandShortcut& csc);
 };
 
 class ScintillaAccelerator {	//Handles accelerator keys for scintilla

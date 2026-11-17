@@ -17,11 +17,12 @@
 
 #pragma once
 
-#include <windows.h>
-
+#include <memory>
 #include <string>
 #include <unordered_set>
 #include <vector>
+
+#include <QPoint>
 
 #include "DockingDlgInterface.h"
 #include "TreeView.h"
@@ -34,8 +35,8 @@
 #define FB_COPYPATH           L"Copy path"
 #define FB_COPYFILENAME       L"Copy file name"
 #define FB_FINDINFILES        L"Find in Files..."
-#define FB_EXPLORERHERE       L"Explorer here"
-#define FB_CMDHERE            L"CMD here"
+#define FB_EXPLORERHERE       L"File Manager here"
+#define FB_CMDHERE            L"Terminal here"
 #define FB_POWERSHELLHERE     L"PowerShell here"
 #define FB_OPENINNPP          L"Open"
 #define FB_SHELLEXECUTE       L"Run by system"
@@ -44,6 +45,10 @@
 
 class FileBrowser;
 class FolderInfo;
+class QFileSystemWatcher;
+class QMenu;
+class QString;
+class QToolButton;
 
 class FileInfo final
 {
@@ -91,11 +96,12 @@ enum BrowserNodeType {
 	browserNodeType_root = 0, browserNodeType_folder = 2, browserNodeType_file = 3
 };
 
+// Keeps a root folder of the panel in step with the disk
 class FolderUpdater {
 friend class FileBrowser;
 public:
-	FolderUpdater(const FolderInfo& fi, FileBrowser *pFileBrowser) : _rootFolder(fi), _pFileBrowser(pFileBrowser) {}
-	~FolderUpdater() = default;
+	FolderUpdater(const FolderInfo& fi, FileBrowser *pFileBrowser);
+	~FolderUpdater();
 
 	void startWatcher();
 	void stopWatcher();
@@ -103,11 +109,10 @@ public:
 private:
 	FolderInfo _rootFolder;
 	FileBrowser* _pFileBrowser = nullptr;
-	HANDLE _watchThreadHandle = nullptr;
-	HANDLE _EventHandle = nullptr;
-	static DWORD WINAPI watching(void* params);
+	std::unique_ptr<QFileSystemWatcher> _watcher;
 
-	static void processChange(DWORD dwAction, std::vector<std::wstring> filesToChange, FolderUpdater* thisFolderUpdater);
+	void watchTree(const QString& path);
+	void onDirectoryChanged(const QString& path);
 };
 
 struct SortingData4lParam {
@@ -120,6 +125,7 @@ struct SortingData4lParam {
 
 
 class FileBrowser : public DockingDlgInterface {
+friend class FolderUpdater;
 public:
 	FileBrowser(): DockingDlgInterface(IDD_FILEBROWSER) {}
 	~FileBrowser() override;
@@ -128,12 +134,22 @@ public:
 		_hParent = parent2set;
 	}
 
+	using DockingDlgInterface::create;
+	void create(DockedWidgetData* data, bool isRTL = false) override;
+
+	void refreshIcons() override {
+		DockingDlgInterface::refreshIcons();
+		_treeView.refreshImages();
+	}
+
 	void setBackgroundColor(COLORREF bgColour) override {
-		TreeView_SetBkColor(_treeView.getHSelf(), bgColour);
+		_bgColour = bgColour;
+		_treeView.setColours(_bgColour, _fgColour);
 	}
 
 	void setForegroundColor(COLORREF fgColour) override {
-		TreeView_SetTextColor(_treeView.getHSelf(), fgColour);
+		_fgColour = fgColour;
+		_treeView.setColours(_bgColour, _fgColour);
 	}
 
 	std::wstring getNodePath(HTREEITEM node) const;
@@ -160,17 +176,14 @@ public:
 	bool selectItemFromPath(const std::wstring& itemPath) const;
 
 protected:
-	HWND _hToolbarMenu = nullptr;
-	std::vector<HIMAGELIST> _iconListVector;
-
 	TreeView _treeView;
+	COLORREF _bgColour = RGB(0xFF, 0xFF, 0xFF);
+	COLORREF _fgColour = RGB(0, 0, 0);
 
-	HIMAGELIST _hImaLst = nullptr;
-
-	HMENU _hGlobalMenu = NULL;
-	HMENU _hRootMenu = NULL;
-	HMENU _hFolderMenu = NULL;
-	HMENU _hFileMenu = NULL;
+	std::unique_ptr<QMenu> _hGlobalMenu;
+	std::unique_ptr<QMenu> _hRootMenu;
+	std::unique_ptr<QMenu> _hFolderMenu;
+	std::unique_ptr<QMenu> _hFileMenu;
 	std::vector<FolderUpdater *> _folderUpdaters;
 
 	std::wstring _selectedNodeFullPath; // this member is used only for PostMessage call
@@ -182,7 +195,7 @@ protected:
 	std::wstring _locateCurrentFile = L"Locate current file";
 
 	void initPopupMenus();
-	void destroyMenus();
+	void connectTree();
 
 	BrowserNodeType getNodeType(HTREEITEM hItem);
 	void popupMenuCmd(int cmdID);
@@ -196,8 +209,6 @@ protected:
 		std::vector<std::wstring> _files; // file/folder names
 	};
 
-	std::vector<FilesToChange> getFilesFromParam(LPARAM lParam) const;
-
 	bool addToTree(FilesToChange & group, HTREEITEM node);
 
 	bool deleteFromTree(FilesToChange & group);
@@ -208,11 +219,11 @@ protected:
 
 	void removeNamesAlreadyInNode(HTREEITEM parent, std::vector<std::wstring> & labels) const;
 
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-	void notified(LPNMHDR notification);
-	void showContextMenu(int x, int y);
+	void onDockingNotify(const NMHDR& notification) override;
+	void showContextMenu(const QPoint& position);
+	void onItemFolded(HTREEITEM item, bool isExpanded);
 	void openSelectFile();
 	void getDirectoryStructure(const wchar_t *dir, const std::vector<std::wstring> & patterns, FolderInfo & directoryStructure, bool isRecursive, bool isInHiddenDir); 
 	HTREEITEM createFolderItemsFromDirStruct(HTREEITEM hParentItem, const FolderInfo & directoryStructure);
-	static int CALLBACK categorySortFunc(LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort);
+	static int categorySortFunc(LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort);
 };

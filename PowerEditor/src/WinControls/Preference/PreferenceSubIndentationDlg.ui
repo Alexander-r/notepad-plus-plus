@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubIndentationDlg</class>
+ <widget class="QWidget" name="PreferenceSubIndentationDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QGroupBox" name="tabsettingGbStatic">
+     <property name="nppId" stdset="0"><number>6301</number></property>
+     <property name="title"><string>Indent Settings</string></property>
+     <layout class="QHBoxLayout" name="layout2">
+      <item>
+       <widget class="QListWidget" name="listTabsettng">
+        <property name="nppId" stdset="0"><number>6509</number></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="grTabvalueStatic">
+        <property name="nppId" stdset="0"><number>6511</number></property>
+        <property name="title"><string/></property>
+        <layout class="QVBoxLayout" name="layout3">
+         <item>
+          <widget class="QCheckBox" name="checkDefaulttabvalue">
+           <property name="nppId" stdset="0"><number>6510</number></property>
+           <property name="text"><string>Use default value</string></property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="layout4">
+           <item>
+            <widget class="QLabel" name="tabsizeStatic">
+             <property name="nppId" stdset="0"><number>6303</number></property>
+             <property name="text"><string>Indent size:</string></property>
+             <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLineEdit" name="editTabsizeval">
+             <property name="nppId" stdset="0"><number>6513</number></property>
+             <property name="alignment"><set>Qt::AlignCenter</set></property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="spacer5">
+             <property name="orientation"><enum>Qt::Horizontal</enum></property>
+             <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+             <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+            </spacer>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QLabel" name="indentusingStatic">
+           <property name="nppId" stdset="0"><number>6310</number></property>
+           <property name="text"><string>Indent using:</string></property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="layout6">
+           <item>
+            <spacer name="spacer7">
+             <property name="orientation"><enum>Qt::Horizontal</enum></property>
+             <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+             <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QRadioButton" name="radioUsingtab">
+             <property name="nppId" stdset="0"><number>6311</number></property>
+             <property name="text"><string>Tab character</string></property>
+             <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="layout8">
+           <item>
+            <spacer name="spacer9">
+             <property name="orientation"><enum>Qt::Horizontal</enum></property>
+             <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+             <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QRadioButton" name="radioReplacebyspace">
+             <property name="nppId" stdset="0"><number>6302</number></property>
+             <property name="text"><string>Space character(s)</string></property>
+             <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="checkBackspaceunindent">
+           <property name="nppId" stdset="0"><number>6512</number></property>
+           <property name="text"><string>Backspace key unindents instead of removing single space</string></property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="spacer10">
+           <property name="orientation"><enum>Qt::Vertical</enum></property>
+           <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+           <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+          </spacer>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupstaticAutoindent">
+     <property name="nppId" stdset="0"><number>7161</number></property>
+     <property name="title"><string>Auto-indent</string></property>
+     <layout class="QHBoxLayout" name="layout11">
+      <item>
+       <widget class="QRadioButton" name="radioAutoindentNone">
+        <property name="nppId" stdset="0"><number>7162</number></property>
+        <property name="text"><string>None</string></property>
+        <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+       </widget>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="radioAutoindentBasic">
+        <property name="nppId" stdset="0"><number>7163</number></property>
+        <property name="text"><string>Basic</string></property>
+        <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+       </widget>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="radioAutoindentAdvanced">
+        <property name="nppId" stdset="0"><number>7164</number></property>
+        <property name="text"><string>Advanced</string></property>
+        <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+       </widget>
+      </item>
+      <item>
+       <spacer name="spacer12">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+        <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+        <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer13">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+  <buttongroup name="radioGroup2"/>
+ </buttongroups>
+</ui>

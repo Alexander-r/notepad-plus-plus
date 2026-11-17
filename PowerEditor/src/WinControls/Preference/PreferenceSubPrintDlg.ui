@@ -1,0 +1,366 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubPrintDlg</class>
+ <widget class="QWidget" name="PreferenceSubPrintDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <layout class="QHBoxLayout" name="layout2">
+     <item>
+      <layout class="QVBoxLayout" name="layout3">
+       <item>
+        <widget class="QGroupBox" name="colouroptStatic">
+         <property name="nppId" stdset="0"><number>6602</number></property>
+         <property name="title"><string>Color Options</string></property>
+         <layout class="QVBoxLayout" name="layout4">
+          <item>
+           <widget class="QRadioButton" name="radioWysiwyg">
+            <property name="nppId" stdset="0"><number>6603</number></property>
+            <property name="text"><string>W&amp;YSIWYG</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+           </widget>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="radioInvert">
+            <property name="nppId" stdset="0"><number>6604</number></property>
+            <property name="text"><string>I&amp;nvert</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+           </widget>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="radioBw">
+            <property name="nppId" stdset="0"><number>6605</number></property>
+            <property name="text"><string>Black on &amp;white</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+           </widget>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="radioNobg">
+            <property name="nppId" stdset="0"><number>6606</number></property>
+            <property name="text"><string>No bac&amp;kground color</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="margesettingsStatic">
+         <property name="nppId" stdset="0"><number>6607</number></property>
+         <property name="title"><string>Margin Setting (Unit:mm)</string></property>
+         <layout class="QGridLayout" name="gridLayout3">
+          <item row="0" column="1" colspan="3">
+           <widget class="QLabel" name="mtStatic">
+            <property name="nppId" stdset="0"><number>6613</number></property>
+            <property name="text"><string>&amp;Top</string></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+            <property name="buddy"><cstring>editMt</cstring></property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QLineEdit" name="editMt">
+            <property name="nppId" stdset="0"><number>6609</number></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="mlStatic">
+            <property name="nppId" stdset="0"><number>6612</number></property>
+            <property name="text"><string>&amp;Left</string></property>
+            <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+            <property name="buddy"><cstring>editMl</cstring></property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QLineEdit" name="editMl">
+            <property name="nppId" stdset="0"><number>6608</number></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+           </widget>
+          </item>
+          <item row="2" column="4">
+           <widget class="QLabel" name="mrStatic">
+            <property name="nppId" stdset="0"><number>6614</number></property>
+            <property name="text"><string>&amp;Right</string></property>
+            <property name="buddy"><cstring>editMr</cstring></property>
+           </widget>
+          </item>
+          <item row="2" column="3">
+           <widget class="QLineEdit" name="editMr">
+            <property name="nppId" stdset="0"><number>6610</number></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+           </widget>
+          </item>
+          <item row="4" column="1" colspan="3">
+           <widget class="QLabel" name="mbStatic">
+            <property name="nppId" stdset="0"><number>6615</number></property>
+            <property name="text"><string>Botto&amp;m</string></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+            <property name="buddy"><cstring>editMb</cstring></property>
+           </widget>
+          </item>
+          <item row="3" column="2">
+           <widget class="QLineEdit" name="editMb">
+            <property name="nppId" stdset="0"><number>6611</number></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+           </widget>
+          </item>
+          <item row="5" column="0">
+           <spacer name="vSpacer3">
+            <property name="orientation"><enum>Qt::Vertical</enum></property>
+           </spacer>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkPrintlinenum">
+         <property name="nppId" stdset="0"><number>6601</number></property>
+         <property name="text"><string>Print line n&amp;umber</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkPrintformfeed">
+         <property name="nppId" stdset="0"><number>6616</number></property>
+         <property name="text"><string>Print formfeed a&amp;s page break</string></property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="spacer5">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="layout6">
+       <item>
+        <widget class="QGroupBox" name="headerfppterGrStatic">
+         <property name="nppId" stdset="0"><number>6728</number></property>
+         <property name="title"><string>Header and Footer</string></property>
+         <layout class="QGridLayout" name="gridLayout4">
+          <item row="0" column="1">
+           <widget class="QLabel" name="varStatic">
+            <property name="nppId" stdset="0"><number>6725</number></property>
+            <property name="text"><string>&amp;Variable:</string></property>
+            <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+            <property name="buddy"><cstring>comboVarlist</cstring></property>
+           </widget>
+          </item>
+          <item row="0" column="2">
+           <widget class="QComboBox" name="comboVarlist">
+            <property name="nppId" stdset="0"><number>6724</number></property>
+            <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+           </widget>
+          </item>
+          <item row="0" column="3">
+           <widget class="QPushButton" name="buttonAddvar">
+            <property name="nppId" stdset="0"><number>6723</number></property>
+            <property name="text"><string>&amp;Add</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="0" colspan="4">
+           <widget class="QGroupBox" name="hgbStatic">
+            <property name="nppId" stdset="0"><number>6708</number></property>
+            <property name="title"><string>Header</string></property>
+            <layout class="QGridLayout" name="gridLayout5">
+             <item row="0" column="0">
+              <widget class="QLabel" name="hlStatic">
+               <property name="nppId" stdset="0"><number>6709</number></property>
+               <property name="text"><string>L&amp;eft part</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="buddy"><cstring>editHleft</cstring></property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLineEdit" name="editHleft">
+               <property name="nppId" stdset="0"><number>6701</number></property>
+              </widget>
+             </item>
+             <item row="0" column="1" colspan="2">
+              <widget class="QLabel" name="hmStatic">
+               <property name="nppId" stdset="0"><number>6710</number></property>
+               <property name="text"><string>&amp;Middle part</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="buddy"><cstring>editHmiddle</cstring></property>
+              </widget>
+             </item>
+             <item row="1" column="1" colspan="2">
+              <widget class="QLineEdit" name="editHmiddle">
+               <property name="nppId" stdset="0"><number>6702</number></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+              </widget>
+             </item>
+             <item row="0" column="4" colspan="2">
+              <widget class="QLabel" name="hrStatic">
+               <property name="nppId" stdset="0"><number>6711</number></property>
+               <property name="text"><string>Ri&amp;ght part</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="buddy"><cstring>editHright</cstring></property>
+              </widget>
+             </item>
+             <item row="1" column="4" colspan="2">
+              <widget class="QLineEdit" name="editHright">
+               <property name="nppId" stdset="0"><number>6703</number></property>
+               <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+              </widget>
+             </item>
+             <item row="2" column="0" colspan="2">
+              <widget class="QComboBox" name="comboHfontname">
+               <property name="nppId" stdset="0"><number>6704</number></property>
+               <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+              </widget>
+             </item>
+             <item row="2" column="2">
+              <widget class="QComboBox" name="comboHfontsize">
+               <property name="nppId" stdset="0"><number>6705</number></property>
+               <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+              </widget>
+             </item>
+             <item row="2" column="3" colspan="2">
+              <widget class="QCheckBox" name="checkHbold">
+               <property name="nppId" stdset="0"><number>6706</number></property>
+               <property name="text"><string>&amp;Bold</string></property>
+              </widget>
+             </item>
+             <item row="2" column="5">
+              <widget class="QCheckBox" name="checkHitalic">
+               <property name="nppId" stdset="0"><number>6707</number></property>
+               <property name="text"><string>&amp;Italic</string></property>
+              </widget>
+             </item>
+             <item row="3" column="0">
+              <spacer name="vSpacer4">
+               <property name="orientation"><enum>Qt::Vertical</enum></property>
+              </spacer>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item row="2" column="0" colspan="4">
+           <widget class="QGroupBox" name="fgbStatic">
+            <property name="nppId" stdset="0"><number>6719</number></property>
+            <property name="title"><string>Footer</string></property>
+            <layout class="QGridLayout" name="gridLayout6">
+             <item row="0" column="0">
+              <widget class="QLabel" name="flStatic">
+               <property name="nppId" stdset="0"><number>6720</number></property>
+               <property name="text"><string>Le&amp;ft part</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="buddy"><cstring>editFleft</cstring></property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLineEdit" name="editFleft">
+               <property name="nppId" stdset="0"><number>6712</number></property>
+              </widget>
+             </item>
+             <item row="0" column="1" colspan="2">
+              <widget class="QLabel" name="fmStatic">
+               <property name="nppId" stdset="0"><number>6721</number></property>
+               <property name="text"><string>Middle &amp;part</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="buddy"><cstring>editFmiddle</cstring></property>
+              </widget>
+             </item>
+             <item row="1" column="1" colspan="2">
+              <widget class="QLineEdit" name="editFmiddle">
+               <property name="nppId" stdset="0"><number>6713</number></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+              </widget>
+             </item>
+             <item row="0" column="4" colspan="2">
+              <widget class="QLabel" name="frStatic">
+               <property name="nppId" stdset="0"><number>6722</number></property>
+               <property name="text"><string>Rig&amp;ht part</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="buddy"><cstring>editFright</cstring></property>
+              </widget>
+             </item>
+             <item row="1" column="4" colspan="2">
+              <widget class="QLineEdit" name="editFright">
+               <property name="nppId" stdset="0"><number>6714</number></property>
+               <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+              </widget>
+             </item>
+             <item row="2" column="0" colspan="2">
+              <widget class="QComboBox" name="comboFfontname">
+               <property name="nppId" stdset="0"><number>6715</number></property>
+               <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+              </widget>
+             </item>
+             <item row="2" column="2">
+              <widget class="QComboBox" name="comboFfontsize">
+               <property name="nppId" stdset="0"><number>6716</number></property>
+               <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+              </widget>
+             </item>
+             <item row="2" column="3" colspan="2">
+              <widget class="QCheckBox" name="checkFbold">
+               <property name="nppId" stdset="0"><number>6717</number></property>
+               <property name="text"><string>Bol&amp;d</string></property>
+              </widget>
+             </item>
+             <item row="2" column="5">
+              <widget class="QCheckBox" name="checkFitalic">
+               <property name="nppId" stdset="0"><number>6718</number></property>
+               <property name="text"><string>Itali&amp;c</string></property>
+              </widget>
+             </item>
+             <item row="3" column="0">
+              <spacer name="vSpacer5">
+               <property name="orientation"><enum>Qt::Vertical</enum></property>
+              </spacer>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item row="3" column="0" colspan="4">
+           <widget class="QLabel" name="whichpartStatic">
+            <property name="nppId" stdset="0"><number>6727</number></property>
+            <property name="text"><string>Here display your variable settings</string></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+           </widget>
+          </item>
+          <item row="4" column="0" colspan="4">
+           <widget class="QLineEdit" name="editViewpanel">
+            <property name="nppId" stdset="0"><number>6726</number></property>
+            <property name="readOnly"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="5" column="0">
+           <spacer name="vSpacer6">
+            <property name="orientation"><enum>Qt::Vertical</enum></property>
+           </spacer>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="spacer7">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <spacer name="spacer8">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+ </buttongroups>
+</ui>

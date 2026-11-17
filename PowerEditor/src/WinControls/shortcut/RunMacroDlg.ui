@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>RunMacroDlg</class>
+ <widget class="QDialog" name="RunMacroDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>252</width><height>154</height></rect></property>
+  <property name="windowTitle"><string>Run a Macro Multiple Times</string></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QGroupBox" name="macro2runStatic">
+     <property name="nppId" stdset="0"><number>8006</number></property>
+     <property name="title"><string>&amp;Macro to run</string></property>
+     <layout class="QVBoxLayout" name="layout2">
+      <item>
+       <widget class="QComboBox" name="macroCombo">
+        <property name="nppId" stdset="0"><number>8004</number></property>
+        <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="layout3">
+     <item>
+      <widget class="QRadioButton" name="mRunMulti">
+       <property name="nppId" stdset="0"><number>8001</number></property>
+       <property name="text"><string>R&amp;un</string></property>
+       <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="mRunTimes">
+       <property name="nppId" stdset="0"><number>8003</number></property>
+       <property name="alignment"><set>Qt::AlignCenter</set></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="timesStatic">
+       <property name="nppId" stdset="0"><number>8005</number></property>
+       <property name="text"><string>times</string></property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="spacer4">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QRadioButton" name="mRunEof">
+     <property name="nppId" stdset="0"><number>8002</number></property>
+     <property name="text"><string>Run until the &amp;end of file</string></property>
+     <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="layout5">
+     <item>
+      <spacer name="spacer6">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="ok">
+       <property name="nppId" stdset="0"><number>1</number></property>
+       <property name="text"><string>&amp;Run</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+       <property name="default"><bool>true</bool></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancel">
+       <property name="nppId" stdset="0"><number>2</number></property>
+       <property name="text"><string>&amp;Cancel</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+ </buttongroups>
+</ui>

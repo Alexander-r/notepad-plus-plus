@@ -19,16 +19,16 @@
 constexpr int splitterSize = 8;
 
 
+class QMainWindow;
+
+// The application window. Its widget hands window events to Notepad_plus::process() as messages, the same
+// way plugins talk to it, and those messages stay the one way into the application logic.
 class Notepad_plus_Window : public Window
 {
 public:
 	void init(HINSTANCE, HWND, const wchar_t *cmdLine, CmdLineParams *cmdLineParams);
 
-	bool isDlgsMsg(MSG *msg) const;
-
-	HACCEL getAccTable() const {
-		return _notepad_plus_plus_core.getAccTable();
-	}
+	QMainWindow* mainWindow() const;
 
 	bool emergency(const std::wstring& emergencySavedDir) {
 		return _notepad_plus_plus_core.emergency(emergencySavedDir);
@@ -42,79 +42,21 @@ public:
 		_isPrelaunch = val;
 	}
 
-	std::wstring getPluginListVerStr() const {
-		return _notepad_plus_plus_core.getPluginListVerStr();
-	}
+	void destroy() override;
 
-	void destroy() override {
-		if (_hIconAbsent)
-			::DestroyIcon(_hIconAbsent);
-		::DestroyWindow(_hSelf);
-	}
-
-	static const wchar_t * getClassName() {
-		return _className;
-	}
-
-	HICON getAbsentIcoHandle() {
+	QIcon* getAbsentIcoHandle() {
 		return _hIconAbsent;
 	}
 
 	static HWND gNppHWND;	//static handle to Notepad++ window, NULL if non-existent
 
-	void setStartupBgColor(COLORREF BgColor);
-
-	static void loadTrayIcon(HINSTANCE hinst, HICON* icon) {
-		DPIManagerV2::loadIcon(hinst, MAKEINTRESOURCE(IDI_M30ICON), ::GetSystemMetrics(SM_CXSMICON), ::GetSystemMetrics(SM_CYSMICON), icon);
-	}
-
-	bool addClipboardListener() {
-		if (!_isClipboardListener)
-		{
-			_isClipboardListener = ::AddClipboardFormatListener(_hSelf);
-#ifndef NDEBUG
-			if (!_isClipboardListener)
-			{
-				std::wstring msg = L"AddClipboardFormatListener failed!\n\nErrorCode: ";
-				msg += std::to_wstring(::GetLastError());
-				::MessageBoxW(_hSelf, msg.c_str(), L"Notepad_plus_Window::addClipboardListener", MB_OK | MB_APPLMODAL | MB_ICONWARNING);
-			}
-#endif
-		}
-		return _isClipboardListener;
-	}
-
-	void removeClipboardListener() {
-		if (_isClipboardListener)
-		{
-			_isClipboardListener = false;
-#ifdef NDEBUG
-			::RemoveClipboardFormatListener(_hSelf);
-#else
-			BOOL bRemoved = ::RemoveClipboardFormatListener(_hSelf);
-			if (!bRemoved)
-			{
-				std::wstring msg = L"RemoveClipboardFormatListener failed!\n\nErrorCode: ";
-				msg += std::to_wstring(::GetLastError());
-				::MessageBoxW(_hSelf, msg.c_str(), L"Notepad_plus_Window::removeClipboardListener", MB_OK | MB_APPLMODAL | MB_ICONWARNING);
-			}
-#endif
-		}
-	}
-
 private:
 	Notepad_plus _notepad_plus_plus_core;
-	static LRESULT CALLBACK Notepad_plus_Proc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam);
-	LRESULT runProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam);
-
-	static constexpr wchar_t _className[32] = L"Notepad++";
 	bool _isPrelaunch = false;
 	bool _disablePluginsManager = false;
 
 	QuoteParams _quoteParams; // keep the availability of quote parameters for thread using
 	std::wstring _userQuote; // keep the availability of this string for thread using
 
-	HICON _hIconAbsent = nullptr;
-
-	bool _isClipboardListener = false;
+	QIcon* _hIconAbsent = nullptr;
 };

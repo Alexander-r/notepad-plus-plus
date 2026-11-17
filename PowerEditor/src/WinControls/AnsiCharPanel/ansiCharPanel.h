@@ -17,10 +17,6 @@
 
 #pragma once
 
-#include <windows.h>
-
-#include <commctrl.h>
-
 #include "DockingDlgInterface.h"
 #include "ansiCharPanel_rc.h"
 #include "asciiListView.h"
@@ -44,25 +40,29 @@ public:
 
 	void switchEncoding();
 	void insertChar(unsigned char char2insert) const;
-	void insertString(LPWSTR string2insert) const;
+	void insertString(const std::wstring& string2insert) const;
+
+	using DockingDlgInterface::create;
+	void create(DockedWidgetData* data, bool isRTL = false) override;
 
 	void setBackgroundColor(COLORREF bgColour) override {
-		ListView_SetBkColor(_listView.getHSelf(), bgColour);
-		ListView_SetTextBkColor(_listView.getHSelf(), bgColour);
-		_listView.redraw(true);
+		_bgColour = bgColour;
+		_listView.setColours(_bgColour, _fgColour);
 	}
 
 	void setForegroundColor(COLORREF fgColour) override {
-		ListView_SetTextColor(_listView.getHSelf(), fgColour);
-		_listView.redraw(true);
+		_fgColour = fgColour;
+		_listView.setColours(_bgColour, _fgColour);
 	}
 
 protected:
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	void onDockingNotify(const NMHDR& notification) override;
 
 private:
 	ScintillaEditView **_ppEditView = nullptr;
 	AsciiListView _listView;
+	COLORREF _bgColour = RGB(0xFF, 0xFF, 0xFF);
+	COLORREF _fgColour = RGB(0, 0, 0);
 
 	using DockingDlgInterface::init;
 };

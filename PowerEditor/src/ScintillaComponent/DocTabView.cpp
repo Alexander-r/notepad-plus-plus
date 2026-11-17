@@ -17,7 +17,11 @@
 
 #include "DocTabView.h"
 
-#include <windows.h>
+#include <QSignalBlocker>
+#include <QTabBar>
+#include <QVariant>
+#include <QVBoxLayout>
+#include <QWidget>
 
 #include <cwchar>
 
@@ -46,29 +50,42 @@ void DocTabView::init(HINSTANCE hInst, HWND parent, ScintillaEditView* pView, un
 	TabBarPlus::init(hInst, parent, false, false, buttonsStatus);
 	_pView = pView;
 
-	createIconSets();
+	_pane = new QWidget(parent);
+	auto* layout = new QVBoxLayout(_pane);
+	layout->setContentsMargins(0, 0, 0, 0);
+	layout->setSpacing(0);
+	layout->addWidget(_hSelf);
+	layout->addWidget(pView->getHSelf(), 1);
+	_pane->hide(); // until display()
 
-	_pIconListVector.push_back(&_docTabIconList);         // 0
-	_pIconListVector.push_back(&_docTabIconListAlt);      // 1
-	_pIconListVector.push_back(&_docTabIconListDarkMode); // 2
+	_iconSets.resize(3);
+	_iconSets[0].create(docTabIconIDs, static_cast<int>(std::size(docTabIconIDs)));
+	_iconSets[1].create(docTabIconIDs_alt, static_cast<int>(std::size(docTabIconIDs_alt)));
+	_iconSets[2].create(docTabIconIDs_darkMode, static_cast<int>(std::size(docTabIconIDs_darkMode)));
 
-	if (indexChoice >= _pIconListVector.size())
-		_iconListIndexChoice = 0;
-	else
-		_iconListIndexChoice = indexChoice;
-
-	if (_iconListIndexChoice != -1)
-		TabBar::setImageList(_pIconListVector[_iconListIndexChoice]->getHandle());
-	return;
+	_iconSetChoice = (indexChoice < _iconSets.size()) ? indexChoice : 0;
 }
 
-void DocTabView::createIconSets()
+void DocTabView::display(bool toShow) const
 {
-	int iconDpiDynamicalSize = _dpiManager.scale(g_TabIconSize);
+	if (_pane)
+		_pane->setVisible(toShow);
+	syncTabBarVisibility();
+}
 
-	_docTabIconList.create(iconDpiDynamicalSize, _hInst, docTabIconIDs, sizeof(docTabIconIDs) / sizeof(int));
-	_docTabIconListAlt.create(iconDpiDynamicalSize, _hInst, docTabIconIDs_alt, sizeof(docTabIconIDs_alt) / sizeof(int));
-	_docTabIconListDarkMode.create(iconDpiDynamicalSize, _hInst, docTabIconIDs_darkMode, sizeof(docTabIconIDs_darkMode) / sizeof(int));
+void DocTabView::syncTabBarVisibility() const
+{
+	if (_hSelf)
+		_hSelf->setVisible((NppParameters::getInstance().getNppGUI()._tabStatus & TAB_HIDE) == 0);
+}
+
+void DocTabView::changeIconSet(unsigned char choice)
+{
+	if (choice >= _iconSets.size())
+		return;
+	_iconSetChoice = choice;
+	for (size_t i = 0; i < nbItem(); ++i)
+		bufferUpdated(getBufferByIndex(i), BufferChangeReadonly);
 }
 
 void DocTabView::addBuffer(BufferID buffer)
@@ -78,31 +95,28 @@ void DocTabView::addBuffer(BufferID buffer)
 	if (getIndexByBuffer(buffer) != -1)	//no duplicates
 		return;
 	const Buffer* buf = MainFileManager.getBufferByID(buffer);
-	TCITEM tie{};
-	tie.mask = TCIF_TEXT | TCIF_IMAGE | TCIF_PARAM;
-
-	int index = -1;
-	if (_hasImgLst)
-		index = 0;
-	tie.iImage = index;
-	tie.pszText = const_cast<wchar_t*>(buf->getCompactFileName());
-	tie.lParam = reinterpret_cast<LPARAM>(buffer);
-	::SendMessage(_hSelf, TCM_INSERTITEM, _nbItem++, reinterpret_cast<LPARAM>(&tie));
+	const QSignalBlocker silent(tabs());
+	const int index = tabs()->addTab(QString::fromWCharArray(buf->getCompactFileName()));
+	tabs()->setTabData(index, QVariant::fromValue(static_cast<void*>(buffer)));
 	bufferUpdated(buf, BufferChangeMask);
-
-	::SendMessage(_hParent, WM_SIZE, 0, 0);
 }
 
 void DocTabView::closeBuffer(BufferID buffer)
 {
-	int indexToClose = getIndexByBuffer(buffer);
-	deletItemAt(static_cast<size_t>(indexToClose));
-	::SendMessage(_hParent, WM_SIZE, 0, 0);
+	const int indexToClose = getIndexByBuffer(buffer);
+	if (indexToClose != -1)
+		deletItemAt(static_cast<size_t>(indexToClose));
 }
 
 void DocTabView::setIndividualTabColour(BufferID bufferId, int colorId)
 {
 	bufferId->setDocColorId(colorId);
+}
+
+bool DocTabView::isTabPinned(int tabIndex)
+{
+	BufferID bufferId = getBufferByIndex(tabIndex);
+	return bufferId && bufferId->isPinned();
 }
 
 int DocTabView::getIndividualTabColourId(int tabIndex)
@@ -134,18 +148,13 @@ BufferID DocTabView::activeBuffer()
 
 BufferID DocTabView::findBufferByName(const wchar_t * fullfilename) //-1 if not found, something else otherwise
 {
-	TCITEM tie{};
-	tie.lParam = -1;
-	tie.mask = TCIF_PARAM;
-	for (size_t i = 0; i < _nbItem; ++i)
+	const size_t count = nbItem();
+	for (size_t i = 0; i < count; ++i)
 	{
-		::SendMessage(_hSelf, TCM_GETITEM, i, reinterpret_cast<LPARAM>(&tie));
-		BufferID id = reinterpret_cast<BufferID>(tie.lParam);
+		BufferID id = getBufferByIndex(i);
 		const Buffer* buf = MainFileManager.getBufferByID(id);
-		if (_wcsicmp(fullfilename, buf->getFullPathName()) == 0)
-		{
+		if (std::wcscmp(fullfilename, buf->getFullPathName()) == 0) // file names are case-sensitive here
 			return id;
-		}
 	}
 	return BUFFER_INVALID;
 }
@@ -153,14 +162,11 @@ BufferID DocTabView::findBufferByName(const wchar_t * fullfilename) //-1 if not 
 
 int DocTabView::getIndexByBuffer(BufferID id)
 {
-	TCITEM tie{};
-	tie.lParam = -1;
-	tie.mask = TCIF_PARAM;
-	for (size_t i = 0; i < _nbItem; ++i)
+	const int count = tabs()->count();
+	for (int i = 0; i < count; ++i)
 	{
-		::SendMessage(_hSelf, TCM_GETITEM, i, reinterpret_cast<LPARAM>(&tie));
-		if (reinterpret_cast<BufferID>(tie.lParam) == id)
-			return static_cast<int>(i);
+		if (getBufferByIndex(i) == id)
+			return i;
 	}
 	return -1;
 }
@@ -168,12 +174,7 @@ int DocTabView::getIndexByBuffer(BufferID id)
 
 BufferID DocTabView::getBufferByIndex(size_t index)
 {
-	TCITEM tie{};
-	tie.lParam = -1;
-	tie.mask = TCIF_PARAM;
-	::SendMessage(_hSelf, TCM_GETITEM, index, reinterpret_cast<LPARAM>(&tie));
-
-	return reinterpret_cast<BufferID>(tie.lParam);
+	return static_cast<BufferID>(tabs()->tabData(static_cast<int>(index)).value<void*>());
 }
 
 
@@ -183,102 +184,37 @@ void DocTabView::bufferUpdated(const Buffer* buffer, int mask)
 	if (index == -1)
 		return;
 
-	TCITEM tie{};
-	tie.lParam = -1;
-	tie.mask = 0;
-
 	if (mask & BufferChangeReadonly || mask & BufferChangeDirty)
 	{
-		tie.mask |= TCIF_IMAGE;
-		tie.iImage = buffer->isDirty()?UNSAVED_IMG_INDEX:SAVED_IMG_INDEX;
+		int image = buffer->isDirty() ? UNSAVED_IMG_INDEX : SAVED_IMG_INDEX;
 		if (buffer->isMonitoringOn())
-		{
-			tie.iImage = MONITORING_IMG_INDEX;
-		}
+			image = MONITORING_IMG_INDEX;
 		else if (buffer->getFileReadOnly())
-		{
-			tie.iImage = REDONLYSYS_IMG_INDEX;
-		}
+			image = REDONLYSYS_IMG_INDEX;
 		else if (buffer->getUserReadOnly())
-		{
-			tie.iImage = REDONLY_IMG_INDEX;
-		}
-	}
+			image = REDONLY_IMG_INDEX;
 
-	//We must make space for the added ampersand characters.
-	wchar_t encodedLabel[2 * MAX_PATH] = { '\0' };
+		if (_iconSetChoice < _iconSets.size())
+			tabs()->setTabIcon(index, _iconSets[_iconSetChoice].icon(image));
+	}
 
 	if (mask & BufferChangeFilename)
 	{
-		tie.mask |= TCIF_TEXT;
-		tie.pszText = encodedLabel;
-
-		{
-			const wchar_t* in = buffer->getCompactFileName();
-			wchar_t* out = encodedLabel;
-
-			//This code will read in one character at a time and duplicate every first ampersand(&).
-			//ex. If input is "test & test && test &&&" then output will be "test && test &&& test &&&&".
-			//Tab's caption must be encoded like this because otherwise tab control would make tab too small or too big for the text.
-
-			while (*in != 0)
-			if (*in == '&')
-			{
-				*out++ = '&';
-				*out++ = '&';
-				while (*(++in) == '&')
-					*out++ = '&';
-			}
-			else
-				*out++ = *in++;
-			*out = '\0';
-		}
+		// A literal ampersand must be doubled, or it would become a mnemonic
+		QString label = QString::fromWCharArray(buffer->getCompactFileName());
+		label.replace(u'&', QStringLiteral("&&"));
+		tabs()->setTabText(index, label);
+		tabs()->setTabToolTip(index, QString::fromWCharArray(buffer->getFullPathName()));
 	}
-
-	::SendMessage(_hSelf, TCM_SETITEM, index, reinterpret_cast<LPARAM>(&tie));
-
-	// send WM_SIZE only when change tab
-	// It is needed while a tab is closed (so tab changed) in multi-line tab mode
-	if (mask & BufferChangeRecentTag)
-		::SendMessage(_hParent, WM_SIZE, 0, 0);
 }
 
 
 void DocTabView::setBuffer(size_t index, BufferID id)
 {
-	if (index >= _nbItem)
+	if (index >= nbItem())
 		return;
 
-	TCITEM tie{};
-	tie.lParam = reinterpret_cast<LPARAM>(id);
-	tie.mask = TCIF_PARAM;
-	::SendMessage(_hSelf, TCM_SETITEM, index, reinterpret_cast<LPARAM>(&tie));
+	tabs()->setTabData(static_cast<int>(index), QVariant::fromValue(static_cast<void*>(id)));
 
 	bufferUpdated(MainFileManager.getBufferByID(id), BufferChangeMask);	//update tab, everything has changed
-
-	::SendMessage(_hParent, WM_SIZE, 0, 0);
-}
-
-
-void DocTabView::reSizeTo(RECT & rc)
-{
-	NppParameters& nppParam = NppParameters::getInstance();
-	int borderWidth = nppParam.getSVP()._borderWidth;
-	const NppGUI& nppGUI = nppParam.getNppGUI();
-	if (nppGUI._tabStatus & TAB_HIDE)
-	{
-		RECT rcTmp = rc;
-		TabBar::reSizeTo(rcTmp);
-		_pView->reSizeTo(rc);
-	}
-	else
-	{
-		TabBar::reSizeTo(rc);
-		rc.left	 += borderWidth;
-		rc.right -= borderWidth * 2;
-		rc.top   += borderWidth;
-		rc.bottom -= (borderWidth * 2);
-		_pView->reSizeTo(rc);
-	}
-	SendMessage(_hParent, NPPM_INTERNAL_UPDATECLICKABLELINKS, reinterpret_cast<WPARAM>(_pView), 0);
 }

@@ -19,8 +19,6 @@
 
 #include "StaticDialog.h"
 
-#include <windows.h>
-
 class ScintillaEditView;
 class Buffer;
 struct MapPosition;
@@ -41,9 +39,12 @@ public:
 	void saveCurrentSnapshot(const ScintillaEditView& editView);
 
 protected:
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
 	void goTo(POINT p);
 
 private:
+	void createWindow();
+
 	ScintillaEditView *_pPeekerView = nullptr;
+	int _width = 0;
+	int _height = 0;
 };

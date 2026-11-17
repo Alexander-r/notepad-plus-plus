@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <windows.h>
+#include "NppPlatform.h"
 
 #include <locale>
 #include <memory>

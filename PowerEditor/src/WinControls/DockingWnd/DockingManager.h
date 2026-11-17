@@ -1,5 +1,5 @@
 // This file is part of Notepad++ project
-// Copyright (C)2006 Jens Lorenz <jens.plugin.npp@gmx.de>
+// Copyright (c) 2021 adzm / Adam D. Walling
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,90 +16,63 @@
 
 #pragma once
 
+#include <array>
+#include <memory>
 #include <vector>
-#include <windows.h>
-#include <commctrl.h>
-#include "Window.h"
+
 #include "DockingCont.h"
-#include "SplitterContainer.h"
+#include "Window.h"
+#include "dockingResource.h"
 
-#define DSPC_CLASS_NAME L"dockingManager"
-#define	CONT_MAP_MAX	50
+class QDockWidget;
+class QMainWindow;
 
-class DockingSplitter;
-
+// The panels docked around the document area, on Qt's dock widgets.
 class DockingManager : public Window
 {
 public:
 	DockingManager();
 	~DockingManager() override;
 
-	void init(HINSTANCE hInst, HWND hParent, Window ** ppWin);
-	void reSizeTo(RECT & rc) override;
-
-	void setClientWnd(Window ** ppWin) {
-		_ppWindow = ppWin;
-		_ppMainWindow = ppWin;
-	}
+	void init(HINSTANCE hInst, QMainWindow* mainWindow);
+	void destroy() override;
 
 	void showFloatingContainers(bool show);
 
 	void updateContainerInfo(HWND hClient);
 	void createDockableDlg(DockedWidgetData data, int iCont = CONT_LEFT, bool isVisible = false);
 	void setActiveTab(int iCont, int iItem);
-	void showDockableDlg(HWND hDlg, BOOL view);
-	void showDockableDlg(wchar_t* pszName, BOOL view);
+	void showDockableDlg(HWND hDlg, bool view);
+	void showDockableDlg(const wchar_t* pszName, bool view);
 
-	DockingCont* toggleActiveWidget(DockingCont* pContSrc, UINT message, BOOL bNew = FALSE, LPRECT rcFloat = NULL);
-	DockingCont* toggleVisWidget(DockingCont* pContSrc, UINT message, LPRECT rcFloat = NULL);
+	// The current panels by area. Valid until panels change.
+	std::vector<DockingCont*>& getContainerInfo();
 
-	void toggleActiveWidget(DockingCont* pContSrc, DockingCont* pContTgt);
-	void toggleVisWidget(DockingCont* pContSrc, DockingCont* pContTgt);
+	void getDockInfo(tDockMgr *pDockData) const;
 
-	// get number of container
-	int getContainerIndex(DockingCont* pCont); 
-
-	// get all container in vector
-	std::vector<DockingCont*> & getContainerInfo() {
-		return _vContainer;
-	}
-
-	// get dock data (sized areas)
-	void getDockInfo(tDockMgr *pDockData) {
-		*pDockData	= _dockData;
-	}
-
-	// setting styles of docking
-	void setStyleCaption(BOOL captionOnTop) {
-		_vContainer[CONT_TOP]->setCaptionTop(captionOnTop);
-		_vContainer[CONT_BOTTOM]->setCaptionTop(captionOnTop);
-	}
-
-	int getDockedContSize(int iCont);
+	int getDockedContSize(int iCont) const;
 	void setDockedContSize(int iCont, int iSize);
-	void destroy() override;
-	void resize();
+
+	void resize() {} // Qt lays out dock widgets
+
+	// Called when the user closes a panel: tells it with DMN_CLOSE, and gives true when it answers to stay open
+	bool panelClosed(DockedPanel* panel);
+
+	// Called when a panel is shown or hidden, for the size of its area
+	void panelShown(const DockedPanel* panel);
+	void panelHidden(const DockedPanel* panel);
 
 private:
-	Window						**_ppWindow = nullptr;
-	RECT						_rcWork = {};
-	RECT						_rect = {};
-	Window						**_ppMainWindow = nullptr;
-	std::vector<DockingCont*>	_vContainer;
-	tDockMgr					_dockData;
-	static BOOL					_isRegistered;
-	BOOL						_isInitialized = FALSE;
-	int							_iContMap[CONT_MAP_MAX] = { 0 };
-	std::vector<DockingSplitter*>	_vSplitter;
+	DockedPanel* findPanel(HWND hClient) const;
+	int containerOf(const DockedPanel* panel) const;
+	void place(DockedPanel* panel, int iCont);
+	int sizeIn(const DockedPanel* panel, int iCont) const;
+	void detachPanels();
 
-
-	static LRESULT CALLBACK staticWinProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam);
-	LRESULT runProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam);
-
-	void	toggleWidget(DockingCont* pContSrc, DockingCont* pContTgt, DockedWidgetData TbData);
-
-	// test if container exists
-	BOOL doesContExist(size_t iCont);
-	int	 findEmptyContainerIndex();
-	LRESULT SendNotify(HWND hWnd, UINT message);
+	QMainWindow* _mainWindow = nullptr;
+	// The width or height of each area, which it keeps while no panel is in it, as a container does on Windows
+	std::array<int, DOCKCONT_MAX> _contSizes{};
+	std::vector<std::unique_ptr<DockedPanel>> _panels;
+	std::vector<std::unique_ptr<DockingCont>> _containers;
+	std::vector<DockingCont*> _containerPointers;
 };

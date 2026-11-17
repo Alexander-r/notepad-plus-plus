@@ -1,0 +1,12 @@
+<!-- Qt port: the pictures of the Windows resources of DSpellCheck.rc -->
+<RCC>
+  <qresource prefix="/DSpellCheck">
+    <file alias="Autocheck.ico">Resources/Autocheck.ico</file>
+    <file alias="Autocheck-dark.ico">Resources/Autocheck-dark.ico</file>
+    <file alias="Autocheck-bmp.bmp">Resources/Autocheck-bmp.bmp</file>
+    <file alias="arrow_refresh.ico">Resources/arrow_refresh.ico</file>
+    <file alias="downArrowButton.bmp">Resources/downArrowButton.bmp</file>
+    <file alias="downArrowButton_hover.bmp">Resources/downArrowButton_hover.bmp</file>
+    <file alias="downArrowButton_push.bmp">Resources/downArrowButton_push.bmp</file>
+  </qresource>
+</RCC>

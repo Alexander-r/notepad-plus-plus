@@ -25,7 +25,7 @@
 #include "Notepad_plus_msgs.h"
 
 
-typedef const wchar_t * (__cdecl * PFUNCGETNAME)();
+typedef const wchar_t * ( * PFUNCGETNAME)();
 
 struct NppData
 {
@@ -34,10 +34,10 @@ struct NppData
 	HWND _scintillaSecondHandle = nullptr;
 };
 
-typedef void (__cdecl * PFUNCSETINFO)(NppData);
-typedef void (__cdecl * PFUNCPLUGINCMD)();
-typedef void (__cdecl * PBENOTIFIED)(SCNotification *);
-typedef LRESULT (__cdecl * PMESSAGEPROC)(UINT Message, WPARAM wParam, LPARAM lParam);
+typedef void ( * PFUNCSETINFO)(NppData);
+typedef void ( * PFUNCPLUGINCMD)();
+typedef void ( * PBENOTIFIED)(SCNotification *);
+typedef LRESULT ( * PMESSAGEPROC)(UINT Message, WPARAM wParam, LPARAM lParam);
 
 
 struct ShortcutKey
@@ -59,15 +59,21 @@ struct FuncItem
 	ShortcutKey *_pShKey = nullptr;
 };
 
-typedef FuncItem * (__cdecl * PFUNCGETFUNCSARRAY)(int *);
+typedef FuncItem * (* PFUNCGETFUNCSARRAY)(int *);
+
+#if defined(_WIN32)
+#define NPP_PLUGIN_EXPORT __declspec(dllexport)
+#else
+#define NPP_PLUGIN_EXPORT __attribute__((visibility("default")))
+#endif
 
 // You should implement (or define an empty function body) those functions which are called by Notepad++ plugin manager
-extern "C" __declspec(dllexport) void setInfo(NppData);
-extern "C" __declspec(dllexport) const wchar_t * getName();
-extern "C" __declspec(dllexport) FuncItem * getFuncsArray(int *);
-extern "C" __declspec(dllexport) void beNotified(SCNotification *);
-extern "C" __declspec(dllexport) LRESULT messageProc(UINT Message, WPARAM wParam, LPARAM lParam);
+extern "C" NPP_PLUGIN_EXPORT void setInfo(NppData);
+extern "C" NPP_PLUGIN_EXPORT const wchar_t * getName();
+extern "C" NPP_PLUGIN_EXPORT FuncItem * getFuncsArray(int *);
+extern "C" NPP_PLUGIN_EXPORT void beNotified(SCNotification *);
+extern "C" NPP_PLUGIN_EXPORT LRESULT messageProc(UINT Message, WPARAM wParam, LPARAM lParam);
 
 // This API return always true now, since Notepad++ isn't compiled in ANSI mode anymore
-extern "C" __declspec(dllexport) BOOL isUnicode();
+extern "C" NPP_PLUGIN_EXPORT BOOL isUnicode();
 

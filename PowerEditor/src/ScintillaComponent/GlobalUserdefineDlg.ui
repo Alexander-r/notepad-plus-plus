@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>GlobalUserdefineDlg</class>
+ <widget class="QDialog" name="GlobalUserdefineDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>880</width><height>620</height></rect></property>
+  <property name="windowTitle"><string>User Defined Language v2.1</string></property>
+  <layout class="QVBoxLayout" name="mainLayout">
+   <item><layout class="QHBoxLayout" name="languageRow">
+    <item><widget class="QLabel" name="langnameStatic"><property name="nppId" stdset="0"><number>20007</number></property><property name="text"><string>User language:</string></property></widget></item>
+    <item><widget class="QComboBox" name="langnameCombo"><property name="nppId" stdset="0"><number>20006</number></property><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property></widget></item>
+    <item><widget class="QPushButton" name="addnewButton"><property name="nppId" stdset="0"><number>20003</number></property><property name="text"><string>Create new...</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+    <item><widget class="QPushButton" name="saveasButton"><property name="nppId" stdset="0"><number>20005</number></property><property name="text"><string>Save as...</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+    <item><widget class="QPushButton" name="renameButton"><property name="nppId" stdset="0"><number>20002</number></property><property name="text"><string>Rename</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+    <item><widget class="QPushButton" name="removelangButton"><property name="nppId" stdset="0"><number>20004</number></property><property name="text"><string>Remove</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+    <item><widget class="QPushButton" name="dockButton"><property name="nppId" stdset="0"><number>20001</number></property><property name="text"><string>Dock</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+   </layout></item>
+   <item><layout class="QHBoxLayout" name="optionsRow">
+    <item><widget class="QPushButton" name="importButton"><property name="nppId" stdset="0"><number>20015</number></property><property name="text"><string>Import...</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+    <item><widget class="QPushButton" name="exportButton"><property name="nppId" stdset="0"><number>20016</number></property><property name="text"><string>Export...</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+    <item><widget class="QCheckBox" name="langnameIgnorecaseCheck"><property name="nppId" stdset="0"><number>20012</number></property><property name="text"><string>Ignore case</string></property></widget></item>
+    <item><widget class="QLabel" name="extStatic"><property name="nppId" stdset="0"><number>20009</number></property><property name="text"><string>Ext.:</string></property></widget></item>
+    <item><widget class="QLineEdit" name="extEdit"><property name="nppId" stdset="0"><number>20008</number></property></widget></item>
+    <item><widget class="QCheckBox" name="udTransparentCheck"><property name="nppId" stdset="0"><number>20011</number></property><property name="text"><string>Transparency</string></property></widget></item>
+    <item><widget class="QSlider" name="udPercentageSlider"><property name="nppId" stdset="0"><number>20010</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="maximumSize"><size><width>100</width><height>16777215</height></size></property></widget></item>
+   </layout></item>
+   <item><widget class="QTabWidget" name="pages"/></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

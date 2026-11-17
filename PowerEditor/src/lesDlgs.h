@@ -45,15 +45,11 @@ public:
     }
 
     void display(bool toShow = true) const override {
-        int cmdToShow = toShow?SW_SHOW:SW_HIDE;
-        if (!toShow)
-        {
-            cmdToShow = (_buttonStatus != buttonStatus_nada)?SW_SHOW:SW_HIDE; 
-        }
-        ::ShowWindow(_hSelf, cmdToShow);
+        bool shown = toShow || (_buttonStatus != buttonStatus_nada);
+        if (_hSelf)
+            _hSelf->setVisible(shown);
     }
 
 protected:
-    intptr_t CALLBACK run_dlgProc(UINT Message, WPARAM wParam, LPARAM lParam) override;
     int _buttonStatus = buttonStatus_nada;
 };

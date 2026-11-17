@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubLanguageDlg</class>
+ <widget class="QWidget" name="PreferenceSubLanguageDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QGroupBox" name="checkLangmenuGrStatic">
+     <property name="nppId" stdset="0"><number>6508</number></property>
+     <property name="title"><string>Language Menu</string></property>
+     <layout class="QVBoxLayout" name="layout2">
+      <item>
+       <widget class="QCheckBox" name="checkLangmenucompact">
+        <property name="nppId" stdset="0"><number>6507</number></property>
+        <property name="text"><string>Make language menu compact</string></property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="layout3" columnstretch="1,0,1">
+        <item row="0" column="0">
+         <widget class="QLabel" name="enableditemsStatic">
+          <property name="nppId" stdset="0"><number>6505</number></property>
+          <property name="text"><string>Available items</string></property>
+          <property name="alignment"><set>Qt::AlignCenter</set></property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QLabel" name="disableditemsStatic">
+          <property name="nppId" stdset="0"><number>6506</number></property>
+          <property name="text"><string>Disabled items</string></property>
+          <property name="alignment"><set>Qt::AlignCenter</set></property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QListWidget" name="listEnabledlang">
+          <property name="nppId" stdset="0"><number>6501</number></property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <layout class="QVBoxLayout" name="layout4">
+          <item>
+           <spacer name="spacer5">
+            <property name="orientation"><enum>Qt::Vertical</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="buttonRemove">
+            <property name="nppId" stdset="0"><number>6503</number></property>
+            <property name="text"><string>-&gt;</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="buttonRestore">
+            <property name="nppId" stdset="0"><number>6504</number></property>
+            <property name="text"><string>&lt;-</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer6">
+            <property name="orientation"><enum>Qt::Vertical</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item row="1" column="2">
+         <widget class="QListWidget" name="listDisabledlang">
+          <property name="nppId" stdset="0"><number>6502</number></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="checkBackslashisescapecharacterforsql">
+     <property name="nppId" stdset="0"><number>6335</number></property>
+     <property name="text"><string>Treat backslash as escape character for SQL</string></property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

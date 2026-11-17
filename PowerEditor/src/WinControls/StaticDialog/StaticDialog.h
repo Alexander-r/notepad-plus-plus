@@ -17,97 +17,79 @@
 
 #pragma once
 
-#include <windows.h>
-
 #include <string>
+
+#include <QPointer>
 
 #include "Window.h"
 #include "dpiManagerV2.h"
 
+class QAbstractButton;
+class QComboBox;
+class QDialog;
+class QLineEdit;
+
 enum class PosAlign { left, right, top, bottom };
 
-#pragma pack(push, 1)
-struct DLGTEMPLATEEX
-{
-	WORD   dlgVer = 0;
-	WORD   signature = 0;
-	DWORD  helpID = 0;
-	DWORD  exStyle = 0;
-	DWORD  style = 0;
-	WORD   cDlgItems = 0;
-	short  x = 0;
-	short  y = 0;
-	short  cx = 0;
-	short  cy = 0;
-	// The structure has more fields but are variable length
-	//sz_Or_Ord menu;
-	//sz_Or_Ord windowClass;
-	//WCHAR  title[titleLen];
-	//WORD   pointsize;
-	//WORD   weight;
-	//BYTE   italic;
-	//BYTE   charset;
-	//WCHAR  typeface[stringLen];
-};
-#pragma pack(pop)
-
+// A dialog that lives as long as its owner and is shown on demand. A subclass calls createDialogWidget(),
+// sets up its Ui form on the result, and connects the controls with lambdas, using the widget as the
+// connection context so nothing fires after destroy().
 class StaticDialog : public Window
 {
 public :
 	~StaticDialog() override;
 
-	virtual void create(int dialogID, bool isRTL = false, bool msgDestParent = true, WORD fontSize = 0, const std::wstring& fontFace = L"");
-
 	virtual bool isCreated() const {
 		return (_hSelf != nullptr);
 	}
 
-	void getMappedChildRect(HWND hChild, RECT& rcChild) const;
-	void getMappedChildRect(int idChild, RECT& rcChild) const;
-	void redrawDlgItem(const int nIDDlgItem, bool forceUpdate = false) const;
-
-	void goToCenter(UINT swpFlags = SWP_SHOWWINDOW);
-	bool moveForDpiChange();
+	void goToCenter();
 
 	void display(bool toShow = true) const override;
-	void displayEnhanced(bool toShow) const;
+	void displayEnhanced(bool toShow) const { display(toShow); }
 
+	// A rectangle moved onto the working area of its nearest screen
 	RECT getViewablePositionRect(RECT testPositionRc) const;
-
-	POINT getTopPoint(HWND hwnd, bool isLeft = true) const;
-
-	bool isCheckedOrNot(int checkControlID) const
-	{
-		return (BST_CHECKED == ::SendMessage(::GetDlgItem(_hSelf, checkControlID), BM_GETCHECK, 0, 0));
-	}
-
-	void setChecked(int checkControlID, bool checkOrNot = true) const
-	{
-		::SendDlgItemMessage(_hSelf, checkControlID, BM_SETCHECK, checkOrNot ? BST_CHECKED : BST_UNCHECKED, 0);
-	}
-
-	void setDpi() {
-		_dpiManager.setDpi(_hSelf);
-	}
-
-	void setPositionDpi(LPARAM lParam, UINT flags = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE) {
-		DPIManagerV2::setPositionDpi(lParam, _hSelf, flags);
-	}
 
 	void destroy() override;
 
+	// Access to the controls by their numeric ID, for dialogs whose logic is written around those IDs
+	QWidget* dlgItem(int id) const;
+	QAbstractButton* button(int id) const;
+	QComboBox* combo(int id) const;
+	std::wstring getItemText(int id) const;
+	void setItemText(int id, const std::wstring& text) const;
+	void enableItem(int id, bool enable = true) const;
+	void showItem(int id, bool show = true) const;
+	bool isCheckedOrNot(int checkControlID) const;
+	void setChecked(int checkControlID, bool checkOrNot = true) const;
+
 	DPIManagerV2& dpiManager() { return _dpiManager; }
 
-	[[nodiscard]] static std::wstring getSystemFontFaceName();
-	[[nodiscard]] static std::wstring getDlgTypeface();
-
 protected:
-	RECT _rc{};
 	DPIManagerV2 _dpiManager;
 
-	static intptr_t CALLBACK dlgProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
-	virtual intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) = 0;
+	QDialog* createDialogWidget(bool isRTL = false);
+	// Runs a dialog from createDialogWidget() modally, destroys it, and returns the endDialog() result.
+	int runModal();
+	void endDialog(int result) const;
 
-	HWND myCreateDialogIndirectParam(int dialogID, bool isRTL, WORD fontSize, const std::wstring& fontFace = L"", DLGPROC myDlgProc = StaticDialog::dlgProc);
-	INT_PTR myCreateDialogBoxIndirectParam(int dialogID, bool isRTL, WORD fontSize = 0);
+	// The Escape key or closing the window. By default the dialog is hidden.
+	virtual void onCancel();
+	virtual void onActivationChanged(bool /*isActive*/) {}
+	// Shown, or hidden however it is, also with its owner: where Windows sends WM_SHOWWINDOW
+	virtual void onVisibilityChanged(bool /*isShown*/) {}
+
+public:
+	// The font of the preferences for every dialog made from now on. An empty family or a size of 0 is the system's.
+	static void setDialogFont(const QString& family, int pointSize);
+	static void applyDialogFont(QWidget* dialog);
+
+protected:
+
+	friend class NppDialogWidget;
+
+private:
+	// The widget is also destroyed with its parent, and then _hSelf is no longer valid
+	QPointer<QWidget> _dialogWidget;
 };

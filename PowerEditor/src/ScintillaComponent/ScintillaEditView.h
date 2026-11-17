@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include <windows.h>
 
+#include <functional>
 #include <ios>
 #include <sstream>
 #include <string>
@@ -31,10 +31,11 @@
 #include <Scintilla.h>
 
 #include "Buffer.h"
+#include "LanguageNames.h"
 #include "Notepad_plus_msgs.h"
 #include "NppConstants.h"
 #include "NppDarkMode.h"
-#include "UserDefineDialog.h"
+#include "UdlKeywordMappers.h"
 #include "Window.h"
 #include "colors.h"
 
@@ -228,17 +229,15 @@ struct SortInPositionOrder {
 
 typedef std::vector<ColumnModeInfo> ColumnModeInfos;
 
-struct LanguageNameInfo {
-	const wchar_t* _langName = nullptr;
-	const wchar_t* _shortName = nullptr;
-	const wchar_t* _longName = nullptr;
-	LangType _langID = L_TEXT;
-	const char* _lexerID = nullptr;
-};
 
 #define URL_INDIC 8
 #define FINDDLG_HIGHLIGHT_INDIC 30 // matches of "Find what" while the Find dialog is open (same look as SCE_UNIVERSAL_FOUND_STYLE_INC)
 class ISorter;
+
+class QKeyEvent;
+class QMouseEvent;
+class QWheelEvent;
+class UserDefineDialog;
 
 class ScintillaEditView : public Window
 {
@@ -255,23 +254,22 @@ public:
 
 	~ScintillaEditView() override {
 		--_refCount;
-
-		if (!_refCount && _SciInit)
-		{
-			Scintilla_ReleaseResources();
-		}
 	}
 
 	void destroy() override {
 		if (_hSelf)
 		{
-			::DestroyWindow(_hSelf);
+			nppUnregisterMessageTarget(_hSelf);
+			delete _hSelf;
 			_hSelf = nullptr;
 			_pScintillaFunc = nullptr;
 		}
 	}
 
 	void init(HINSTANCE hInst, HWND hPere) override;
+
+	// Sees key presses first. Returns true when it handled the key.
+	void setKeyPressFilter(std::function<bool(QKeyEvent*)> filter) { _keyPressFilter = std::move(filter); }
 
 	LRESULT execute(UINT Msg, WPARAM wParam=0, LPARAM lParam=0) const {
 		try {
@@ -363,14 +361,12 @@ public:
 			getGenericText(str, strLen, startPos, caretPos);
 	}
 
-	static void doUserDefineDlg(bool willBeShown = true, bool isRTL = false) {
-		_userDefineDlg.doDialog(willBeShown, isRTL);
-	}
+	static void doUserDefineDlg(bool willBeShown = true, bool isRTL = false);
 
-	static UserDefineDialog* getUserDefineDlg() { return &_userDefineDlg; }
+	static UserDefineDialog* getUserDefineDlg();
 
 	void beSwitched() {
-		_userDefineDlg.setScintilla(this);
+		getUserDefineDlgScintillaUpdate();
 	}
 
     //Marge member and method
@@ -585,7 +581,7 @@ public:
     void currentLinesDown() const;
 
 	intptr_t caseConvertRange(intptr_t start, intptr_t end, TextCase caseToConvert);
-	static void changeCase(__inout wchar_t* const strWToConvert, const int& nbChars, const TextCase& caseToConvert);
+	static void changeCase(wchar_t* const strWToConvert, const int& nbChars, const TextCase& caseToConvert);
 	void convertSelectedTextTo(const TextCase & caseToConvert);
 	void setMultiSelections(const ColumnModeInfos & cmi);
 
@@ -643,7 +639,6 @@ public:
 
 	bool getIndicatorRange(size_t indicatorNumber, size_t* from = NULL, size_t* to = NULL, size_t* cur = NULL);
 
-	static LanguageNameInfo _langNameInfoArray[L_EXTERNAL+1];
 
 	void bufferUpdated(Buffer * buffer, int mask);
 	BufferID getCurrentBufferID() const { return _currentBufferID; }
@@ -697,17 +692,22 @@ public:
 	void setElementColour(int element, COLORREF color) const { execute(SCI_SETELEMENTCOLOUR, element, color | 0xFF000000); }
 
 protected:
-	static bool _SciInit;
-
 	static int _refCount;
-
-    static UserDefineDialog _userDefineDlg;
 
     static const int _markersArray[][NB_FOLDER_STATE];
 
-	static LRESULT CALLBACK ScintillaProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+	// Event handling added to the Scintilla widget
+	friend class NppScintillaWidget;
+	bool handleKeyPress(QKeyEvent* event); // true when handled, and the widget should not see the event
+	void handleKeyRelease(const QKeyEvent* event) const;
+	void typeControlCharacter(QKeyEvent* event);
+	bool handleWheel(const QWheelEvent* event);
+	bool handleRightButtonPress(const QMouseEvent* event) const;
+	void getUserDefineDlgScintillaUpdate();
+
 
 	bool _isMainEditZone = false;
+	std::function<bool(QKeyEvent*)> _keyPressFilter;
 	SCINTILLA_FUNC _pScintillaFunc = nullptr;
 	SCINTILLA_PTR  _pScintillaPtr = nullptr;
 	BufferID attachDefaultDoc();

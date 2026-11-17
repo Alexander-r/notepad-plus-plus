@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>GolineDlg</class>
+ <widget class="QDialog" name="GolineDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>387</width><height>121</height></rect></property>
+  <property name="windowTitle"><string>Go To...</string></property>
+  <layout class="QGridLayout" name="layout1">
+   <item row="0" column="0">
+    <layout class="QHBoxLayout" name="layout2">
+     <item>
+      <widget class="QRadioButton" name="radioGotoline">
+       <property name="nppId" stdset="0"><number>2007</number></property>
+       <property name="text"><string>&amp;Line</string></property>
+       <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+      </widget>
+     </item>
+     <item>
+      <widget class="QRadioButton" name="radioGotooffset">
+       <property name="nppId" stdset="0"><number>2008</number></property>
+       <property name="text"><string>&amp;Offset</string></property>
+       <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+      </widget>
+     </item>
+     <item>
+      <spacer name="spacer3">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item row="1" column="0">
+    <widget class="QLabel" name="urhereStatic">
+     <property name="nppId" stdset="0"><number>2004</number></property>
+     <property name="text"><string>You are here:</string></property>
+    </widget>
+   </item>
+   <item row="1" column="1">
+    <widget class="QLineEdit" name="currlineEdit">
+     <property name="nppId" stdset="0"><number>2002</number></property>
+     <property name="readOnly"><bool>true</bool></property>
+    </widget>
+   </item>
+   <item row="2" column="0">
+    <widget class="QLabel" name="ugoStatic">
+     <property name="nppId" stdset="0"><number>2005</number></property>
+     <property name="text"><string>You want to &amp;go to:</string></property>
+     <property name="buddy"><cstring>golineEdit</cstring></property>
+    </widget>
+   </item>
+   <item row="2" column="1">
+    <widget class="QLineEdit" name="golineEdit">
+     <property name="nppId" stdset="0"><number>2001</number></property>
+    </widget>
+   </item>
+   <item row="2" column="2">
+    <widget class="QPushButton" name="ok">
+     <property name="nppId" stdset="0"><number>1</number></property>
+     <property name="text"><string>Go</string></property>
+     <property name="autoDefault"><bool>false</bool></property>
+     <property name="default"><bool>true</bool></property>
+    </widget>
+   </item>
+   <item row="3" column="0">
+    <widget class="QLabel" name="nomorethanStatic">
+     <property name="nppId" stdset="0"><number>2006</number></property>
+     <property name="text"><string>You can't go further than:</string></property>
+    </widget>
+   </item>
+   <item row="3" column="1">
+    <widget class="QLabel" name="lastline">
+     <property name="nppId" stdset="0"><number>2003</number></property>
+     <property name="text"><string>0123456789</string></property>
+    </widget>
+   </item>
+   <item row="3" column="2">
+    <widget class="QPushButton" name="cancel">
+     <property name="nppId" stdset="0"><number>2</number></property>
+     <property name="text"><string>I'm going nowhere</string></property>
+     <property name="autoDefault"><bool>false</bool></property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+ </buttongroups>
+</ui>

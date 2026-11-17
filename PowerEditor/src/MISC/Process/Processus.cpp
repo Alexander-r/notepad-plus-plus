@@ -15,44 +15,43 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-#include "Parameters.h"
+#include <QDesktopServices>
+#include <QFileInfo>
+#include <QProcess>
+#include <QUrl>
+
 #include "Processus.h"
 
 
-void Process::run(bool isElevationRequired) const
+namespace
 {
-	const wchar_t *opVerb = isElevationRequired ? L"runas" : L"open";
-	::ShellExecute(NULL, opVerb, _command.c_str(), _args.c_str(), _curDir.c_str(), SW_SHOWNORMAL);
+	QStringList splitArgs(const std::wstring& args)
+	{
+		return QProcess::splitCommand(QString::fromStdWString(args));
+	}
 }
 
-unsigned long Process::runSync(bool isElevationRequired) const
+// Same semantic as ShellExecute "open": a program is started, and anything else (a document, a folder,
+// a URL) goes to the desktop's default handler.
+void Process::run([[maybe_unused]] bool isElevationRequired) const
 {
-	SHELLEXECUTEINFO ShExecInfo = {};
-	ShExecInfo.cbSize = sizeof(SHELLEXECUTEINFO);
-	ShExecInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
-	ShExecInfo.hwnd = NULL;
-	ShExecInfo.lpVerb = isElevationRequired ? L"runas" : L"open";
-	ShExecInfo.lpFile = _command.c_str();
-	ShExecInfo.lpParameters = _args.c_str();
-	ShExecInfo.lpDirectory = _curDir.c_str();
-	ShExecInfo.nShow = SW_SHOWNORMAL;
-	ShExecInfo.hInstApp = NULL;
-
-	ShellExecuteEx(&ShExecInfo);
-	if (!ShExecInfo.hProcess)
+	const QString command = QString::fromStdWString(_command);
+	const QFileInfo info(command);
+	if ((info.exists() && info.isFile() && !info.isExecutable()) || info.isDir() || command.contains(QStringLiteral("://")))
 	{
-		// throw exception
-		throw GetLastErrorAsString(GetLastError());
+		QDesktopServices::openUrl(command.contains(QStringLiteral("://")) ? QUrl(command) : QUrl::fromLocalFile(command));
+		return;
 	}
+	QProcess::startDetached(command, splitArgs(_args), QString::fromStdWString(_curDir));
+}
 
-	WaitForSingleObject(ShExecInfo.hProcess, INFINITE);
-
-	unsigned long exitCode;
-	if (::GetExitCodeProcess(ShExecInfo.hProcess, &exitCode) == FALSE)
-	{
-		// throw exception
-		throw GetLastErrorAsString(GetLastError());
-	}
-
-	return exitCode;
+unsigned long Process::runSync([[maybe_unused]] bool isElevationRequired) const
+{
+	QProcess process;
+	process.setWorkingDirectory(QString::fromStdWString(_curDir));
+	process.start(QString::fromStdWString(_command), splitArgs(_args));
+	if (!process.waitForStarted())
+		throw QString(process.errorString()).toStdWString(); // throw exception
+	process.waitForFinished(-1);
+	return static_cast<unsigned long>(process.exitCode());
 }

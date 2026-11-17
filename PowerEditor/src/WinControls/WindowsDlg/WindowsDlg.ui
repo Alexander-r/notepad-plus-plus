@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>WindowsDlg</class>
+ <widget class="QDialog" name="WindowsDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>900</width><height>487</height></rect></property>
+  <property name="windowTitle"><string>Windows</string></property>
+  <layout class="QGridLayout" name="gridLayout1">
+   <item row="0" column="0" rowspan="6">
+    <widget class="QTableWidget" name="windowsList">
+     <property name="nppId" stdset="0"><number>7001</number></property>
+    </widget>
+   </item>
+   <item row="0" column="1">
+    <widget class="QPushButton" name="ok">
+     <property name="nppId" stdset="0"><number>1</number></property>
+     <property name="text"><string>&amp;Activate</string></property>
+     <property name="autoDefault"><bool>false</bool></property>
+     <property name="default"><bool>true</bool></property>
+    </widget>
+   </item>
+   <item row="1" column="1">
+    <widget class="QPushButton" name="windowsSave">
+     <property name="nppId" stdset="0"><number>7002</number></property>
+     <property name="text"><string>&amp;Save</string></property>
+     <property name="autoDefault"><bool>false</bool></property>
+    </widget>
+   </item>
+   <item row="2" column="1">
+    <widget class="QPushButton" name="windowsClose">
+     <property name="nppId" stdset="0"><number>7003</number></property>
+     <property name="text"><string>&amp;Close window(s)</string></property>
+     <property name="autoDefault"><bool>false</bool></property>
+    </widget>
+   </item>
+   <item row="3" column="1">
+    <widget class="QPushButton" name="windowsSort">
+     <property name="nppId" stdset="0"><number>7004</number></property>
+     <property name="text"><string>Sort &amp;tabs</string></property>
+     <property name="autoDefault"><bool>false</bool></property>
+    </widget>
+   </item>
+   <item row="4" column="1">
+    <spacer name="vSpacer1"><property name="orientation"><enum>Qt::Vertical</enum></property></spacer>
+   </item>
+   <item row="5" column="1">
+    <widget class="QPushButton" name="cancel">
+     <property name="nppId" stdset="0"><number>2</number></property>
+     <property name="text"><string>&amp;OK</string></property>
+     <property name="autoDefault"><bool>false</bool></property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubDelimiterDlg</class>
+ <widget class="QWidget" name="PreferenceSubDelimiterDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QGroupBox" name="wordcharlistGbStatic">
+     <property name="nppId" stdset="0"><number>6161</number></property>
+     <property name="title"><string>Word character list</string></property>
+     <layout class="QVBoxLayout" name="layout2">
+      <item>
+       <widget class="QRadioButton" name="radioWordcharDefault">
+        <property name="nppId" stdset="0"><number>6162</number></property>
+        <property name="text"><string>Use default Word character list as it is</string></property>
+        <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+       </widget>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="radioWordcharCustom">
+        <property name="nppId" stdset="0"><number>6163</number></property>
+        <property name="text"><string>Add your character as part of word
+(don't choose it unless you know what you're doing)</string></property>
+        <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="layout3">
+        <item>
+         <spacer name="spacer4">
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="wordcharCustomEdit">
+          <property name="nppId" stdset="0"><number>6164</number></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="wordcharQuestionButton">
+          <property name="nppId" stdset="0"><number>6165</number></property>
+          <property name="text"><string>(?)</string></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="staticWordcharWarning">
+        <property name="nppId" stdset="0"><number>6166</number></property>
+        <property name="text"><string/></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="delimitersettingsGbStatic">
+     <property name="nppId" stdset="0"><number>6251</number></property>
+     <property name="title"><string>Delimiter selection settings (Ctrl + Mouse double click)</string></property>
+     <layout class="QVBoxLayout" name="layout5">
+      <item>
+       <layout class="QHBoxLayout" name="layout6">
+        <item>
+         <widget class="QLabel" name="staticOpendelimiter">
+          <property name="nppId" stdset="0"><number>6252</number></property>
+          <property name="text"><string>Open</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="editOpendelimiter">
+          <property name="nppId" stdset="0"><number>6253</number></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="staticBlabla">
+          <property name="nppId" stdset="0"><number>6257</number></property>
+          <property name="text"><string>bla bla bla bla bla bla</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="staticBlabla2ndline">
+          <property name="nppId" stdset="0"><number>6258</number></property>
+          <property name="text"><string>bla bla bla bla bla bla bla bla bla bla bla bla</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="editClosedelimiter">
+          <property name="nppId" stdset="0"><number>6254</number></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="staticClosedelimiter">
+          <property name="nppId" stdset="0"><number>6255</number></property>
+          <property name="text"><string>Close</string></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer7">
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="severallinemodeonCheck">
+        <property name="nppId" stdset="0"><number>6256</number></property>
+        <property name="text"><string>Allow on several lines</string></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer8">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+  <buttongroup name="radioGroup2"/>
+ </buttongroups>
+</ui>

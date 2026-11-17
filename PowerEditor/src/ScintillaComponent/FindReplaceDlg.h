@@ -17,9 +17,15 @@
 
 #pragma once
 
-#include <windows.h>
+#include <QApplication>
+#include <QIcon>
+#include <QPointer>
+#include <QTabBar>
 
+
+#include <array>
 #include <map>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -41,6 +47,16 @@
 #include "ToolBar.h"
 #include "Window.h"
 #include "dpiManagerV2.h"
+
+namespace Ui
+{
+	class FindReplaceDlg;
+	class IncrementFindDlg;
+}
+
+class QProgressDialog;
+class QSpacerItem;
+class QTimer;
 
 #define FIND_RECURSIVE 1
 #define FIND_INHIDDENDIR 2
@@ -161,6 +177,7 @@ public:
 	void setFinderStyleForNpc(bool onlyColor = false);
 	void removeAll();
 	void openAll();
+	void connectScintilla();
 	void wrapLongLinesToggle();
 	void purgeToggle();
 	void copy();
@@ -180,7 +197,8 @@ public:
 		return _scintView.execute(msg, wParam, lParam);
 	}
 protected :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	LRESULT onPanelMessage(UINT message, WPARAM wParam, LPARAM lParam) override;
+	void showContextMenu();
 	bool notify(SCNotification *notification);
 
 private:
@@ -272,7 +290,8 @@ private:
 	Finder  *_pFinder2Search = nullptr;
 	FindOption _options;
 	
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	void runDialog(bool isRTL);
+	void onCancel() override;
 	void initFromOptions();
 	void writeOptions();
 };
@@ -283,11 +302,7 @@ friend class FindIncrementDlg;
 public :
 	static FindOption _options;
 	static FindOption* _env;
-	FindReplaceDlg() {
-		_uniFileName = new char[(_fileNameLenMax + 3) * 2];
-		_winVer = (NppParameters::getInstance()).getWinVersion();
-		_env = &_options;
-	}
+	FindReplaceDlg();
 
 	~FindReplaceDlg() override;
 
@@ -348,15 +363,10 @@ public :
 	bool isProjectPanel_2() const { return _env->_isProjectPanel_2; }
 	bool isProjectPanel_3() const { return _env->_isProjectPanel_3; }
 	void saveFindHistory();
+	void measureTabs(); // to be called again when the text of the controls changed
 	void changeTabName(DIALOG_TYPE index, const wchar_t *name2change) {
-		TCITEM tie{};
-		tie.mask = TCIF_TEXT;
-		tie.pszText = const_cast<wchar_t*>(name2change);
-		TabCtrl_SetItem(_tab.getHSelf(), index, &tie);
-
-		wchar_t label[MAX_PATH]{};
-		_tab.getCurrentTitle(label, MAX_PATH);
-		::SetWindowText(_hSelf, label);
+		_tab.tabs()->setTabText(index, QString::fromWCharArray(name2change));
+		_hSelf->setWindowTitle(QString::fromStdWString(_tab.getCurrentTitle()));
 	}
 
 	void beginNewFilesSearch() {
@@ -378,7 +388,7 @@ public :
 	}
 
 	bool allowCopyAction() {
-		HWND focusedHwnd = GetFocus();
+		HWND focusedHwnd = QApplication::focusWidget();
 		Finder* finder = getFinderFrom(focusedHwnd);
 
 		if (finder)
@@ -439,6 +449,8 @@ public :
 	void setStatusMessageNotFound(const std::wstring& textNotFound, const std::wstring& tooltipMsg = L"");
 
 	void setStatusMessageWithInvisibleCharsWarning();
+	void warnIfInvisibleChars(const std::wstring& text);
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam);
 	void removeStatusMessageWithInvisibleCharsWarning();
 
 	std::wstring getScopeInfoForStatusBar(FindOption const *pFindOpt) const;
@@ -455,41 +467,25 @@ public :
 	void clearMatchHighlighting();
 
 protected :
-	void resizeDialogElements();
-	void setMinHeightAndBordersMetrics() noexcept;
-
 	void setMonospaceFont();
-	void setFont();
 
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-
-	static LRESULT CALLBACK ComboEditProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
-
-	// Window procedure for the finder
-	static LRESULT CALLBACK FinderProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+	void onCancel() override;
+	void onActivationChanged(bool isActive) override;
+	void onVisibilityChanged(bool isShown) override;
 
 private:
-	SIZE _szMinDialog{};
-	SIZE _szBorder{};
-
-	LONG _lesssModeHeight = 0;
+	std::unique_ptr<Ui::FindReplaceDlg> _ui;
+	qint64 _inSelectionAutoChangedAt = 0;
 
 	DIALOG_TYPE _currentStatus = DIALOG_TYPE::FIND_DLG;
 
 	ScintillaEditView** _ppEditView = nullptr;
 	ScintillaEditView* _pMatchHighlightView = nullptr; // view of the last updateMatchHighlighting()
+	QPointer<QTimer> _matchHighlightTimer; // of updateMatchHighlightingLater(), dies with the dialog's widget
 	Finder  *_pFinder = nullptr;
 	std::wstring _findResTitle;
 
 	std::vector<Finder*> _findersOfFinder{};
-
-	HWND _shiftTrickUpTip = nullptr;
-	HWND _2ButtonsTip = nullptr;
-	HWND _confirmDlgTip = nullptr;
-	HWND _replaceAndStopTip = nullptr;
-	HWND _filterTip = nullptr;
-	HWND _dirFromActiveDocTip = nullptr;
-	HWND _hiliteModeTip = nullptr;
 
 	bool _isRTL = false;
 
@@ -500,19 +496,10 @@ private:
 	char *_uniFileName = nullptr;
 
 	TabBar _tab;
-	winVer _winVer = winVer::WV_UNKNOWN;
 	StatusBar _statusBar;
 	FindStatus _statusbarFindStatus;
 
 	std::wstring _statusbarTooltipMsg;
-	HWND _statusbarTooltipWnd = nullptr;
-	HICON _statusbarTooltipIcon = nullptr;
-	int _statusbarTooltipIconSize = 0;
-
-	HFONT _hComboBoxFont = nullptr;
-	HFONT _hLargerBolderFont = nullptr;
-	HFONT _hCourrierNewFont = nullptr;
-
 	std::map<int, bool> _controlEnableMap;
 
 	static constexpr std::array _reduce2hide_match{ IDWHOLEWORD, IDMATCHCASE };
@@ -532,23 +519,24 @@ private:
 	ControlInfoTip _maxLenOnSearchTip;
 
 	using Window::init;
-	using StaticDialog::create;
 
 	void enableFindDlgItem(int dlgItemID, bool isEnable = true);
 	void showFindDlgItem(int dlgItemID, bool isShow = true);
-	void layoutFindWhatAndHighlight();
+
 	void enableReplaceFunc(bool isEnable);
 	void enableFindInFilesControls(bool isEnable, bool projectPanels);
 	void enableFindInFilesFunc();
 	void enableFindInProjectsFunc();
 	void enableMarkAllControls(bool isEnable);
 	void enableMarkFunc();
+	void showControlsOf(DIALOG_TYPE type);
+	void fitHeight();
+	int _tabsHeight = 0;
+	QSpacerItem* _buttonsWidth = nullptr; // owned by the layout
 	void hideOrShowCtrl4reduceOrNormalMode(DIALOG_TYPE dlgT);
-	void calcAndSetCtrlsPos(DIALOG_TYPE dlgT, bool fromColBtn = false);
+	void setupControls();
 
-	void setDefaultButton(int nID) {
-		SendMessage(_hSelf, DM_SETDEFID, nID, 0L);
-	}
+	void setDefaultButton(int nID);
 
 	void gotoCorrectTab() {
 		auto currentIndex = _tab.getCurrentTabIndex();
@@ -571,7 +559,7 @@ private:
 	static const int FR_OP_GLOBAL = 8;
 	static const int FR_OP_FIP = 16;
 	void saveInMacro(size_t cmd, int cmdType);
-	void drawStatusBarItem(LPDRAWITEMSTRUCT lpDrawItemStruct);
+	void updateStatusBarAppearance();
 	bool replaceInFilesConfirmCheck(const std::wstring& directory, const std::wstring& fileTypes);
 	bool replaceInProjectsConfirmCheck();
 	bool replaceInOpenDocsConfirmCheck();
@@ -580,21 +568,21 @@ private:
 
 	ContextMenu _swapPopupMenu;
 	enum SwapButtonStatus {swap, down, up} _swapButtonStatus = swap;
-	HWND _hSwapButton = nullptr;
 };
 
 //FindIncrementDlg: incremental search dialog, docked in rebar
 class FindIncrementDlg : public StaticDialog
 {
 public :
-	FindIncrementDlg() = default;
+	FindIncrementDlg();
+	~FindIncrementDlg() override;
 
 	void init(HINSTANCE hInst, HWND hPere, FindReplaceDlg *pFRDlg, bool isRTL = false);
 	void destroy() override;
 	void display(bool toShow = true) const override;
 
 	void setSearchText(const wchar_t* txt2find, bool) {
-		::SendDlgItemMessage(_hSelf, IDC_INCFINDTEXT, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(txt2find));
+		setItemText(IDC_INCFINDTEXT, txt2find);
 	}
 
 	void setFindStatus(FindStatus iStatus, size_t nbCounted, int nth);
@@ -624,17 +612,20 @@ private :
 	FindStatus _findStatus = FSFound;
 
 	ReBar* _pRebar = nullptr;
-	REBARBANDINFO _rbBand{};
+	std::unique_ptr<Ui::IncrementFindDlg> _ui;
 
 	std::vector<MatchPosition> _matches;
 
 	using Window::init;
 
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	void onCancel() override;
+	intptr_t onCommand(WPARAM wParam);
 	void markSelectedTextInc(bool enable, FindOption *opt = NULL);
 };
 
 
+// The progress of Find in Files and similar operations. They run on the GUI thread, which isCancelled(),
+// setPercent() and setInfo() keep responsive.
 class Progress
 {
 public:
@@ -645,49 +636,13 @@ public:
 	Progress(const Progress&) = delete;
 	const Progress& operator=(const Progress&) = delete;
 
-	HWND open(HWND hCallerWnd, const wchar_t* header = NULL);
+	HWND open(HWND hCallerWnd, const wchar_t* header = nullptr);
 	void close();
 
-	bool isCancelled() const
-	{
-		if (_hwnd)
-			return (::WaitForSingleObject(_hActiveState, 0) != WAIT_OBJECT_0);
-		return false;
-	}
-
+	bool isCancelled() const;
 	void setPercent(unsigned percent, const wchar_t* fileName, int nbHitsSoFar) const;
 	void setInfo(const wchar_t* info, int nbHitsSoFar = -1) const;
 
 private:
-	static const wchar_t cClassName[];
-	static const wchar_t cDefaultHeader[];
-	static const int cBackgroundColor;
-	static const SIZE _szClient;
-
-	static volatile LONG refCount;
-
-	static DWORD WINAPI threadFunc(LPVOID data);
-	static LRESULT APIENTRY wndProc(HWND hwnd, UINT umsg, WPARAM wparam, LPARAM lparam);
-
-	int thread();
-	int createProgressWindow();
-
-	RECT getDpiScaledWindowRect(UINT dpi) const;
-	void setCtrlsPos();
-	void setFont();
-
-	HINSTANCE _hInst = nullptr;
-	volatile HWND _hwnd = nullptr;
-	HWND _hCallerWnd = nullptr;
-	wchar_t _header[128] = {'\0'};
-	HANDLE _hThread = nullptr;
-	HANDLE _hActiveState = nullptr;
-	HWND _hPathText = nullptr;
-	HWND _hRunningHitsStaticText = nullptr;
-	HWND _hRunningHitsText = nullptr;
-	HWND _hPBar = nullptr;
-	HWND _hBtn = nullptr;
-	HFONT _hFont = nullptr;
-
-	DPIManagerV2 _dpiManager;
+	QProgressDialog* _dialog = nullptr;
 };

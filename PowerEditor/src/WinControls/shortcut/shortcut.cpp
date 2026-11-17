@@ -15,6 +15,17 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
+#include <QAction>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDialog>
+#include <QKeySequence>
+#include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QMenu>
+#include <QPushButton>
+
 #include <memory>
 #include <algorithm>
 #include <array>
@@ -23,7 +34,10 @@
 #include "ScintillaEditView.h"
 #include "resource.h"
 #include "Notepad_plus_Window.h"
+#include "NppMenu.h"
 #include "keys.h"
+#include "ui_ShortcutDlg.h"
+#include "ui_ShortcutscintDlg.h"
 
 using namespace std;
 
@@ -222,74 +236,6 @@ KeyIDNAME namedKeyArray[] = {
 
 #define nbKeys sizeof(namedKeyArray)/sizeof(KeyIDNAME)
 
-#define MAX_MAPSTR_CHARS 16
-map<UCHAR, char[MAX_MAPSTR_CHARS+1]> oemVirtualKeyMap;
-std::vector<UCHAR> oemVkUsedIDs;
-void mapOemVirtualKeys()
-{
-	const LANGID EN_US = 0x0409;
-	
-	// this function should only be called once, so update the flag
-	static bool isMapped = false;
-	if (isMapped) return;
-	
-	// determine the active keyboard "language"
-	LANGID current_lang_id = LOWORD(GetKeyboardLayout(0));
-	
-	std::vector<UCHAR> localizableNumpad{VK_MULTIPLY, VK_ADD, VK_SUBTRACT, VK_DECIMAL, VK_DIVIDE, VK_SEPARATOR};
-	
-	// for each of the namedKeyArray, check if it's VK_OEM_*, and update the map of VK_OEM names as needed
-	for (size_t i = 0 ; i < nbKeys ; ++i)
-	{
-		// only need to map the VK_OEM_* keys, which are all at or above 0xA0, or any of the localizable keys on the keypad
-		bool keyIsLocalizableOnNumpad = (std::find(localizableNumpad.begin(), localizableNumpad.end(), namedKeyArray[i].id) != localizableNumpad.end());
-		if ((namedKeyArray[i].id >= 0xA0) || keyIsLocalizableOnNumpad)
-		{
-			// now update the STR in the mapping
-			UINT v2c = MapVirtualKeyW((UINT)namedKeyArray[i].id, MAPVK_VK_TO_CHAR);
-			
-			// if it's a "dead key" (pre-accent modifier) or "ligature key", it will be marked with high order bits; mask those out...
-			v2c = v2c & 0x1FFFFF;	// highest unicode is U+1F_FFFF, so that's the highest valid codepoint
-			
-			// if it's a normal character, just put it in the map; if the codepoint is higher than 0x7F, need to convert from codepoint to MultiByte UTF8-encoded text
-			if (v2c < 0x80)
-			{
-				sprintf_s(oemVirtualKeyMap[namedKeyArray[i].id], MAX_MAPSTR_CHARS, "%c", v2c);
-			}
-			else 
-			{
-				// convert from codepoint to MultiByte UTF8-encoded text
-				wchar_t v2w[2] = { (wchar_t)v2c, 0x00 };
-				char bytes[8] = {0};
-				int len = WideCharToMultiByte(CP_UTF8, 0, &v2w[0], -1, NULL, 0, NULL, NULL);
-				if (len > 0)
-				{
-					WideCharToMultiByte(CP_UTF8, 0, &v2w[0], -1, &bytes[0], len, NULL, NULL);
-				}
-				sprintf_s(oemVirtualKeyMap[namedKeyArray[i].id], MAX_MAPSTR_CHARS, "%s", bytes);
-			}
-
-			// look for edge cases for naming
-			if (current_lang_id == EN_US && oemVirtualKeyMap[namedKeyArray[i].id][0] == '`')
-			{
-				// en-US only: change from ` to ~, because that's what's historically been shown
-				oemVirtualKeyMap[namedKeyArray[i].id][0] = '~';
-			}
-			else if (oemVirtualKeyMap[namedKeyArray[i].id][0] && keyIsLocalizableOnNumpad)
-			{
-				// make sure any localized numeric-keypad characters have the "Num" as a prefix
-				char old_char = oemVirtualKeyMap[namedKeyArray[i].id][0];
-				sprintf_s(oemVirtualKeyMap[namedKeyArray[i].id], MAX_MAPSTR_CHARS, "Num %c", old_char);
-			}
-			else if (oemVirtualKeyMap[namedKeyArray[i].id][0] == '.' && namedKeyArray[i].id != VK_DECIMAL && namedKeyArray[i].id != VK_OEM_PERIOD)
-			{
-				// the '.' being associated with something other than VK_DECIMAL and VK_OEM_PERIOD must be on the numeric keypad, probably as ABNT2_C2
-				sprintf_s(oemVirtualKeyMap[namedKeyArray[i].id], MAX_MAPSTR_CHARS, "Num .");
-			}
-		}
-	}
-	isMapped = true;
-}
 
 string Shortcut::toString() const
 {
@@ -312,28 +258,22 @@ string Shortcut::toString() const
 
 void Shortcut::setName(const char* menuName, const char* shortcutName)
 {
-	lstrcpynA(_menuName, menuName, menuItemStrLenMax);
-	char const * name = shortcutName ? shortcutName : menuName;
-	size_t i = 0, j = 0;
-	while (name[j] != 0 && i < (menuItemStrLenMax - 1))
+	_menuName = std::string(menuName).substr(0, menuItemStrLenMax - 1);
+	const std::string source = shortcutName ? shortcutName : menuName;
+
+	_name.clear();
+	for (size_t j = 0; j < source.size() && _name.size() < (menuItemStrLenMax - 1); ++j)
 	{
-		if (name[j] != '&')
+		if (source[j] != '&')
 		{
-			_name[i] = name[j];
-			++i;
+			_name += source[j];
 		}
-		else //check if this ampersand is being escaped
+		else if (j + 1 < source.size() && source[j + 1] == '&') //check if this ampersand is being escaped
 		{
-			if (name[j+1] == '&') //escaped ampersand
-			{
-				_name[i] = name[j];
-				++i;
-				++j;	//skip escaped ampersand
-			}
+			_name += source[j];
+			++j;	//skip escaped ampersand
 		}
-		++j;
 	}
-	_name[i] = 0;
 }
 
 string ScintillaKeyMap::toString() const
@@ -425,7 +365,6 @@ size_t ScintillaKeyMap::getSize() const
 
 void getKeyStrFromVal(UCHAR keyVal, string & str)
 {
-	mapOemVirtualKeys();
 	str = "";
 	bool found = false;
 	size_t i;
@@ -443,10 +382,6 @@ void getKeyStrFromVal(UCHAR keyVal, string & str)
 		str = namedKeyArray[i].name;
 		
 		// but if that key is mapped on this keyboard, then use the mapped name (if the name is empty, it is not on the active keyboard)
-		if (oemVirtualKeyMap.find(namedKeyArray[i].id) != oemVirtualKeyMap.end())
-		{
-			str = oemVirtualKeyMap[namedKeyArray[i].id];
-		}
 	}
 	else 
 		str = "Unlisted";
@@ -482,400 +417,287 @@ void getNameStrFromCmd(DWORD cmd, wstring & str)
 	}
 	else
 	{
-		HWND hNotepad_plus = ::FindWindow(Notepad_plus_Window::getClassName(), NULL);
-		wchar_t cmdName[menuItemStrLenMax];
-		HMENU m = reinterpret_cast<HMENU>(::SendMessage(hNotepad_plus, NPPM_INTERNAL_GETMENU, 0, 0));
-		int nbChar = ::GetMenuString(m, cmd, cmdName, menuItemStrLenMax, MF_BYCOMMAND);
-		if (!nbChar)
+		HMENU m = reinterpret_cast<HMENU>(::SendMessage(Notepad_plus_Window::gNppHWND, NPPM_INTERNAL_GETMENU, 0, 0));
+		const std::wstring menuText = nppMenuCommandText(m, cmd);
+		if (menuText.empty())
 			return;
-		bool fin = false;
-		int j = 0;
-		size_t len = lstrlen(cmdName);
-		for (size_t i = 0 ; i < len; ++i)
+		const wchar_t* cmdName = menuText.c_str();
+		str.clear();
+		for (const wchar_t* p = cmdName; *p && *p != L'\t'; ++p)
 		{
-			switch(cmdName[i])
-			{
-				case '\t':
-					cmdName[j] = '\0';
-					fin = true;
-					break;
-
-				case '&':
-					break;
-
-				default :
-					cmdName[j++] = cmdName[i];
-			}
-			if (fin)
-				break;
+			if (*p != L'&')
+				str += *p;
 		}
-		cmdName[j] = '\0';
-		str = cmdName;
 	}
 	return;
 }
 
-void Shortcut::updateConflictState(const bool endSession) const
+bool Shortcut::hasKeyConflict() const
 {
-	if (endSession)
-	{
-		// Clean up message for detached dialogs: save Macros/RunCommands
-		::SendMessage(_hParent, NPPM_INTERNAL_FINDKEYCONFLICTS, 0, 0);
-		return;
-	}
-
-	// Check for conflicts
 	bool isConflict = false;
-	::SendMessage(_hParent, NPPM_INTERNAL_FINDKEYCONFLICTS,
-				  reinterpret_cast<WPARAM>(&_keyCombo), reinterpret_cast<LPARAM>(&isConflict));
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_CONFLICT_STATIC), isConflict ? SW_SHOW : SW_HIDE);
+	::SendMessage(_hParent, NPPM_INTERNAL_FINDKEYCONFLICTS, reinterpret_cast<WPARAM>(&_keyCombo), reinterpret_cast<LPARAM>(&isConflict));
+	return isConflict;
 }
 
-intptr_t CALLBACK Shortcut::run_dlgProc(UINT Message, WPARAM wParam, LPARAM lParam) 
+void Shortcut::notifyEditingEnded() const
 {
-	switch (Message)
+	// Clean up message for detached dialogs: save Macros/RunCommands
+	::SendMessage(_hParent, NPPM_INTERNAL_FINDKEYCONFLICTS, 0, 0);
+}
+
+namespace
+{
+	// Adds the named keys to the combo box, and returns the key code of each entry
+	std::vector<UCHAR> fillKeyCombo(QComboBox* combo)
 	{
-		case WM_INITDIALOG:
+		std::vector<UCHAR> keyIds;
+		for (const KeyIDNAME& key : namedKeyArray)
 		{
-			NppDarkMode::autoSubclassAndThemeChildControls(_hSelf);
-
-			mapOemVirtualKeys();
-
-			::SetDlgItemText(_hSelf, IDC_NAME_EDIT, _canModifyName ? string2wstring(getMenuName(), CP_UTF8).c_str() : string2wstring(getName(), CP_UTF8).c_str());	//display the menu name, with ampersands, for macros
-			if (!_canModifyName)
-				::SendDlgItemMessage(_hSelf, IDC_NAME_EDIT, EM_SETREADONLY, TRUE, 0);
-			auto textlen = ::SendDlgItemMessage(_hSelf, IDC_NAME_EDIT, WM_GETTEXTLENGTH, 0, 0);
-
-			::SendDlgItemMessage(_hSelf, IDC_CTRL_CHECK, BM_SETCHECK, _keyCombo._isCtrl?BST_CHECKED:BST_UNCHECKED, 0);
-			::SendDlgItemMessage(_hSelf, IDC_ALT_CHECK, BM_SETCHECK, _keyCombo._isAlt?BST_CHECKED:BST_UNCHECKED, 0);
-			::SendDlgItemMessage(_hSelf, IDC_SHIFT_CHECK, BM_SETCHECK, _keyCombo._isShift?BST_CHECKED:BST_UNCHECKED, 0);
-			::EnableWindow(::GetDlgItem(_hSelf, IDOK), isValid() && (textlen > 0 || !_canModifyName));
-
-			// while buiding the IDC_KEY_COMBO keys, update the map to which VirtualKey is used for each index
-			int iFound = -1;
-			oemVkUsedIDs.clear();	// the logic below (always pushing onto the vector) requires that it starts fresh every time, otherwise it will grow every time the dialog is launched
-			for (size_t i = 0 ; i < nbKeys ; ++i)
+			if (key.name[0])
 			{
-				const char* nameStr = namedKeyArray[i].name;
-				
-				// use the virtual key value, if it's been mapped
-				if (oemVirtualKeyMap.find(namedKeyArray[i].id) != oemVirtualKeyMap.end()) 
-				{
-					nameStr = oemVirtualKeyMap[namedKeyArray[i].id];
-				} 
-				
-				// only add a key to the IDC_KEY_COMBO list if the string is not empty
-				if (nameStr[0])
-				{
-					::SendDlgItemMessage(_hSelf, IDC_KEY_COMBO, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(string2wstring(nameStr, CP_UTF8).c_str()));
-					oemVkUsedIDs.push_back(namedKeyArray[i].id);
-				}
-
-				if (_keyCombo._key == namedKeyArray[i].id)
-					iFound = static_cast<int32_t>(oemVkUsedIDs.size())-1;	// -1 because it's already been added, so the most recent index of oemVkUsedIDs is 1 less than the length
-			}
-
-			if (iFound != -1)
-				::SendDlgItemMessage(_hSelf, IDC_KEY_COMBO, CB_SETCURSEL, iFound, 0);
-			
-			// Hide this warning on startup
-			::ShowWindow(::GetDlgItem(_hSelf, IDC_WARNING_STATIC), SW_HIDE);
-			
-			updateConflictState();
-			NativeLangSpeaker* nativeLangSpeaker = NppParameters::getInstance().getNativeLangSpeaker();
-			nativeLangSpeaker->changeDlgLang(_hSelf, "ShortcutMapperSubDialg");
-			goToCenter(SWP_SHOWWINDOW | SWP_NOSIZE);
-			return TRUE;
-		}
-
-		case WM_CTLCOLOREDIT:
-		{
-			return NppDarkMode::onCtlColorCtrl(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_CTLCOLORLISTBOX:
-		{
-			return NppDarkMode::onCtlColor(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_CTLCOLORDLG:
-		case WM_CTLCOLORSTATIC:
-		{
-			auto dlgCtrlID = ::GetDlgCtrlID(reinterpret_cast<HWND>(lParam));
-			if (dlgCtrlID == IDC_NAME_EDIT)
-			{
-				return NppDarkMode::onCtlColor(reinterpret_cast<HDC>(wParam));
-			}
-			return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_PRINTCLIENT:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				return TRUE;
-			}
-			break;
-		}
-
-		case NPPM_INTERNAL_REFRESHDARKMODE:
-		{
-			NppDarkMode::autoThemeChildControls(_hSelf);
-			return TRUE;
-		}
-
-		case WM_DPICHANGED:
-		{
-			_dpiManager.setDpiWP(wParam);
-			setPositionDpi(lParam);
-
-			return TRUE;
-		}
-
-		case WM_COMMAND:
-		{
-			auto textlen = ::SendDlgItemMessage(_hSelf, IDC_NAME_EDIT, WM_GETTEXTLENGTH, 0, 0);
-			switch (LOWORD(wParam))
-			{
-				case IDC_CTRL_CHECK :
-					_keyCombo._isCtrl = BST_CHECKED == ::SendDlgItemMessage(_hSelf, static_cast<int32_t>(wParam), BM_GETCHECK, 0, 0);
-					::EnableWindow(::GetDlgItem(_hSelf, IDOK), isValid() && (textlen > 0 || !_canModifyName));
-					updateConflictState();
-					return TRUE;
-
-				case IDC_ALT_CHECK :
-					_keyCombo._isAlt = BST_CHECKED == ::SendDlgItemMessage(_hSelf, static_cast<int32_t>(wParam), BM_GETCHECK, 0, 0);
-					::EnableWindow(::GetDlgItem(_hSelf, IDOK), isValid() && (textlen > 0 || !_canModifyName));
-					updateConflictState();
-					return TRUE;
-
-				case IDC_SHIFT_CHECK :
-					_keyCombo._isShift = BST_CHECKED == ::SendDlgItemMessage(_hSelf, static_cast<int32_t>(wParam), BM_GETCHECK, 0, 0);
-					updateConflictState();
-					return TRUE;
-
-				case IDOK :
-					if (!isEnabled())
-					{
-						_keyCombo._isCtrl = _keyCombo._isAlt = _keyCombo._isShift = false;
-					}
-
-					if (_canModifyName)
-					{
-						wchar_t editName[menuItemStrLenMax]{};
-						::SendDlgItemMessage(_hSelf, IDC_NAME_EDIT, WM_GETTEXT, menuItemStrLenMax, reinterpret_cast<LPARAM>(editName));
-						setName(wstring2string(editName, CP_UTF8).c_str());
-					}
-					::EndDialog(_hSelf, 0);
-					updateConflictState(true);
-					return TRUE;
-
-				case IDCANCEL :
-					::EndDialog(_hSelf, -1);
-					updateConflictState(true);
-					return TRUE;
-
-				default:
-					if (HIWORD(wParam) == EN_CHANGE)
-					{
-						if (LOWORD(wParam) == IDC_NAME_EDIT)
-						{
-							::EnableWindow(::GetDlgItem(_hSelf, IDOK), isValid() && (textlen > 0 || !_canModifyName));
-							return TRUE;
-						}
-					}
-					else if (HIWORD(wParam) == CBN_SELCHANGE)
-					{
-						if (LOWORD(wParam) == IDC_KEY_COMBO)
-						{
-							auto iSel = ::SendDlgItemMessage(_hSelf, LOWORD(wParam), CB_GETCURSEL, 0, 0);
-							_keyCombo._key = oemVkUsedIDs[iSel];
-							::EnableWindow(::GetDlgItem(_hSelf, IDOK), isValid() && (textlen > 0 || !_canModifyName));
-							::ShowWindow(::GetDlgItem(_hSelf, IDC_WARNING_STATIC), isEnabled()?SW_HIDE:SW_SHOW);
-							updateConflictState();
-							return TRUE;
-						}
-					}
-					return FALSE;
+				combo->addItem(QString::fromUtf8(key.name));
+				keyIds.push_back(key.id);
 			}
 		}
-		default :
-			return FALSE;
+		return keyIds;
 	}
-	return FALSE;
+
+	void selectKey(QComboBox* combo, const std::vector<UCHAR>& keyIds, UCHAR key)
+	{
+		const auto found = std::find(keyIds.begin(), keyIds.end(), key);
+		if (found != keyIds.end())
+			combo->setCurrentIndex(static_cast<int>(found - keyIds.begin()));
+	}
+
+	void centerOn(QDialog& dialog, const QWidget* parent)
+	{
+		if (parent)
+			dialog.move(parent->mapToGlobal(parent->rect().center()) - dialog.rect().center());
+	}
+}
+
+int Shortcut::doDialog()
+{
+	QDialog dialog(_hParent);
+	StaticDialog::applyDialogFont(&dialog);
+	Ui::ShortcutDlg ui;
+	ui.setupUi(&dialog);
+
+	const auto hasValidName = [&]()
+	{
+		return !ui.nameEdit->text().isEmpty() || !_canModifyName;
+	};
+	const auto refreshOkButton = [&]()
+	{
+		ui.ok->setEnabled(isValid() && hasValidName());
+	};
+	const auto refreshConflict = [&]()
+	{
+		ui.conflictStatic->setVisible(hasKeyConflict());
+	};
+
+	ui.nameEdit->setText(QString::fromUtf8(_canModifyName ? getMenuName() : getName()));
+	ui.nameEdit->setReadOnly(!_canModifyName);
+	ui.ctrlCheck->setChecked(_keyCombo._isCtrl);
+	ui.altCheck->setChecked(_keyCombo._isAlt);
+	ui.shiftCheck->setChecked(_keyCombo._isShift);
+
+	const std::vector<UCHAR> keyIds = fillKeyCombo(ui.keyCombo);
+	selectKey(ui.keyCombo, keyIds, _keyCombo._key);
+
+	ui.warningStatic->hide(); // Hide this warning on startup
+	refreshOkButton();
+	refreshConflict();
+
+	QObject::connect(ui.ctrlCheck, &QCheckBox::clicked, &dialog, [&](bool checked)
+	{
+		_keyCombo._isCtrl = checked;
+		refreshOkButton();
+		refreshConflict();
+	});
+	QObject::connect(ui.altCheck, &QCheckBox::clicked, &dialog, [&](bool checked)
+	{
+		_keyCombo._isAlt = checked;
+		refreshOkButton();
+		refreshConflict();
+	});
+	QObject::connect(ui.shiftCheck, &QCheckBox::clicked, &dialog, [&](bool checked)
+	{
+		_keyCombo._isShift = checked;
+		refreshConflict();
+	});
+	QObject::connect(ui.nameEdit, &QLineEdit::textChanged, &dialog, [&]() { refreshOkButton(); });
+	QObject::connect(ui.keyCombo, &QComboBox::activated, &dialog, [&](int index)
+	{
+		_keyCombo._key = keyIds[index];
+		refreshOkButton();
+		ui.warningStatic->setVisible(!isEnabled());
+		refreshConflict();
+	});
+	QObject::connect(ui.ok, &QPushButton::clicked, &dialog, &QDialog::accept);
+	QObject::connect(ui.cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+	NppParameters::getInstance().getNativeLangSpeaker()->changeDlgLang(&dialog, "ShortcutMapperSubDialg");
+	centerOn(dialog, _hParent);
+
+	const int result = dialog.exec();
+	if (result == QDialog::Accepted)
+	{
+		if (!isEnabled())
+			_keyCombo._isCtrl = _keyCombo._isAlt = _keyCombo._isShift = false;
+		if (_canModifyName)
+			setName(ui.nameEdit->text().toUtf8().constData());
+	}
+	notifyEditingEnded();
+	return (result == QDialog::Accepted) ? 0 : -1;
 }
 
 // return true if one of CommandShortcuts is deleted. Otherwise false.
-void Accelerator::updateShortcuts() 
+void Accelerator::updateShortcuts()
 {
-	const array<unsigned long, 3> incrFindAccIds = { IDM_SEARCH_FINDNEXT, IDM_SEARCH_FINDPREV, IDM_SEARCH_FINDINCREMENT };
-
-	NppParameters& nppParam = NppParameters::getInstance();
-
-	vector<CommandShortcut> & shortcuts = nppParam.getUserShortcuts();
-	vector<MacroShortcut> & macros  = nppParam.getMacroList();
-	vector<UserCommand> & userCommands = nppParam.getUserCommandList();
-	vector<PluginCmdShortcut> & pluginCommands = nppParam.getPluginCommandList();
-
-	size_t nbMenu = shortcuts.size();
-	size_t nbMacro = macros.size();
-	size_t nbUserCmd = userCommands.size();
-	size_t nbPluginCmd = pluginCommands.size();
-
-	delete [] _pAccelArray;
-	_pAccelArray = new ACCEL[nbMenu + nbMacro + nbUserCmd + nbPluginCmd];
-	vector<ACCEL> incrFindAcc;
-	vector<ACCEL> findReplaceAcc;
-	int offset = 0;
-	size_t i = 0;
-	//no validation performed, it might be that invalid shortcuts are being used by default. Allows user to 'hack', might be a good thing
-	for (i = 0; i < nbMenu; ++i)
-	{
-		if (shortcuts[i].isEnabled())
-		{
-			_pAccelArray[offset].cmd = static_cast<WORD>(shortcuts[i].getID());
-			_pAccelArray[offset].fVirt = shortcuts[i].getAcceleratorModifiers();
-			_pAccelArray[offset].key = shortcuts[i].getKeyCombo()._key;
-
-			// Special extra handling for shortcuts shared by Incremental Find dialog
-			if (std::find(incrFindAccIds.begin(), incrFindAccIds.end(), shortcuts[i].getID()) != incrFindAccIds.end())
-				incrFindAcc.push_back(_pAccelArray[offset]);
-
-			if (shortcuts[i].getID() == IDM_SEARCH_FIND || shortcuts[i].getID() == IDM_SEARCH_REPLACE ||
-				shortcuts[i].getID() == IDM_SEARCH_FINDINFILES || shortcuts[i].getID() == IDM_SEARCH_MARK ||
-				shortcuts[i].getID() == IDM_SEARCH_FINDNEXT || shortcuts[i].getID() == IDM_SEARCH_FINDPREV)
-				findReplaceAcc.push_back(_pAccelArray[offset]);
-
-			++offset;
-		}
-	}
-
-	for (i = 0; i < nbMacro; ++i)
-	{
-		if (macros[i].isEnabled()) 
-		{
-			_pAccelArray[offset].cmd = (WORD)(macros[i].getID());
-			_pAccelArray[offset].fVirt = macros[i].getAcceleratorModifiers();
-			_pAccelArray[offset].key = macros[i].getKeyCombo()._key;
-			++offset;
-		}
-	}
-
-	for (i = 0; i < nbUserCmd; ++i)
-	{
-		if (userCommands[i].isEnabled())
-		{
-			_pAccelArray[offset].cmd = (WORD)(userCommands[i].getID());
-			_pAccelArray[offset].fVirt = userCommands[i].getAcceleratorModifiers();
-			_pAccelArray[offset].key = userCommands[i].getKeyCombo()._key;
-			++offset;
-		}
-	}
-
-	for (i = 0; i < nbPluginCmd; ++i)
-	{
-		if (pluginCommands[i].isEnabled())
-		{
-			_pAccelArray[offset].cmd = (WORD)(pluginCommands[i].getID());
-			_pAccelArray[offset].fVirt = pluginCommands[i].getAcceleratorModifiers();
-			_pAccelArray[offset].key = pluginCommands[i].getKeyCombo()._key;
-			++offset;
-		}
-	}
-
-	_nbAccelItems = offset;
+	for (QAction* action : _hiddenActions)
+		action->deleteLater();
+	_hiddenActions.clear();
 
 	updateFullMenu();
-	
-	//update the table
-	if (_hAccTable)
-		::DestroyAcceleratorTable(_hAccTable);
-	_hAccTable = ::CreateAcceleratorTable(_pAccelArray, _nbAccelItems);
 
-	if (_hIncFindAccTab)
-		::DestroyAcceleratorTable(_hIncFindAccTab);
-	size_t nb = incrFindAcc.size();
-	ACCEL *tmpIncrFindAccelArray = new ACCEL[nb];
-	for (i = 0; i < nb; ++i)
+	// Fixed shortcuts for switching tabs, independent of the configuration
+	const auto addHidden = [this](int cmdID, const QKeySequence& keys)
 	{
-		tmpIncrFindAccelArray[i] = incrFindAcc[i];
-	}
-	_hIncFindAccTab = ::CreateAcceleratorTable(tmpIncrFindAccelArray, static_cast<int32_t>(nb));
-	delete [] tmpIncrFindAccelArray;
-
-	if (_hAccTabSwitch)
-		::DestroyAcceleratorTable(_hAccTabSwitch);
-
-	ACCEL accNextTab{ BYTE{FVIRTKEY | FCONTROL}, VK_TAB, IDC_NEXT_TAB };
-	ACCEL accPrevTab{ BYTE{FVIRTKEY | FCONTROL | FSHIFT}, VK_TAB, IDC_PREV_TAB };
-	vector<ACCEL> tabSwitchAcc{ accNextTab, accPrevTab };
-	const size_t nbTabSwitchAcc = tabSwitchAcc.size();
-	if (nbTabSwitchAcc > 0)
-	{
-		ACCEL* tmpTabSwitchAcc = new ACCEL[nbTabSwitchAcc];
-		for (i = 0; i < nbTabSwitchAcc; ++i)
-			tmpTabSwitchAcc[i] = tabSwitchAcc.at(i);
-		_hAccTabSwitch = ::CreateAcceleratorTable(tmpTabSwitchAcc, static_cast<int>(nbTabSwitchAcc));
-		delete[] tmpTabSwitchAcc;
-	}
-
-	if (_hFindAccTab)
-		::DestroyAcceleratorTable(_hFindAccTab);
-
-	size_t nbFindReplaceAcc = findReplaceAcc.size();
-	if (nbFindReplaceAcc)
-	{
-		ACCEL* tmpFindAccelArray = new ACCEL[nbFindReplaceAcc];
-
-		for (size_t j = 0; j < nbFindReplaceAcc; ++j)
-			tmpFindAccelArray[j] = findReplaceAcc[j];
-
-		_hFindAccTab = ::CreateAcceleratorTable(tmpFindAccelArray, static_cast<int>(nbFindReplaceAcc));
-		delete[] tmpFindAccelArray;
-	}
-
-	return;
+		auto* action = new QAction(_hMenuParent);
+		action->setShortcut(keys);
+		action->setShortcutContext(Qt::ApplicationShortcut);
+		const HWND target = _hMenuParent;
+		QObject::connect(action, &QAction::triggered, action, [target, cmdID]()
+		{
+			::SendMessage(target, WM_COMMAND, MAKEWPARAM(static_cast<WORD>(cmdID), 0), 0);
+		});
+		_hMenuParent->addAction(action);
+		_hiddenActions.push_back(action);
+	};
+	addHidden(IDC_NEXT_TAB, QKeySequence(Qt::CTRL | Qt::Key_Tab));
+	addHidden(IDC_PREV_TAB, QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Tab));
 }
 
 void Accelerator::updateFullMenu()
 {
+	// The recent files are added before the window is known at the start, and init() does all of this anyway
+	if (!_hMenuParent)
+		return;
+
 	NppParameters& nppParam = NppParameters::getInstance();
-	vector<CommandShortcut> commands = nppParam.getUserShortcuts();
-	for (size_t i = 0; i < commands.size(); ++i)
-	{
-		updateMenuItemByCommand(commands[i]);
-	}
 
-	vector<MacroShortcut> mcommands = nppParam.getMacroList();
-	for (size_t i = 0; i < mcommands.size(); ++i)
-	{
-		updateMenuItemByCommand(mcommands[i]);
-	}
+	for (const CommandShortcut& command : nppParam.getUserShortcuts())
+		applyCommand(command);
 
-	vector<UserCommand> ucommands = nppParam.getUserCommandList();
-	for (size_t i = 0; i < ucommands.size(); ++i)
-	{
-		updateMenuItemByCommand(ucommands[i]);
-	}
+	for (const MacroShortcut& macro : nppParam.getMacroList())
+		applyCommand(macro);
 
-	vector<PluginCmdShortcut> pcommands = nppParam.getPluginCommandList();
-	for (size_t i = 0; i < pcommands.size(); ++i)
-	{
-		updateMenuItemByCommand(pcommands[i]);
-	}
+	for (const UserCommand& command : nppParam.getUserCommandList())
+		applyCommand(command);
 
-	::DrawMenuBar(_hMenuParent);
+	for (const PluginCmdShortcut& command : nppParam.getPluginCommandList())
+		applyCommand(command);
 }
 
-void Accelerator::updateMenuItemByCommand(const CommandShortcut& csc)
+void Accelerator::applyCommand(const CommandShortcut& csc)
 {
-	int cmdID = csc.getID();
-	
-	// Ensure that the menu item checks set prior to this update remain in affect.
-	// Ensure that the menu item state is also maintained
-	UINT cmdFlags = GetMenuState(_hAccelMenu, cmdID, MF_BYCOMMAND );
-	cmdFlags = MF_BYCOMMAND | ((cmdFlags&MF_CHECKED) ? MF_CHECKED : MF_UNCHECKED) | ((cmdFlags&MF_DISABLED) ? MF_DISABLED : MF_ENABLED);
-	::ModifyMenu(_hAccelMenu, cmdID, cmdFlags, cmdID, string2wstring(csc.toMenuItemString(), CP_UTF8).c_str());
+	const int cmdID = csc.getID();
+	const QKeySequence keys = csc.toKeySequence();
+
+	// These keep working while the Find or Incremental Find dialog has the focus, for which the original
+	// has separate accelerator tables. The others work from the main window only.
+	const bool isSearchCommand = cmdID == IDM_SEARCH_FIND || cmdID == IDM_SEARCH_REPLACE || cmdID == IDM_SEARCH_FINDINFILES || cmdID == IDM_SEARCH_MARK ||
+		cmdID == IDM_SEARCH_FINDNEXT || cmdID == IDM_SEARCH_FINDPREV || cmdID == IDM_SEARCH_FINDINCREMENT;
+	const Qt::ShortcutContext context = isSearchCommand ? Qt::ApplicationShortcut : Qt::WindowShortcut;
+
+	if (QAction* action = nppFindMenuAction(_hAccelMenu, cmdID))
+	{
+		action->setShortcut(keys);
+		action->setShortcutContext(context);
+		_hMenuParent->addAction(action); // a hidden menu bar would otherwise take its shortcuts along
+		return;
+	}
+
+	if (keys.isEmpty())
+		return;
+
+	auto* action = new QAction(_hMenuParent);
+	action->setShortcut(keys);
+	action->setShortcutContext(context);
+	const HWND target = _hMenuParent;
+	QObject::connect(action, &QAction::triggered, action, [target, cmdID]()
+	{
+		::SendMessage(target, WM_COMMAND, MAKEWPARAM(static_cast<WORD>(cmdID), 0), 0);
+	});
+	_hMenuParent->addAction(action);
+	_hiddenActions.push_back(action);
+}
+
+QKeySequence Shortcut::toKeySequence() const
+{
+	const UCHAR vk = _keyCombo._key;
+	if (vk == 0)
+		return {};
+
+	int key = 0;
+	Qt::KeyboardModifiers modifiers;
+	if (_keyCombo._isCtrl)
+		modifiers |= Qt::ControlModifier;
+	if (_keyCombo._isAlt)
+		modifiers |= Qt::AltModifier;
+	if (_keyCombo._isShift)
+		modifiers |= Qt::ShiftModifier;
+
+	if ((vk >= VK_A && vk <= VK_Z) || (vk >= VK_0 && vk <= VK_9))
+		key = vk; // Qt::Key_A and Qt::Key_0 use the same numbers
+	else if (vk >= VK_F1 && vk <= VK_F24)
+		key = Qt::Key_F1 + (vk - VK_F1);
+	else if (vk >= VK_NUMPAD0 && vk <= VK_NUMPAD9)
+	{
+		key = Qt::Key_0 + (vk - VK_NUMPAD0);
+		modifiers |= Qt::KeypadModifier;
+	}
+	else
+	{
+		switch (vk)
+		{
+			case VK_BACK: key = Qt::Key_Backspace; break;
+			case VK_TAB: key = Qt::Key_Tab; break;
+			case VK_RETURN: key = Qt::Key_Return; break;
+			case VK_ESCAPE: key = Qt::Key_Escape; break;
+			case VK_SPACE: key = Qt::Key_Space; break;
+			case VK_PRIOR: key = Qt::Key_PageUp; break;
+			case VK_NEXT: key = Qt::Key_PageDown; break;
+			case VK_END: key = Qt::Key_End; break;
+			case VK_HOME: key = Qt::Key_Home; break;
+			case VK_LEFT: key = Qt::Key_Left; break;
+			case VK_UP: key = Qt::Key_Up; break;
+			case VK_RIGHT: key = Qt::Key_Right; break;
+			case VK_DOWN: key = Qt::Key_Down; break;
+			case VK_INSERT: key = Qt::Key_Insert; break;
+			case VK_DELETE: key = Qt::Key_Delete; break;
+			case VK_MULTIPLY: key = Qt::Key_Asterisk; modifiers |= Qt::KeypadModifier; break;
+			case VK_ADD: key = Qt::Key_Plus; modifiers |= Qt::KeypadModifier; break;
+			case VK_SUBTRACT: key = Qt::Key_Minus; modifiers |= Qt::KeypadModifier; break;
+			case VK_DECIMAL: key = Qt::Key_Period; modifiers |= Qt::KeypadModifier; break;
+			case VK_DIVIDE: key = Qt::Key_Slash; modifiers |= Qt::KeypadModifier; break;
+			// US layout names of the punctuation keys, as namedKeyArray shows them
+			case VK_OEM_1: key = Qt::Key_Semicolon; break;
+			case VK_OEM_PLUS: key = Qt::Key_Equal; break;
+			case VK_OEM_COMMA: key = Qt::Key_Comma; break;
+			case VK_OEM_MINUS: key = Qt::Key_Minus; break;
+			case VK_OEM_PERIOD: key = Qt::Key_Period; break;
+			case VK_OEM_2: key = Qt::Key_Slash; break;
+			case VK_OEM_3: key = Qt::Key_QuoteLeft; break;
+			case VK_OEM_4: key = Qt::Key_BracketLeft; break;
+			case VK_OEM_5: key = Qt::Key_Backslash; break;
+			case VK_OEM_6: key = Qt::Key_BracketRight; break;
+			case VK_OEM_7: key = Qt::Key_Apostrophe; break;
+			default: return {};
+		}
+	}
+	return QKeySequence(QKeyCombination(modifiers, static_cast<Qt::Key>(key)));
 }
 
 recordedMacroStep::recordedMacroStep(int iMessage, uptr_t wParam, uptr_t lParam)
@@ -1150,282 +972,162 @@ void ScintillaAccelerator::updateKeys()
 
 void ScintillaAccelerator::updateMenuItemByID(const ScintillaKeyMap& skm, int id)
 {
-	wchar_t cmdName[menuItemStrLenMax];
-	::GetMenuString(_hAccelMenu, id, cmdName, menuItemStrLenMax, MF_BYCOMMAND);
-	int i = 0;
-	while (cmdName[i] != 0)
+	QAction* action = nppFindMenuAction(_hAccelMenu, id);
+	if (!action)
+		return;
+
+	QKeySequence keys;
+	for (size_t i = 0; i < skm.getSize() && keys.isEmpty(); ++i)
 	{
-		if (cmdName[i] == '\t')
-		{
-			cmdName[i] = 0;
-			break;
-		}
-		++i;
+		const KeyCombo combo = skm.getKeyComboByIndex(i);
+		keys = Shortcut(nullptr, combo._isCtrl, combo._isAlt, combo._isShift, combo._key).toKeySequence();
 	}
-	wstring menuItem = cmdName;
-	if (skm.isEnabled())
-	{
-		menuItem += L"\t";
-		menuItem += string2wstring(skm.toString(), CP_UTF8);
-	}
-	::ModifyMenu(_hAccelMenu, id, MF_BYCOMMAND, id, menuItem.c_str());
-	::DrawMenuBar(_hMenuParent);
+
+	// As in the original's menu text, this only shows the key. Scintilla handles it, in whichever editor has the focus,
+	// which includes those of the panels, while a shortcut of the window would always act on the document.
+	action->setShortcut(keys);
+	action->setShortcutContext(Qt::WidgetShortcut);
 }
 
 //This procedure uses _keyCombo as a temp. variable to store current settings which can then later be applied (by pressing OK)
-void ScintillaKeyMap::applyToCurrentIndex()
+int ScintillaKeyMap::doDialog()
 {
-	int index = static_cast<int>(::SendDlgItemMessage(_hSelf, IDC_LIST_KEYS, LB_GETCURSEL, 0, 0));
-	if (index == LB_ERR)
-		return;
-	setKeyComboByIndex(static_cast<int>(index), _keyCombo);
-	updateListItem(index);
-	::SendDlgItemMessage(_hSelf, IDC_LIST_KEYS, LB_SETCURSEL, index, 0);
+	QDialog dialog(_hParent);
+	StaticDialog::applyDialogFont(&dialog);
+	Ui::ShortcutscintDlg ui;
+	ui.setupUi(&dialog);
 
-}
+	const auto toQ = [](const std::string& text) { return QString::fromUtf8(text.c_str()); };
 
-void ScintillaKeyMap::validateDialog()
-{
-	bool valid = isValid();	//current combo valid?
-	bool isDisabling = _keyCombo._key == 0;	//true if this keycombo were to disable the shortcut
-	bool isDisabled = !isEnabled();	//true if this shortcut already is 
-	bool isDuplicate = false; //true if already in the list
+	ui.nameEdit->setText(toQ(_name));
+	_keyCombo = _keyCombos[0];
 
-	for (size_t i = 0; i < _size; ++i) 
+	const std::vector<UCHAR> keyIds = fillKeyCombo(ui.keyCombo);
+
+	const auto validateDialog = [&]()
 	{
-		if (_keyCombo._key   == _keyCombos[i]._key   && _keyCombo._isCtrl  == _keyCombos[i]._isCtrl &&
-			_keyCombo._isAlt == _keyCombos[i]._isAlt && _keyCombo._isShift == _keyCombos[i]._isShift)
+		const bool valid = isValid();	//current combo valid?
+		const bool isDisabling = _keyCombo._key == 0;	//true if this keycombo were to disable the shortcut
+		const bool isDisabled = !isEnabled();	//true if this shortcut already is
+		const bool isDuplicate = std::any_of(_keyCombos.begin(), _keyCombos.begin() + _size, [this](const KeyCombo& k)
 		{
-			isDuplicate = true;
-			break;
+			return _keyCombo._key == k._key && _keyCombo._isCtrl == k._isCtrl && _keyCombo._isAlt == k._isAlt && _keyCombo._isShift == k._isShift;
+		});
+
+		ui.buttonAdd->setEnabled(valid && !isDisabling && !isDuplicate);
+		ui.buttonApply->setEnabled(valid && (!isDisabling || _size == 1) && !isDuplicate);
+		ui.buttonRmve->setEnabled(_size > 1);
+		ui.warningStatic->setVisible(isDisabled);
+		ui.conflictStatic->setVisible(hasKeyConflict());
+	};
+
+	const auto showCurrentSettings = [&]()
+	{
+		_keyCombo = _keyCombos[ui.listKeys->currentRow()];
+		ui.ctrlCheck->setChecked(_keyCombo._isCtrl);
+		ui.altCheck->setChecked(_keyCombo._isAlt);
+		ui.shiftCheck->setChecked(_keyCombo._isShift);
+		selectKey(ui.keyCombo, keyIds, _keyCombo._key);
+	};
+
+	const auto setRowText = [&](int index)
+	{
+		ui.listKeys->item(index)->setText(toQ(toString(index)));
+	};
+
+	for (size_t i = 0; i < _size; ++i)
+		ui.listKeys->addItem(toQ(toString(i)));
+	ui.listKeys->setCurrentRow(0);
+
+	showCurrentSettings();
+	validateDialog();
+	ui.warningStatic->hide(); // Hide this warning on startup
+
+	const auto modifierHandler = [&](bool KeyCombo::* member)
+	{
+		return [&, member](bool checked)
+		{
+			_keyCombo.*member = checked;
+			validateDialog();
+		};
+	};
+	QObject::connect(ui.ctrlCheck, &QCheckBox::clicked, &dialog, modifierHandler(&KeyCombo::_isCtrl));
+	QObject::connect(ui.altCheck, &QCheckBox::clicked, &dialog, modifierHandler(&KeyCombo::_isAlt));
+	QObject::connect(ui.shiftCheck, &QCheckBox::clicked, &dialog, modifierHandler(&KeyCombo::_isShift));
+
+	QObject::connect(ui.buttonAdd, &QPushButton::clicked, &dialog, [&]()
+	{
+		const size_t oldSize = _size;
+		const int res = addKeyCombo(_keyCombo);
+		if (res > -1)
+		{
+			if (res == static_cast<int>(oldSize))
+				ui.listKeys->addItem(toQ(toString(res)));
+			else //update current string, can happen if it was disabled
+				setRowText(res);
+			ui.listKeys->setCurrentRow(res);
 		}
-	}
+		showCurrentSettings();
+		validateDialog();
+	});
 
-	::EnableWindow(::GetDlgItem(_hSelf, IDC_BUTTON_ADD), valid && !isDisabling && !isDuplicate);
-	::EnableWindow(::GetDlgItem(_hSelf, IDC_BUTTON_APPLY), valid && (!isDisabling || _size == 1) && !isDuplicate);
-	::EnableWindow(::GetDlgItem(_hSelf, IDC_BUTTON_RMVE), (_size > 1)?TRUE:FALSE);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_WARNING_STATIC), isDisabled?SW_SHOW:SW_HIDE);
-	updateConflictState();
-}
-
-void ScintillaKeyMap::showCurrentSettings()
-{
-	auto keyIndex = ::SendDlgItemMessage(_hSelf, IDC_LIST_KEYS, LB_GETCURSEL, 0, 0);
-	_keyCombo = _keyCombos[keyIndex];
-	::SendDlgItemMessage(_hSelf, IDC_CTRL_CHECK,	BM_SETCHECK, _keyCombo._isCtrl?BST_CHECKED:BST_UNCHECKED, 0);
-	::SendDlgItemMessage(_hSelf, IDC_ALT_CHECK,		BM_SETCHECK, _keyCombo._isAlt?BST_CHECKED:BST_UNCHECKED, 0);
-	::SendDlgItemMessage(_hSelf, IDC_SHIFT_CHECK,	BM_SETCHECK, _keyCombo._isShift?BST_CHECKED:BST_UNCHECKED, 0);
-	for (size_t i = 0 ; i < nbKeys ; ++i)
+	QObject::connect(ui.buttonRmve, &QPushButton::clicked, &dialog, [&]()
 	{
-		if (_keyCombo._key == namedKeyArray[i].id)
+		if (_size == 1)	//cannot delete last shortcut
+			return;
+		int row = ui.listKeys->currentRow();
+		removeKeyComboByIndex(row);
 		{
-			::SendDlgItemMessage(_hSelf, IDC_KEY_COMBO, CB_SETCURSEL, i, 0);
-			break;
+			const QSignalBlocker blocker(ui.listKeys);
+			delete ui.listKeys->takeItem(row);
 		}
-	}
-}
+		if (static_cast<size_t>(row) == _size)
+			row = static_cast<int>(_size) - 1;
+		ui.listKeys->setCurrentRow(row);
+		showCurrentSettings();
+		validateDialog();
+	});
 
-void ScintillaKeyMap::updateListItem(int index)
-{
-	::SendDlgItemMessage(_hSelf, IDC_LIST_KEYS, LB_INSERTSTRING, index, reinterpret_cast<LPARAM>(string2wstring(toString(index), CP_UTF8).c_str()));
-	::SendDlgItemMessage(_hSelf, IDC_LIST_KEYS, LB_DELETESTRING, index+1, 0);
-}
-
-intptr_t CALLBACK ScintillaKeyMap::run_dlgProc(UINT Message, WPARAM wParam, LPARAM lParam) 
-{
-	
-	switch (Message)
+	QObject::connect(ui.buttonApply, &QPushButton::clicked, &dialog, [&]()
 	{
-		case WM_INITDIALOG:
+		const int row = ui.listKeys->currentRow();
+		if (row >= 0)
 		{
-			NppDarkMode::autoSubclassAndThemeChildControls(_hSelf);
+			setKeyComboByIndex(row, _keyCombo);
+			setRowText(row);
+		}
+		validateDialog();
+	});
 
-			mapOemVirtualKeys();
+	QObject::connect(ui.keyCombo, &QComboBox::activated, &dialog, [&](int index)
+	{
+		_keyCombo._key = keyIds[index];
+		ui.warningStatic->setVisible(!isEnabled());
+		validateDialog();
+	});
 
-			::SetDlgItemText(_hSelf, IDC_NAME_EDIT, string2wstring(_name, CP_UTF8).c_str());
-			_keyCombo = _keyCombos[0];
-			oemVkUsedIDs.clear();	// the logic below (always pushing onto the vector) requires that it starts fresh every time, otherwise it will grow every time the dialog is launched
-
-			for (size_t i = 0 ; i < nbKeys ; ++i)
-			{
-				const char* nameStr = namedKeyArray[i].name;
-				
-				if (oemVirtualKeyMap.find(namedKeyArray[i].id) != oemVirtualKeyMap.end()) 
-				{
-					nameStr = oemVirtualKeyMap[namedKeyArray[i].id];
-				} 
-				
-				// only add a key to the IDC_KEY_COMBO list if the string is not empty
-				if (nameStr[0])
-				{
-					::SendDlgItemMessage(_hSelf, IDC_KEY_COMBO, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(string2wstring(nameStr, CP_UTF8).c_str()));
-					oemVkUsedIDs.push_back(namedKeyArray[i].id);
-				}
-			}
-
-			for (size_t i = 0; i < _size; ++i)
-			{
-				::SendDlgItemMessage(_hSelf, IDC_LIST_KEYS, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(string2wstring(toString(i), CP_UTF8).c_str()));
-			}
-			::SendDlgItemMessage(_hSelf, IDC_LIST_KEYS, LB_SETCURSEL, 0, 0);
-
+	QObject::connect(ui.listKeys, &QListWidget::currentRowChanged, &dialog, [&](int row)
+	{
+		if (row >= 0)
+		{
 			showCurrentSettings();
 			validateDialog();
-
-			// Hide this warning on startup
-			::ShowWindow(::GetDlgItem(_hSelf, IDC_WARNING_STATIC), SW_HIDE);
-
-			NativeLangSpeaker* nativeLangSpeaker = NppParameters::getInstance().getNativeLangSpeaker();
-			nativeLangSpeaker->changeDlgLang(_hSelf, "ShortcutMapperSubDialg");
-			goToCenter(SWP_SHOWWINDOW | SWP_NOSIZE);
-			return TRUE;
 		}
+	});
 
-		case WM_CTLCOLOREDIT:
-		{
-			return NppDarkMode::onCtlColor(reinterpret_cast<HDC>(wParam));
-		}
+	QObject::connect(ui.ok, &QPushButton::clicked, &dialog, &QDialog::accept);
+	QObject::connect(ui.cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
 
-		case WM_CTLCOLORLISTBOX:
-		{
-			return NppDarkMode::onCtlColorListbox(wParam, lParam);
-		}
+	NppParameters::getInstance().getNativeLangSpeaker()->changeDlgLang(&dialog, "ShortcutMapperSubDialg");
+	centerOn(dialog, _hParent);
 
-		case WM_CTLCOLORDLG:
-		case WM_CTLCOLORSTATIC:
-		{
-			auto dlgCtrlID = ::GetDlgCtrlID(reinterpret_cast<HWND>(lParam));
-			if (dlgCtrlID == IDC_NAME_EDIT)
-			{
-				return NppDarkMode::onCtlColor(reinterpret_cast<HDC>(wParam));
-			}
-			return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-		}
+	const int result = dialog.exec();
 
-		case WM_PRINTCLIENT:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				return TRUE;
-			}
-			break;
-		}
+	//Cleanup
+	_keyCombo._key = 0;
+	_keyCombo._isCtrl = _keyCombo._isAlt = _keyCombo._isShift = false;
 
-		case NPPM_INTERNAL_REFRESHDARKMODE:
-		{
-			NppDarkMode::autoThemeChildControls(_hSelf);
-			return TRUE;
-		}
-
-		case WM_DPICHANGED:
-		{
-			_dpiManager.setDpiWP(wParam);
-			setPositionDpi(lParam);
-
-			return TRUE;
-		}
-
-		case WM_COMMAND:
-		{
-			switch (LOWORD(wParam))
-			{
-				case IDC_CTRL_CHECK :
-					_keyCombo._isCtrl = BST_CHECKED == ::SendDlgItemMessage(_hSelf, static_cast<int32_t>(wParam), BM_GETCHECK, 0, 0);
-					validateDialog();
-					return TRUE;
-
-				case IDC_ALT_CHECK :
-					_keyCombo._isAlt = BST_CHECKED == ::SendDlgItemMessage(_hSelf, static_cast<int32_t>(wParam), BM_GETCHECK, 0, 0);
-					validateDialog();
-					return TRUE;
-
-				case IDC_SHIFT_CHECK :
-					_keyCombo._isShift = BST_CHECKED == ::SendDlgItemMessage(_hSelf, static_cast<int32_t>(wParam), BM_GETCHECK, 0, 0);
-					validateDialog();
-					return TRUE;
-
-				case IDOK :
-					//Cleanup
-					_keyCombo._key = 0;
-					_keyCombo._isCtrl = _keyCombo._isAlt = _keyCombo._isShift = false;
-					::EndDialog(_hSelf, 0);
-					return TRUE;
-
-				case IDCANCEL :
-					::EndDialog(_hSelf, -1);
-					return TRUE;
-
-				case IDC_BUTTON_ADD:
-				{
-					size_t oldsize = _size;
-					int res = addKeyCombo(_keyCombo);
-					if (res > -1)
-					{
-						if (res == static_cast<int32_t>(oldsize))
-						{
-							::SendDlgItemMessage(_hSelf, IDC_LIST_KEYS, LB_INSERTSTRING, static_cast<WPARAM>(-1), reinterpret_cast<LPARAM>(string2wstring(toString(res), CP_UTF8).c_str()));
-						}
-						else
-						{	//update current string, can happen if it was disabled
-							updateListItem(res);
-						}
-						::SendDlgItemMessage(_hSelf, IDC_LIST_KEYS, LB_SETCURSEL, res, 0);
-					}
-					showCurrentSettings();
-					validateDialog();
-					return TRUE; 
-				}
-
-				case IDC_BUTTON_RMVE:
-				{
-					if (_size == 1)	//cannot delete last shortcut
-						return TRUE;
-					auto i = ::SendDlgItemMessage(_hSelf, IDC_LIST_KEYS, LB_GETCURSEL, 0, 0);
-					removeKeyComboByIndex(i);
-					::SendDlgItemMessage(_hSelf, IDC_LIST_KEYS, LB_DELETESTRING, i, 0);
-					if (static_cast<size_t>(i) == _size)
-						i = _size - 1;
-					::SendDlgItemMessage(_hSelf, IDC_LIST_KEYS, LB_SETCURSEL, i, 0);
-					showCurrentSettings();
-					validateDialog();
-					return TRUE; 
-				}
-
-				case IDC_BUTTON_APPLY:
-				{
-					applyToCurrentIndex();
-					validateDialog();
-					return TRUE;
-				}
-
-				default:
-					if (HIWORD(wParam) == CBN_SELCHANGE) // LBN_SELCHANGE has same value 1
-					{
-						switch(LOWORD(wParam))
-						{
-							case IDC_KEY_COMBO:
-							{
-								auto iSel = ::SendDlgItemMessage(_hSelf, IDC_KEY_COMBO, CB_GETCURSEL, 0, 0);
-								_keyCombo._key = oemVkUsedIDs[iSel];
-								::ShowWindow(::GetDlgItem(_hSelf, IDC_WARNING_STATIC), isEnabled() ? SW_HIDE : SW_SHOW);
-								validateDialog();
-								return TRUE;
-							}
-							case IDC_LIST_KEYS:
-							{
-								showCurrentSettings();
-								validateDialog();
-								return TRUE;
-							}
-						}
-					}
-					return FALSE;
-			}
-		}
-		default :
-			return FALSE;
-	}
-	return FALSE;
+	return (result == QDialog::Accepted) ? 0 : -1;
 }
 
 void CommandShortcut::setCategoryFromMenu(HMENU hMenu)
@@ -1478,7 +1180,7 @@ CommandShortcut& CommandShortcut::operator = (const Shortcut& sct)
 {
 	if (this != &sct)
 	{
-		strcpy(this->_name, sct.getName());
+		this->_name = sct.getName();
 		this->_keyCombo = sct.getKeyCombo();
 	}
 	return *this;

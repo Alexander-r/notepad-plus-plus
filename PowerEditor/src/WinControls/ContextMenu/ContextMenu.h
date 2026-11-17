@@ -14,10 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #pragma once
-#include "NppConstants.h"
+
+#include <string>
+#include <vector>
+
 #include "Common.h"
 
-
+class QAction;
 
 struct MenuItemUnit final
 {
@@ -32,6 +35,7 @@ struct MenuItemUnit final
 };
 
 
+// Popup menu of command IDs. Choosing an item sends WM_COMMAND with its ID to the parent.
 class ContextMenu final
 {
 public:
@@ -39,25 +43,14 @@ public:
 		destroy();
 	}
 
-	void create(HWND hParent, const std::vector<MenuItemUnit> & menuItemArray, const HMENU mainMenuHandle = NULL, bool copyLink = false);
-	bool isCreated() const {return _hMenu != NULL;}
-	
-	void display(const POINT & p) const {
-		::TrackPopupMenu(_hMenu, TPM_LEFTALIGN, p.x, p.y, 0, _hParent, NULL);
-	}
+	void create(HWND hParent, const std::vector<MenuItemUnit> & menuItemArray, const HMENU mainMenuHandle = nullptr, bool copyLink = false);
+	bool isCreated() const {return _hMenu != nullptr;}
 
+	void display(const POINT & p) const;
 	void display(HWND hwnd) const;
 
-	void enableItem(int cmdID, bool doEnable) const
-	{
-		int flag = doEnable ? (MF_ENABLED | MF_BYCOMMAND) : (MF_DISABLED | MF_GRAYED | MF_BYCOMMAND);
-		::EnableMenuItem(_hMenu, cmdID, flag);
-	}
-
-	void checkItem(int cmdID, bool doCheck) const
-	{
-		::CheckMenuItem(_hMenu, cmdID, MF_BYCOMMAND | (doCheck ? MF_CHECKED : MF_UNCHECKED));
-	}
+	void enableItem(int cmdID, bool doEnable) const;
+	void checkItem(int cmdID, bool doCheck) const;
 
 	HMENU getMenuHandle() const
 	{
@@ -66,10 +59,9 @@ public:
 
 	void destroy();
 
-	HBITMAP _tabColorBitmaps[TAB_COLORS_COUNT]{};
-
 private:
-	HWND _hParent = NULL;
-	HMENU _hMenu = NULL;
-	std::vector<HMENU> _subMenus;
+	QAction* findAction(int cmdID) const;
+
+	HWND _hParent = nullptr;
+	HMENU _hMenu = nullptr;
 };

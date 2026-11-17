@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <windows.h>
+#include <QPoint>
 
 #include <memory>
 #include <string>
@@ -61,11 +61,16 @@ enum NodeType {
 };
 
 class CustomFileDialog;
+class QMenu;
+class QToolButton;
 
 class ProjectPanel : public DockingDlgInterface {
 public:
 	ProjectPanel() : DockingDlgInterface(IDD_PROJECTPANEL) {}
-	~ProjectPanel() override = default;
+	~ProjectPanel() override;
+
+	using DockingDlgInterface::create;
+	void create(DockedWidgetData* data, bool isRTL = false) override;
 
 	void init(HINSTANCE hInst, HWND hPere, int panelID) {
 		DockingDlgInterface::init(hInst, hPere);
@@ -99,22 +104,31 @@ public:
 	}
 	bool checkIfNeedSave();
 
+	void refreshIcons() override {
+		DockingDlgInterface::refreshIcons();
+		_treeView.refreshImages();
+	}
+
 	void setBackgroundColor(COLORREF bgColour) override {
-		TreeView_SetBkColor(_treeView.getHSelf(), bgColour);
+		_bgColour = bgColour;
+		_treeView.setColours(_bgColour, _fgColour);
 	}
 	void setForegroundColor(COLORREF fgColour) override {
-		TreeView_SetTextColor(_treeView.getHSelf(), fgColour);
+		_fgColour = fgColour;
+		_treeView.setColours(_bgColour, _fgColour);
 	}
 	bool enumWorkSpaceFiles(HTREEITEM tvFrom, const std::vector<std::wstring>& patterns, std::vector<std::wstring>& fileNames);
 
 protected:
 	TreeView _treeView;
-	HIMAGELIST _hImaLst = nullptr;
-	HWND _hToolbarMenu = nullptr;
-	HMENU _hWorkSpaceMenu = nullptr;
-	HMENU _hProjectMenu = nullptr;
-	HMENU _hFolderMenu = nullptr;
-	HMENU _hFileMenu = nullptr;
+	COLORREF _bgColour = RGB(0xFF, 0xFF, 0xFF);
+	COLORREF _fgColour = RGB(0, 0, 0);
+	QToolButton* _workspaceButton = nullptr;
+	QToolButton* _editButton = nullptr;
+	std::unique_ptr<QMenu> _hWorkSpaceMenu;
+	std::unique_ptr<QMenu> _hProjectMenu;
+	std::unique_ptr<QMenu> _hFolderMenu;
+	std::unique_ptr<QMenu> _hFileMenu;
 	std::wstring _panelTitle;
 	std::wstring _workSpaceFilePath;
 	std::wstring _selDirOfFilesFromDirDlg;
@@ -122,11 +136,12 @@ protected:
 	int _panelID = 0;
 
 	void initMenus();
-	void destroyMenus() const;
+	void connectTree();
+	void onLabelEdited();
 	void addFiles(HTREEITEM hTreeItem);
 	void addFilesFromDirectory(HTREEITEM hTreeItem);
 	void recursiveAddFilesFrom(const wchar_t* folderPath, HTREEITEM hTreeItem);
-	HTREEITEM addFolder(HTREEITEM hTreeItem, const wchar_t* folderName);
+	HTREEITEM addFolder(HTREEITEM hTreeItem, const wchar_t* folderName, bool toEditLabel = true);
 
 	bool writeWorkSpace(const wchar_t* projectFileName = nullptr, bool doUpdateGUI = true);
 	std::wstring getRelativePath(const std::wstring& filePath, const wchar_t* workSpaceFileName);
@@ -134,13 +149,11 @@ protected:
 	NodeType getNodeType(HTREEITEM hItem);
 	void setWorkSpaceDirty(bool isDirty);
 	void popupMenuCmd(int cmdID);
-	POINT getMenuDisplayPoint(int iButton) const;
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	QPoint getMenuDisplayPoint(const QToolButton* button) const;
 	bool buildTreeFrom(const NppXml::Element& projectRoot, HTREEITEM hParentItem);
-	void notified(LPNMHDR notification);
-	void showContextMenu(int x, int y);
-	void showContextMenuFromMenuKey(HTREEITEM selectedItem, int x, int y);
-	HMENU getMenuHandler(HTREEITEM selectedItem);
+	void onDockingNotify(const NMHDR& notification) override;
+	void showContextMenu(const QPoint& position);
+	QMenu* getMenuHandler(HTREEITEM selectedItem);
 	std::wstring getAbsoluteFilePath(const wchar_t* relativePath);
 	void openSelectFile();
 	void setFileExtFilter(CustomFileDialog& fDlg);
@@ -162,9 +175,6 @@ public:
 	const std::wstring& getFullFilePath() const {
 		return _fullFilePath;
 	}
-
-protected:
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
 
 private:
 	std::wstring _fullFilePath;

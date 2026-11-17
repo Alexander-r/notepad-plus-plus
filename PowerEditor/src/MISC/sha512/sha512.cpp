@@ -14,45 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-#include <windows.h>
-#include <wincrypt.h>
 #include "sha512.h"
 
-//#if defined(_MSC_VER)
-//#pragma comment(lib, "crypt32.lib")
-//#endif
+#include <QByteArrayView>
+#include <QCryptographicHash>
+
+#include <algorithm>
 
 void calc_sha_512(unsigned char hash[64], const void *input, size_t len) {
-    HCRYPTPROV hProv = 0;
-    HCRYPTHASH hHash = 0;
-    DWORD dwHashLen = 64;
-
-    if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
-        //std::cerr << "CryptAcquireContext failed: " << GetLastError() << std::endl;
-        return;
-    }
-
-    if (!CryptCreateHash(hProv, CALG_SHA_512, 0, 0, &hHash)) {
-        //std::cerr << "CryptCreateHash failed: " << GetLastError() << std::endl;
-        CryptReleaseContext(hProv, 0);
-        return;
-    }
-
-    if (!CryptHashData(hHash, (BYTE*)input, DWORD(len), 0)) {
-        //std::cerr << "CryptHashData failed: " << GetLastError() << std::endl;
-        CryptDestroyHash(hHash);
-        CryptReleaseContext(hProv, 0);
-        return;
-    }
-
-    if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &dwHashLen, 0)) {
-        //std::cerr << "CryptGetHashParam failed: " << GetLastError() << std::endl;
-        CryptDestroyHash(hHash);
-        CryptReleaseContext(hProv, 0);
-        return;
-    }
-
-    CryptDestroyHash(hHash);
-    CryptReleaseContext(hProv, 0);
+	const QByteArray result = QCryptographicHash::hash(QByteArrayView(static_cast<const char*>(input), static_cast<qsizetype>(len)), QCryptographicHash::Sha512);
+	std::copy(result.cbegin(), result.cend(), hash);
 }
-

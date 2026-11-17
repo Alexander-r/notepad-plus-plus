@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubHighlightingDlg</class>
+ <widget class="QWidget" name="PreferenceSubHighlightingDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <layout class="QHBoxLayout" name="layout2">
+     <item>
+      <layout class="QVBoxLayout" name="layout3">
+       <item>
+        <widget class="QGroupBox" name="markallStatic">
+         <property name="nppId" stdset="0"><number>6351</number></property>
+         <property name="title"><string>Style All Occurrences of Token</string></property>
+         <layout class="QVBoxLayout" name="layout4">
+          <item>
+           <widget class="QCheckBox" name="checkMarkallcasesensitive">
+            <property name="nppId" stdset="0"><number>6352</number></property>
+            <property name="text"><string>Match case</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkMarkallwholewordonly">
+            <property name="nppId" stdset="0"><number>6353</number></property>
+            <property name="text"><string>Match whole word only</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="tagmatchedhiliteStatic">
+         <property name="nppId" stdset="0"><number>6329</number></property>
+         <property name="title"><string>Highlight Matching Tags</string></property>
+         <layout class="QVBoxLayout" name="layout5">
+          <item>
+           <widget class="QCheckBox" name="checkEnabltagsmatchhilite">
+            <property name="nppId" stdset="0"><number>6327</number></property>
+            <property name="text"><string>Enable</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkEnabltagattrhilite">
+            <property name="nppId" stdset="0"><number>6328</number></property>
+            <property name="text"><string>Highlight tag attributes</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkHighlitenonehtmlzone">
+            <property name="nppId" stdset="0"><number>6330</number></property>
+            <property name="text"><string>Highlight comment/php/asp zone</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="spacer6">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="layout7">
+       <item>
+        <widget class="QGroupBox" name="smarthilitingStatic">
+         <property name="nppId" stdset="0"><number>6333</number></property>
+         <property name="title"><string>Smart Highlighting</string></property>
+         <layout class="QVBoxLayout" name="layout8">
+          <item>
+           <widget class="QCheckBox" name="checkEnablsmarthilite">
+            <property name="nppId" stdset="0"><number>6326</number></property>
+            <property name="text"><string>Enable</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkSmarthiliteanotherrview">
+            <property name="nppId" stdset="0"><number>6340</number></property>
+            <property name="text"><string>Highlight another view</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="smarthilitematchingStatic">
+            <property name="nppId" stdset="0"><number>6354</number></property>
+            <property name="title"><string>Matching</string></property>
+            <layout class="QVBoxLayout" name="layout9">
+             <item>
+              <widget class="QCheckBox" name="checkSmarthilitecasesensitive">
+               <property name="nppId" stdset="0"><number>6332</number></property>
+               <property name="text"><string>Match case</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="checkSmarthilitewholewordonly">
+               <property name="nppId" stdset="0"><number>6338</number></property>
+               <property name="text"><string>Match whole word only</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="checkSmarthiliteusefindsettings">
+               <property name="nppId" stdset="0"><number>6339</number></property>
+               <property name="text"><string>Use Find dialog settings</string></property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="spacer10">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <spacer name="spacer11">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

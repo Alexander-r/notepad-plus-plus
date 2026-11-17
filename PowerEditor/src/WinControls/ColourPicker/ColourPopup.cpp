@@ -17,20 +17,21 @@
 
 #include "ColourPopup.h"
 
-#include <windows.h>
-
-#include <commdlg.h>
+#include <QAbstractButton>
+#include <QColorDialog>
+#include <QDialog>
+#include <QListWidget>
+#include <QPainter>
+#include <QPixmap>
 
 #include <array>
-#include <stdexcept>
+#include <utility>
 
 #include "ColourPopupResource.h"
-#include "NppDarkMode.h"
 #include "Parameters.h"
 #include "StaticDialog.h"
-#include "Window.h"
-#include "dpiManagerV2.h"
 #include "localization.h"
+#include "ui_ColourPopupDlg.h"
 
 static constexpr std::array<COLORREF, 48> colorItems{ {
 	RGB(  0,   0,   0), RGB( 64,   0,   0), RGB(128,   0,   0), RGB(128,  64,  64), RGB(255,   0,   0), RGB(255, 128, 128),
@@ -43,291 +44,86 @@ static constexpr std::array<COLORREF, 48> colorItems{ {
 	RGB(255, 128, 255), RGB(255,   0, 255), RGB(255,   0, 128), RGB(128,   0, 255), RGB( 64,   0, 128), RGB(255, 255, 255),
 } };
 
-void ColourPopup::createColorPopup()
+namespace
 {
-	_hSelf = StaticDialog::myCreateDialogIndirectParam(IDD_COLOUR_POPUP, false, 0, L"", ColourPopup::dlgClrPopupProc);
-
-	if (!_hSelf)
+	QColor toQColor(COLORREF colour)
 	{
-		throw std::runtime_error("ColourPopup::createColorPopup : StaticDialog::myCreateDialogIndirectParam() function returns nullptr");
+		return QColor(GetRValue(colour), GetGValue(colour), GetBValue(colour));
 	}
+
+	COLORREF toColorRef(const QColor& colour)
+	{
+		return RGB(colour.red(), colour.green(), colour.blue());
+	}
+
+	constexpr int swatchSize = 20;
+	constexpr int cellSize = swatchSize + 6;
+	constexpr int nbColumns = 8;
+	constexpr int nbRows = 6;
 }
 
-void ColourPopup::doDialog(POINT p)
+void ColourPopup::doDialog(const QPoint& position, std::function<void(COLORREF)> onChosen)
 {
-	if (!isCreated())
-	{
-		const auto dpiContext = DPIManagerV2::setThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-		createColorPopup();
-		DPIManagerV2::setThreadDpiAwarenessContext(dpiContext);
+	_onChosen = std::move(onChosen);
 
-		::SetWindowPos(_hSelf, HWND_TOP, p.x, p.y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
+	QDialog* dialog = createDialogWidget(false);
+	Ui::ColourPopupDlg ui;
+	ui.setupUi(dialog);
+	dialog->setWindowFlags(Qt::Popup);
+
+	QListWidget* list = ui.colourList;
+	list->setViewMode(QListView::IconMode);
+	list->setMovement(QListView::Static);
+	list->setResizeMode(QListView::Adjust);
+	list->setIconSize(QSize(swatchSize, swatchSize));
+	list->setGridSize(QSize(cellSize, cellSize));
+	list->setUniformItemSizes(true);
+	list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+	list->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+	list->setFixedSize(nbColumns * cellSize + 2 * list->frameWidth() + 2, nbRows * cellSize + 2 * list->frameWidth() + 2);
+
+	for (const COLORREF colour : colorItems)
+	{
+		QPixmap swatch(swatchSize, swatchSize);
+		swatch.fill(toQColor(colour));
+		QPainter painter(&swatch);
+		painter.setPen(Qt::gray);
+		painter.drawRect(0, 0, swatchSize - 1, swatchSize - 1);
+		painter.end();
+
+		auto* item = new QListWidgetItem(QIcon(swatch), QString(), list);
+		item->setData(Qt::UserRole, static_cast<uint>(colour));
 	}
+
+	const NativeLangSpeaker* pNativeSpeaker = NppParameters::getInstance().getNativeLangSpeaker();
+	pNativeSpeaker->changeDlgLang(dialog, "ColorPopup");
+
+	// The chooser may destroy this object, so nothing here can use it afterwards
+	QObject::connect(list, &QListWidget::itemClicked, dialog, [this](QListWidgetItem* item)
+	{
+		const std::function<void(COLORREF)> onChosen = _onChosen;
+		onChosen(static_cast<COLORREF>(item->data(Qt::UserRole).toUInt()));
+	});
+	QObject::connect(ui.ok, &QAbstractButton::clicked, dialog, [this]() { chooseFromDialog(); });
+
+	dialog->move(position);
+	dialog->show();
 }
 
-intptr_t CALLBACK ColourPopup::dlgClrPopupProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+void ColourPopup::chooseFromDialog()
 {
-	switch (message)
-	{
-		case WM_MEASUREITEM: // sent before WM_INITDIALOG
-		{
-			RECT rc;
-			LPMEASUREITEMSTRUCT lpmis = reinterpret_cast<LPMEASUREITEMSTRUCT>(lParam);
-			::GetWindowRect(::GetDlgItem(hwnd, lpmis->CtlID), &rc);
-			lpmis->itemHeight = (rc.bottom-rc.top)/6; 
-			lpmis->itemWidth = (rc.right-rc.left)/8;
-			return TRUE;
-		}
+	_hSelf->hide();
 
-		case WM_INITDIALOG :
-		{
-			ColourPopup *pColourPopup = reinterpret_cast<ColourPopup *>(lParam);
-			pColourPopup->_hSelf = hwnd;
-			::SetWindowLongPtr(hwnd, GWLP_USERDATA, static_cast<LONG_PTR>(lParam));
-			pColourPopup->run_dlgProc(message, wParam, lParam);
-			return TRUE;
-		}
+	// These are kept with the settings
+	auto& customColors = NppParameters::getInstance().getNppGUI()._colorPickerCustomColors;
+	for (int i = 0; i < static_cast<int>(customColors.size()); ++i)
+		QColorDialog::setCustomColor(i, toQColor(customColors[i]));
 
-		default :
-		{
-			ColourPopup *pColourPopup = reinterpret_cast<ColourPopup *>(::GetWindowLongPtr(hwnd, GWLP_USERDATA));
-			if (!pColourPopup)
-				return FALSE;
-			return pColourPopup->run_dlgProc(message, wParam, lParam);
-		}
-	}
-}
+	const QColor chosen = QColorDialog::getColor(toQColor(_colour), _hParent);
 
-intptr_t CALLBACK ColourPopup::run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam)
-{
+	for (int i = 0; i < static_cast<int>(customColors.size()); ++i)
+		customColors[i] = toColorRef(QColorDialog::customColor(i));
 
-	switch (message)
-	{
-		case WM_INITDIALOG:
-		{
-			NppDarkMode::autoSubclassAndThemeChildControls(_hSelf);
-
-			for (const auto& color : colorItems)
-			{
-				const auto i = ::SendDlgItemMessage(_hSelf, IDC_COLOUR_LIST, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(""));
-				if (i != LB_ERR)
-					::SendDlgItemMessage(_hSelf, IDC_COLOUR_LIST, LB_SETITEMDATA, i, static_cast<LPARAM>(color));
-			}
-
-			const NativeLangSpeaker* pNativeSpeaker = NppParameters::getInstance().getNativeLangSpeaker();
-			pNativeSpeaker->changeDlgLang(_hSelf, "ColorPopup");
-			return TRUE;
-		}
-		
-		case WM_CTLCOLORLISTBOX:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-			}
-			return reinterpret_cast<LRESULT>(::GetStockObject(NULL_BRUSH));
-		}
-
-		case WM_CTLCOLORDLG:
-		case WM_CTLCOLORSTATIC:
-		{
-			return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_PRINTCLIENT:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				return TRUE;
-			}
-			break;
-		}
-
-		case WM_DRAWITEM:
-		{
-			HDC hdc;
-			COLORREF	cr;
-			HBRUSH		hbrush;
-	
-			auto* pdis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
-			hdc = pdis->hDC;
-			RECT rc = pdis->rcItem;
-	
-			// Transparent.
-			SetBkMode(hdc,TRANSPARENT);
-	
-			// NULL object
-			if (pdis->itemID == static_cast<UINT>(-1)) return 0;
-
-			switch (pdis->itemAction)
-			{
-				case ODA_DRAWENTIRE:
-					switch (pdis->CtlID)
-					{
-						case IDC_COLOUR_LIST:
-							rc = pdis->rcItem;
-							cr = static_cast<COLORREF>(pdis->itemData);
-							InflateRect(&rc, -3, -3);
-							hbrush = ::CreateSolidBrush(cr);
-							FillRect(hdc, &rc, hbrush);
-							DeleteObject(hbrush);
-							hbrush = CreateSolidBrush(NppDarkMode::isEnabled() ? NppDarkMode::getEdgeColor() : RGB(0, 0, 0));
-							FrameRect(hdc, &rc, hbrush);
-							DeleteObject(hbrush);
-							break;
-					}
-					// *** FALL THROUGH ***
-					[[fallthrough]];
-				case ODA_SELECT:
-					rc = pdis->rcItem;
-					if (pdis->itemState & ODS_SELECTED)
-					{
-						rc.bottom --;
-						rc.right --;
-						// Draw the lighted side.
-						HPEN hpen = CreatePen(PS_SOLID, 1, NppDarkMode::isEnabled() ? NppDarkMode::getEdgeColor() : GetSysColor(COLOR_BTNSHADOW));
-						auto holdPen = static_cast<HPEN>(::SelectObject(hdc, hpen));
-						MoveToEx(hdc, rc.left, rc.bottom, NULL);
-						LineTo(hdc, rc.left, rc.top);
-						LineTo(hdc, rc.right, rc.top);
-						SelectObject(hdc, holdPen);
-						DeleteObject(hpen);
-						// Draw the darkened side.
-						hpen = CreatePen(PS_SOLID, 1, NppDarkMode::isEnabled() ? NppDarkMode::getEdgeColor() : GetSysColor(COLOR_BTNHIGHLIGHT));
-						holdPen = static_cast<HPEN>(::SelectObject(hdc, hpen));
-						LineTo(hdc, rc.right, rc.bottom);
-						LineTo(hdc, rc.left, rc.bottom);
-						SelectObject(hdc, holdPen);
-						DeleteObject(hpen);
-					}
-					else 
-					{
-						hbrush = CreateSolidBrush(NppDarkMode::isEnabled() ? NppDarkMode::getDlgBackgroundColor() : GetSysColor(COLOR_3DFACE));
-						FrameRect(hdc, &rc, hbrush);
-						DeleteObject(hbrush);
-					}
-					break;
-				case ODA_FOCUS:
-					rc = pdis->rcItem;
-					InflateRect(&rc, -2, -2);
-					DrawFocusRect(hdc, &rc);
-					break;
-				default:
-					break;
-			}
-			return TRUE;
-		}
-
-		case WM_COMMAND:
-			switch (LOWORD(wParam))
-			{
-				case IDOK:
-				{
-					// The 16 custom color slots are persisted across restarts (issue #4782):
-					// ChooseColorW reads/writes this array in place, and it is saved to
-					// config.xml on exit.
-					auto& customColors = NppParameters::getInstance().getNppGUI()._colorPickerCustomColors;
-
-					CHOOSECOLOR cc{};
-					cc.lStructSize = sizeof(CHOOSECOLOR);
-					cc.hwndOwner = _hParent;
-
-					cc.lpCustColors = customColors.data();
-					cc.rgbResult = _colour;
-					cc.lpfnHook = chooseColorDlgProc;
-					cc.Flags = CC_FULLOPEN | CC_RGBINIT | CC_ENABLEHOOK;
-
-					Window::display(false);
-
-					const auto dpiContext = DPIManagerV2::setThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_UNAWARE_GDISCALED);
-					NppDarkMode::darkChooseColorW(&cc);
-					DPIManagerV2::setThreadDpiAwarenessContext(dpiContext);
-
-					::SendMessage(_hParent, WM_PICKUP_COLOR, cc.rgbResult, 0);
-
-					return TRUE;
-				}
-
-				case IDC_COLOUR_LIST:
-				{
-					if (HIWORD(wParam) == LBN_SELCHANGE)
-					{
-						const auto i = ::SendMessage(reinterpret_cast<HWND>(lParam), LB_GETCURSEL, 0, 0);
-						_colour = static_cast<COLORREF>(::SendMessage(reinterpret_cast<HWND>(lParam), LB_GETITEMDATA, i, 0));
-						Window::display(false);
-						::SendMessage(_hParent, WM_PICKUP_COLOR, _colour, 0);
-						return TRUE;
-					}
-					return FALSE;
-				}
-
-				default:
-					return FALSE;
-			}
-
-		case WM_ACTIVATE:
-		{
-			if (LOWORD(wParam) == WA_INACTIVE && ::IsWindowVisible(_hSelf))
-			{
-				Window::display(false);
-				destroy();
-				return TRUE;
-			}
-			break;
-		}
-	}
-	return FALSE;
-}
-
-UINT_PTR CALLBACK ColourPopup::chooseColorDlgProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM)
-{
-	switch (message)
-	{
-		case WM_INITDIALOG:
-		{
-			if (NppDarkMode::isExperimentalSupported())
-			{
-				NppDarkMode::setDarkTitleBar(hwnd);
-			}
-			NppDarkMode::autoSubclassAndThemeChildControls(hwnd);
-			break;
-		}
-
-		case WM_CTLCOLOREDIT:
-		{
-			return NppDarkMode::onCtlColorCtrl(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_CTLCOLORLISTBOX:
-		{
-			[[fallthrough]];
-		}
-		case WM_CTLCOLORDLG:
-		case WM_CTLCOLORSTATIC:
-		{
-			return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_PRINTCLIENT:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				return TRUE;
-			}
-			break;
-		}
-
-		case WM_ERASEBKGND:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				RECT rc = {};
-				::GetClientRect(hwnd, &rc);
-				::FillRect(reinterpret_cast<HDC>(wParam), &rc, NppDarkMode::getDlgBackgroundBrush());
-				return TRUE;
-			}
-			break;
-		}
-	}
-	return FALSE;
+	const std::function<void(COLORREF)> onChosen = _onChosen;
+	onChosen(chosen.isValid() ? toColorRef(chosen) : _colour);
 }

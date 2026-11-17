@@ -17,17 +17,18 @@
 
 #pragma once
 
-#include <windows.h>
-
 #include <string>
 #include <vector>
 
-#include "Window.h"
+#include "NppMessages.h"
 #include "StaticDialog.h"
-#include "TaskList.h"
+#include "Window.h"
 
-#define	TASKLIST_USER    (WM_USER + 8000)
-#define WM_GETTASKLISTINFO (TASKLIST_USER + 01)
+class IconList;
+class QListWidget;
+
+inline constexpr UINT TASKLIST_USER = WM_USER + 8000;
+inline constexpr UINT WM_GETTASKLISTINFO = TASKLIST_USER + 01;
 
 struct TaskLstFnStatus {
 	int _iView = -1;
@@ -47,30 +48,36 @@ struct TaskListInfo {
 	int _currentIndex = -1;
 };
 
+// The document switcher of Ctrl+Tab: a list that stays while Ctrl is held, and activates its selection when Ctrl goes up.
 class TaskListDlg : public StaticDialog
 {
 public :
 	TaskListDlg() : StaticDialog() { _instanceCount++; }
+	~TaskListDlg() override { _instanceCount--; }
 	using Window::init;
-	void init(HINSTANCE hInst, HWND parent, HIMAGELIST hImgLst, bool dir) {
+	void init(HINSTANCE hInst, HWND parent, const IconList* icons, bool dir) {
 		Window::init(hInst, parent);
-		_hImalist = hImgLst;
+		_icons = icons;
 		_initDir = dir;
 	}
 	int doDialog(bool isRTL = false);
 	void destroy() override {}
 
+	// For the key and mouse handling of the list
+	void moveSelection(int direction);
+	void pickCurrent();
+	void dismiss();
+
 protected :
-	intptr_t CALLBACK run_dlgProc(UINT Message, WPARAM wParam, LPARAM lParam) override;
+	void onCancel() override { dismiss(); }
 
 private :
-	TaskList _taskList;
+	QListWidget* _list = nullptr;
 	TaskListInfo _taskListInfo;
-	HIMAGELIST _hImalist = nullptr;
+	const IconList* _icons = nullptr;
 	bool _initDir = false;
-	HHOOK _hHooker = nullptr;
 
-	void drawItem(LPDRAWITEMSTRUCT lpDrawItemStruct);
+	void selectRow(int row);
 public:
 	static int _instanceCount;
 };

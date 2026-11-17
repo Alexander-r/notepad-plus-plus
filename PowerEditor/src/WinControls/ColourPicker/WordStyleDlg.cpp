@@ -17,16 +17,28 @@
 
 #include "WordStyleDlg.h"
 
-#include <windows.h>
-
-#include <shlwapi.h>
+#include <QAbstractButton>
+#include <QComboBox>
+#include <QDialog>
+#include <QGridLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QPalette>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QSignalBlocker>
+#include <QSlider>
 
 #include <cstdlib>
 #include <cwchar>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <QFileInfo>
 
 #include "ColourPicker.h"
 #include "Common.h"
@@ -38,10 +50,10 @@
 #include "TabBar.h"
 #include "WordStyleDlgRes.h"
 #include "documentMap.h"
-#include "dpiManagerV2.h"
 #include "localization.h"
 #include "preference_rc.h"
 #include "resource.h"
+#include "ui_StylerDlg.h"
 
 // The following parameters are for apply() method which will re-initialize the followings GUI with modified styler:
 // 2 Scintilla edit zones, Search result (displayed by Sintilla), Notepad++ GUI & components concerning theme
@@ -58,570 +70,386 @@ static constexpr bool C_BACKGROUND = true;
 
 using namespace std;
 
+namespace
+{
+	// A colour with the value 0xFF in its top byte is not set
+	bool isColourSet(COLORREF colour)
+	{
+		return ((colour >> 24) & 0xFF) != 0xFF;
+	}
+
+	// The first item starting with the text, after the given position and wrapping around
+	int findPrefix(const QComboBox* combo, const wchar_t* text, int after)
+	{
+		const QString prefix = QString::fromWCharArray(text);
+		const int count = combo->count();
+		for (int i = 1; i <= count; ++i)
+		{
+			const int position = (after + i) % count;
+			if (combo->itemText(position).startsWith(prefix, Qt::CaseInsensitive))
+				return position;
+		}
+		return -1;
+	}
+}
+
 void WordStyleDlg::updateGlobalOverrideCtrls()
 {
 	const NppGUI & nppGUI = (NppParameters::getInstance()).getNppGUI();
-	::SendDlgItemMessage(_hSelf, IDC_GLOBAL_FG_CHECK, BM_SETCHECK, nppGUI._globalOverride.enableFg, 0);
-	::SendDlgItemMessage(_hSelf, IDC_GLOBAL_BG_CHECK, BM_SETCHECK, nppGUI._globalOverride.enableBg, 0);
-	::SendDlgItemMessage(_hSelf, IDC_GLOBAL_FONT_CHECK, BM_SETCHECK, nppGUI._globalOverride.enableFont, 0);
-	::SendDlgItemMessage(_hSelf, IDC_GLOBAL_FONTSIZE_CHECK, BM_SETCHECK, nppGUI._globalOverride.enableFontSize, 0);
-	::SendDlgItemMessage(_hSelf, IDC_GLOBAL_BOLD_CHECK, BM_SETCHECK, nppGUI._globalOverride.enableBold, 0);
-	::SendDlgItemMessage(_hSelf, IDC_GLOBAL_ITALIC_CHECK, BM_SETCHECK, nppGUI._globalOverride.enableItalic, 0);
-	::SendDlgItemMessage(_hSelf, IDC_GLOBAL_UNDERLINE_CHECK, BM_SETCHECK, nppGUI._globalOverride.enableUnderLine, 0);
+	setChecked(IDC_GLOBAL_FG_CHECK, nppGUI._globalOverride.enableFg);
+	setChecked(IDC_GLOBAL_BG_CHECK, nppGUI._globalOverride.enableBg);
+	setChecked(IDC_GLOBAL_FONT_CHECK, nppGUI._globalOverride.enableFont);
+	setChecked(IDC_GLOBAL_FONTSIZE_CHECK, nppGUI._globalOverride.enableFontSize);
+	setChecked(IDC_GLOBAL_BOLD_CHECK, nppGUI._globalOverride.enableBold);
+	setChecked(IDC_GLOBAL_ITALIC_CHECK, nppGUI._globalOverride.enableItalic);
+	setChecked(IDC_GLOBAL_UNDERLINE_CHECK, nppGUI._globalOverride.enableUnderLine);
 }
 
-intptr_t CALLBACK WordStyleDlg::run_dlgProc(UINT Message, WPARAM wParam, LPARAM lParam)
+void WordStyleDlg::createDialog(bool isRTL)
 {
-	switch (Message)
+	QDialog* dialog = createDialogWidget(isRTL);
+	Ui::StylerDlg ui;
+	ui.setupUi(dialog);
+
+	NppParameters& nppParamInst = NppParameters::getInstance();
+
+	_hCheckBold = ui.boldCheck;
+	_hCheckItalic = ui.italicCheck;
+	_hCheckUnderline = ui.underlineCheck;
+	_hFontNameCombo = ui.fontCombo;
+	_hFontSizeCombo = ui.fontsizeCombo;
+	_hSwitch2ThemeCombo = ui.switch2themeCombo;
+	_hLanguagesCombo = ui.languagesCombo;
+	_hStylesList = ui.stylesList;
+	_hFgColourStaticText = ui.fgStatic;
+	_hBgColourStaticText = ui.bgStatic;
+	_hFontNameStaticText = ui.fontnameStatic;
+	_hFontSizeStaticText = ui.fontsizeStatic;
+	_hStyleInfoStaticText = ui.styledescriptionStatic;
+
+	QPalette infoColours = _hStyleInfoStaticText->palette();
+	infoColours.setColor(QPalette::WindowText, infoColours.color(QPalette::Link));
+	_hStyleInfoStaticText->setPalette(infoColours);
+
+	_currentThemeIndex = -1;
+	int defaultThemeIndex = 0;
+	ThemeSwitcher & themeSwitcher = nppParamInst.getThemeSwitcher();
+	for (size_t i = 0 ; i < themeSwitcher.size() ; ++i)
 	{
-		case WM_INITDIALOG :
+		pair<wstring, wstring> & themeInfo = themeSwitcher.getElementFromIndex(i);
+		_hSwitch2ThemeCombo->addItem(QString::fromStdWString(themeInfo.first));
+		const int j = _hSwitch2ThemeCombo->count() - 1;
+		if (! themeInfo.second.compare( nppParamInst.getNppGUI()._themeName ) )
 		{
-			NppParameters& nppParamInst = NppParameters::getInstance();
-
-			_hCheckBold = ::GetDlgItem(_hSelf, IDC_BOLD_CHECK);
-			_hCheckItalic = ::GetDlgItem(_hSelf, IDC_ITALIC_CHECK);
-			_hCheckUnderline = ::GetDlgItem(_hSelf, IDC_UNDERLINE_CHECK);
-			_hFontNameCombo = ::GetDlgItem(_hSelf, IDC_FONT_COMBO);
-			_hFontSizeCombo = ::GetDlgItem(_hSelf, IDC_FONTSIZE_COMBO);
-			_hSwitch2ThemeCombo = ::GetDlgItem(_hSelf, IDC_SWITCH2THEME_COMBO);
-			_hFgColourStaticText = ::GetDlgItem(_hSelf, IDC_FG_STATIC);
-			_hBgColourStaticText = ::GetDlgItem(_hSelf, IDC_BG_STATIC);
-			_hFontNameStaticText = ::GetDlgItem(_hSelf, IDC_FONTNAME_STATIC);
-			_hFontSizeStaticText = ::GetDlgItem(_hSelf, IDC_FONTSIZE_STATIC);
-			_hStyleInfoStaticText = ::GetDlgItem(_hSelf, IDC_STYLEDESCRIPTION_STATIC);
-
-			_currentThemeIndex = -1;
-			int defaultThemeIndex = 0;
-			ThemeSwitcher & themeSwitcher = nppParamInst.getThemeSwitcher();
-			for (size_t i = 0 ; i < themeSwitcher.size() ; ++i)
-			{
-				pair<wstring, wstring> & themeInfo = themeSwitcher.getElementFromIndex(i);
-				const auto j = static_cast<int>(::SendMessage(_hSwitch2ThemeCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(themeInfo.first.c_str())));
-				if (! themeInfo.second.compare( nppParamInst.getNppGUI()._themeName ) )
-				{
-					_currentThemeIndex = j;
-					_themeName.assign(themeInfo.second);
-				}
-				if (! themeInfo.first.compare(L"Default") )
-				{
-					defaultThemeIndex = j;
-				}
-			}
-			if (_currentThemeIndex == -1)
-			{
-				_currentThemeIndex = defaultThemeIndex;
-			}
-			::SendMessage(_hSwitch2ThemeCombo, CB_SETCURSEL, _currentThemeIndex, 0);
-
-			for (size_t i = 0 ; i < sizeof(fontSizeStrs)/(3*sizeof(wchar_t)) ; ++i)
-				::SendMessage(_hFontSizeCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(fontSizeStrs[i]));
-
-			const std::vector<wstring> & fontlist = nppParamInst.getFontList();
-			for (size_t i = 0, len = fontlist.size() ; i < len ; ++i)
-			{
-				auto j = ::SendMessage(_hFontNameCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(fontlist[i].c_str()));
-				::SendMessage(_hFontNameCombo, CB_SETITEMDATA, j, reinterpret_cast<LPARAM>(fontlist[i].c_str()));
-			}
-
-			_pFgColour = std::make_unique<ColourPicker>();
-			_pBgColour = std::make_unique<ColourPicker>();
-			_pFgColour->init(_hInst, _hSelf);
-			_pBgColour->init(_hInst, _hSelf);
-
-			setDpi();
-			const int cpDynamicalSize = _dpiManager.scale(25);
-
-			move2CtrlRight(IDC_FG_STATIC, _pFgColour->getHSelf(), cpDynamicalSize, cpDynamicalSize);
-			move2CtrlRight(IDC_BG_STATIC, _pBgColour->getHSelf(), cpDynamicalSize, cpDynamicalSize);
-
-			_pFgColour->display();
-			_pBgColour->display();
-
-			::EnableWindow(::GetDlgItem(_hSelf, IDOK), _isDirty);
-			::EnableWindow(::GetDlgItem(_hSelf, IDC_SAVECLOSE_BUTTON), FALSE/*!_isSync*/);
-
-			loadLangListFromNppParam();
-			updateGlobalOverrideCtrls();
-			setVisualFromStyleList();
-
-			_goToSettings.init(_hInst, _hSelf);
-			_goToSettings.create(::GetDlgItem(_hSelf, IDC_GLOBAL_GOTOSETTINGS_LINK), L"");
-			std::pair<intptr_t, intptr_t> pageAndCtrlID = goToPreferencesSettings();
-			_goToSettings.display(pageAndCtrlID.first != -1);
-
-			HWND hWhatIsGlobalOverride = ::GetDlgItem(_hSelf, IDC_GLOBAL_WHATISGLOBALOVERRIDE_LINK);
-			_globalOverrideLinkTip.init(_hInst, _hSelf);
-			_globalOverrideLinkTip.create(hWhatIsGlobalOverride, L"");
-
-			const Style& style = getCurrentStyler();
-			bool showWhatIsGlobalOverride = (style._styleDesc == L"Global override");
-			_globalOverrideLinkTip.display(showWhatIsGlobalOverride);
-
-			NativeLangSpeaker* pNativeSpeaker = nppParamInst.getNativeLangSpeaker();
-			wstring globalOverrideTipStr = pNativeSpeaker->getLocalizedStrFromID("global-override-tip", L"Enabling \"Global override\" here will override that parameter in all language styles. What you probably really want is to use the \"Default Style\" settings instead");
-			_globalOverrideTip = createToolTip(IDC_GLOBAL_WHATISGLOBALOVERRIDE_LINK, _hSelf, _hInst, globalOverrideTipStr.data(), false);
-
-			NppDarkMode::autoSubclassAndThemeChildControls(_hSelf);
-			NppDarkMode::autoSubclassAndThemeWindowNotify(_hSelf);
-
-			goToCenter(SWP_SHOWWINDOW | SWP_NOSIZE);
-
-			return TRUE;
+			_currentThemeIndex = j;
+			_themeName.assign(themeInfo.second);
 		}
-
-		case WM_CTLCOLOREDIT:
+		if (! themeInfo.first.compare(L"Default") )
 		{
-			return NppDarkMode::onCtlColorCtrl(reinterpret_cast<HDC>(wParam));
+			defaultThemeIndex = j;
 		}
-
-		case WM_CTLCOLORLISTBOX:
-		{
-			return NppDarkMode::onCtlColorListbox(wParam, lParam);
-		}
-
-		case WM_CTLCOLORDLG:
-		{
-			return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_CTLCOLORSTATIC:
-		{
-			auto hdcStatic = reinterpret_cast<HDC>(wParam);
-			auto dlgCtrlID = ::GetDlgCtrlID(reinterpret_cast<HWND>(lParam));
-
-			if (dlgCtrlID == IDC_STYLEDESCRIPTION_STATIC)
-			{
-				return NppDarkMode::onCtlColorDlgLinkText(hdcStatic, true);
-			}
-
-			bool isStaticText = (dlgCtrlID == IDC_FG_STATIC ||
-				dlgCtrlID == IDC_BG_STATIC ||
-				dlgCtrlID == IDC_FONTNAME_STATIC ||
-				dlgCtrlID == IDC_FONTSIZE_STATIC);
-			//set the static text colors to show enable/disable instead of ::EnableWindow which causes blurry text
-			if (isStaticText)
-			{
-				const Style& style = getCurrentStyler();
-				bool isTextEnabled = false;
-
-				if (dlgCtrlID == IDC_FG_STATIC)
-				{
-					isTextEnabled = HIBYTE(HIWORD(style._fgColor)) != 0xFF;
-
-					// Selected text colour style
-					if (style._styleDesc == L"Selected text colour")
-					{
-						isTextEnabled = NppParameters::getInstance().getSVP()._selectedTextForegroundSingleColor;
-					}
-				}
-				else if (dlgCtrlID == IDC_BG_STATIC)
-				{
-					isTextEnabled = HIBYTE(HIWORD(style._bgColor)) != 0xFF;
-				}
-				else if (dlgCtrlID == IDC_FONTNAME_STATIC)
-				{
-					isTextEnabled = !style._fontName.empty();
-				}
-				else if (dlgCtrlID == IDC_FONTSIZE_STATIC)
-				{
-					isTextEnabled = style._fontSize != STYLE_NOT_USED && style._fontSize < 100; // style._fontSize has only 2 digits
-				}
-
-				return NppDarkMode::onCtlColorDlgStaticText(hdcStatic, isTextEnabled);
-			}
-
-			if (dlgCtrlID == IDC_DEF_EXT_EDIT || dlgCtrlID == IDC_DEF_KEYWORDS_EDIT)
-			{
-				return NppDarkMode::onCtlColor(hdcStatic);
-			}
-			return NppDarkMode::onCtlColorDlg(hdcStatic);
-		}
-
-		case WM_PRINTCLIENT:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				return TRUE;
-			}
-			break;
-		}
-
-		case NPPM_INTERNAL_REFRESHDARKMODE:
-		{
-			NppDarkMode::autoThemeChildControls(_hSelf);
-			::SendMessage(_pFgColour->getHSelf(), NPPM_INTERNAL_REFRESHDARKMODE, 0, 0);
-			::SendMessage(_pBgColour->getHSelf(), NPPM_INTERNAL_REFRESHDARKMODE, 0, 0);
-			return TRUE;
-		}
-
-		case WM_DESTROY:
-		{
-			destroy();
-			return TRUE;
-		}
-
-		case WM_HSCROLL:
-		{
-			if (reinterpret_cast<HWND>(lParam) == ::GetDlgItem(_hSelf, IDC_SC_PERCENTAGE_SLIDER))
-			{
-				const auto percent = static_cast<int>(::SendDlgItemMessage(_hSelf, IDC_SC_PERCENTAGE_SLIDER, TBM_GETPOS, 0, 0));
-				NppParameters::setTransparent(_hSelf, percent);
-			}
-			return TRUE;
-		}
-
-		case WM_DPICHANGED:
-		{
-			_dpiManager.setDpiWP(wParam);
-
-			const int cpDynamicalSize = _dpiManager.scale(25);
-			move2CtrlRight(IDC_FG_STATIC, _pFgColour->getHSelf(), cpDynamicalSize, cpDynamicalSize);
-			move2CtrlRight(IDC_BG_STATIC, _pBgColour->getHSelf(), cpDynamicalSize, cpDynamicalSize);
-
-			setPositionDpi(lParam);
-
-			return TRUE;
-		}
-
-		case WM_COMMAND:
-		{
-			if (HIWORD(wParam) == EN_CHANGE)
-			{
-				int editID = LOWORD(wParam);
-				if (editID == IDC_USER_KEYWORDS_EDIT)
-				{
-					updateUserKeywords();
-					notifyDataModified();
-					apply(GENERAL_CHANGE);
-					return TRUE;
-				}
-				else if (editID == IDC_USER_EXT_EDIT)
-				{
-					updateExtension();
-					notifyDataModified();
-					apply(NO_VISUAL_CHANGE);
-					return TRUE;
-				}
-				return FALSE;
-			}
-			else
-			{
-				switch (wParam)
-				{
-					case IDC_BOLD_CHECK :
-						updateFontStyleStatus(BOLD_STATUS);
-						notifyDataModified();
-						apply(GENERAL_CHANGE);
-						return TRUE;
-
-					case IDC_ITALIC_CHECK :
-						updateFontStyleStatus(ITALIC_STATUS);
-						notifyDataModified();
-						apply(GENERAL_CHANGE);
-						return TRUE;
-
-					case IDC_UNDERLINE_CHECK :
-						updateFontStyleStatus(UNDERLINE_STATUS);
-						notifyDataModified();
-						apply(GENERAL_CHANGE);
-						return TRUE;
-					
-					case IDC_GLOBAL_GOTOSETTINGS_LINK :
-					{
-						std::pair<intptr_t, intptr_t> pageAndCtrlID = goToPreferencesSettings();
-
-						if (pageAndCtrlID.first != -1)
-							::SendMessage(_hParent, NPPM_INTERNAL_LAUNCHPREFERENCES, pageAndCtrlID.first, pageAndCtrlID.second);
-					}
-					return TRUE;
-
-					case IDCANCEL :
-						if (_isDirty)
-						{
-							NppParameters& nppParamInst = NppParameters::getInstance();
-							if (_restoreInvalid)
-							{
-								wstring str(nppParamInst.getNppGUI()._themeName);
-								nppParamInst.reloadStylers(str.c_str());
-								loadLangListFromNppParam();
-							}
-
-							LexerStylerArray & lsArray = nppParamInst.getLStylerArray();
-							StyleArray & globalStyles = nppParamInst.getGlobalStylers();
-
-							if (_restoreInvalid)
-							{
-								_lsArray = _styles2restored = lsArray;
-								_globalStyles = _gstyles2restored = globalStyles;
-							}
-							else
-							{
-								globalStyles = _globalStyles = _gstyles2restored;
-								lsArray = _lsArray = _styles2restored;
-							}
-
-							restoreGlobalOverrideValues();
-							nppParamInst.initTabCustomColors();
-							nppParamInst.initFindDlgStatusMsgCustomColors();
-
-							_restoreInvalid = false;
-							_isDirty = false;
-							_isThemeDirty = false;
-							setVisualFromStyleList();
-
-							::SendMessage(_hSwitch2ThemeCombo, CB_SETCURSEL, _currentThemeIndex, 0);
-							::SendMessage(_hParent, WM_UPDATESCINTILLAS, _isThemeChanged, 0);
-							::SendMessage(_hParent, WM_UPDATEMAINMENUBITMAPS, 0, 0);
-
-							_isThemeChanged = false;
-						}
-						::EnableWindow(::GetDlgItem(_hSelf, IDC_SAVECLOSE_BUTTON), FALSE);
-						display(false);
-						return TRUE;
-
-					case IDC_SAVECLOSE_BUTTON :
-					{
-						if (_isDirty)
-						{
-							const LexerStylerArray & lsa = (NppParameters::getInstance()).getLStylerArray();
-							const StyleArray & globalStyles = (NppParameters::getInstance()).getGlobalStylers();
-
-							_lsArray = lsa;
-							_globalStyles = globalStyles;
-							updateThemeName(_themeName);
-							_restoreInvalid = false;
-
-							_currentThemeIndex = static_cast<int>(::SendMessage(_hSwitch2ThemeCombo, CB_GETCURSEL, 0, 0));
-							::EnableWindow(::GetDlgItem(_hSelf, IDOK), FALSE);
-							_isDirty = false;
-							_isThemeChanged = false;
-						}
-						_isThemeDirty = false;
-						auto newSavedFilePath = (NppParameters::getInstance()).writeStyles(_lsArray, _globalStyles);
-						if (!newSavedFilePath.empty())
-							updateThemeName(newSavedFilePath);
-
-						::EnableWindow(::GetDlgItem(_hSelf, IDC_SAVECLOSE_BUTTON), FALSE);
-						display(false);
-
-						// With the application of each modification, the following 2 actions (applications) are not necessary 
-						//::SendMessage(_hParent, WM_UPDATESCINTILLAS, TRUE, 0);
-						//::SendMessage(_hParent, WM_UPDATEMAINMENUBITMAPS, 0, 0);
-
-						const wchar_t* fn = ::PathFindFileName(_themeName.c_str());
-						NppDarkMode::setThemeName((!NppDarkMode::isEnabled() && lstrcmp(fn, L"stylers.xml") == 0) ? L"" : fn);
-
-						return TRUE;
-					}
-
-					case IDC_SC_TRANSPARENT_CHECK :
-					{
-						bool isChecked = (BST_CHECKED == ::SendDlgItemMessage(_hSelf, IDC_SC_TRANSPARENT_CHECK, BM_GETCHECK, 0, 0));
-						if (isChecked)
-						{
-							const auto percent = static_cast<int>(::SendDlgItemMessage(_hSelf, IDC_SC_PERCENTAGE_SLIDER, TBM_GETPOS, 0, 0));
-							NppParameters::setTransparent(_hSelf, percent);
-						}
-						else
-							NppParameters::removeTransparent(_hSelf);
-
-						::EnableWindow(::GetDlgItem(_hSelf, IDC_SC_PERCENTAGE_SLIDER), isChecked);
-						return TRUE;
-					}
-
-					case IDC_GLOBAL_FG_CHECK :
-					{
-						GlobalOverride & glo = (NppParameters::getInstance()).getGlobalOverrideStyle();
-						glo.enableFg = (BST_CHECKED == ::SendDlgItemMessage(_hSelf, static_cast<int>(wParam), BM_GETCHECK, 0, 0));
-						notifyDataModified();
-						apply(GENERAL_CHANGE);
-						return TRUE;
-					}
-
-					case  IDC_GLOBAL_BG_CHECK:
-					{
-						GlobalOverride & glo = (NppParameters::getInstance()).getGlobalOverrideStyle();
-						glo.enableBg = (BST_CHECKED == ::SendDlgItemMessage(_hSelf, static_cast<int>(wParam), BM_GETCHECK, 0, 0));
-						notifyDataModified();
-						apply(GENERAL_CHANGE);
-						return TRUE;
-					}
-
-					case IDC_GLOBAL_FONT_CHECK :
-					{
-						GlobalOverride & glo = (NppParameters::getInstance()).getGlobalOverrideStyle();
-						glo.enableFont = (BST_CHECKED == ::SendDlgItemMessage(_hSelf, static_cast<int>(wParam), BM_GETCHECK, 0, 0));
-						notifyDataModified();
-						apply(GENERAL_CHANGE);
-						return TRUE;
-					}
-					case IDC_GLOBAL_FONTSIZE_CHECK :
-					{
-						GlobalOverride & glo = (NppParameters::getInstance()).getGlobalOverrideStyle();
-						glo.enableFontSize = (BST_CHECKED == ::SendDlgItemMessage(_hSelf, static_cast<int>(wParam), BM_GETCHECK, 0, 0));
-						notifyDataModified();
-						apply(GENERAL_CHANGE);
-						return TRUE;
-					}
-					case IDC_GLOBAL_BOLD_CHECK :
-					{
-						GlobalOverride & glo = (NppParameters::getInstance()).getGlobalOverrideStyle();
-						glo.enableBold = (BST_CHECKED == ::SendDlgItemMessage(_hSelf, static_cast<int>(wParam), BM_GETCHECK, 0, 0));
-						notifyDataModified();
-						apply(GENERAL_CHANGE);
-						return TRUE;
-					}
-
-					case IDC_GLOBAL_ITALIC_CHECK :
-					{
-						GlobalOverride & glo = (NppParameters::getInstance()).getGlobalOverrideStyle();
-						glo.enableItalic = (BST_CHECKED == ::SendDlgItemMessage(_hSelf, static_cast<int>(wParam), BM_GETCHECK, 0, 0));
-						notifyDataModified();
-						apply(GENERAL_CHANGE);
-						return TRUE;
-					}
-					case IDC_GLOBAL_UNDERLINE_CHECK :
-					{
-						GlobalOverride & glo = (NppParameters::getInstance()).getGlobalOverrideStyle();
-						glo.enableUnderLine = (BST_CHECKED == ::SendDlgItemMessage(_hSelf, static_cast<int>(wParam), BM_GETCHECK, 0, 0));
-						notifyDataModified();
-						apply(GENERAL_CHANGE);
-						return TRUE;
-					}
-
-					default:
-						switch (HIWORD(wParam))
-						{
-							case CBN_SELCHANGE : // == case LBN_SELCHANGE :
-							{
-								switch (LOWORD(wParam))
-								{
-									case IDC_FONT_COMBO :
-										updateFontName();
-										notifyDataModified();
-										apply(GENERAL_CHANGE);
-										break;
-									case IDC_FONTSIZE_COMBO :
-										updateFontSize();
-										notifyDataModified();
-										apply(GENERAL_CHANGE);
-										break;
-									case IDC_LANGUAGES_COMBO :
-									{
-										const auto i = static_cast<int>(::SendDlgItemMessage(_hSelf, LOWORD(wParam), CB_GETCURSEL, 0, 0));
-										if (i != LB_ERR)
-										{
-											bool prevThemeState = _isThemeDirty;
-											setStyleListFromLexer(i);
-											_isThemeDirty = prevThemeState;
-										}
-										break;
-									}
-									case IDC_STYLES_LIST :
-										setVisualFromStyleList();
-										break;
-
-									case IDC_SWITCH2THEME_COMBO :
-										applyCurrentSelectedThemeAndUpdateUI();
-										break;
-								}
-								return TRUE;
-							}
-
-							case CPN_COLOURPICKED:
-							{
-								int applicationInfo = getApplicationInfo();
-
-								int tabColourIndex = whichTabColourIndex();
-
-								if (reinterpret_cast<HWND>(lParam) == _pFgColour->getHSelf())
-								{
-									updateColour(C_FOREGROUND);
-									notifyDataModified();
-
-									if (tabColourIndex != -1)
-									{
-										TabBarPlus::setColour(_pFgColour->getColour(), static_cast<TabBarPlus::tabColourIndex>(tabColourIndex), nullptr);
-									}
-									else
-									{
-										int findDlgStatusMsgIndex = whichFindDlgStatusMsgColourIndex();
-										if (findDlgStatusMsgIndex != -1)
-										{
-											NppParameters& nppParamInst = NppParameters::getInstance();
-											nppParamInst.setFindDlgStatusMsgIndexColor(_pFgColour->getColour(), findDlgStatusMsgIndex);
-										}
-										else if (isDocumentMapStyle())
-										{
-											ViewZoneDlg::setColour(_pFgColour->getColour(), ViewZoneDlg::ViewZoneColorIndex::focus);
-										}
-									}
-									apply(applicationInfo);
-									return TRUE;
-								}
-								else if (reinterpret_cast<HWND>(lParam) == _pBgColour->getHSelf())
-								{
-									updateColour(C_BACKGROUND);
-									notifyDataModified();
-									
-
-									if (tabColourIndex != -1)
-									{
-										tabColourIndex = (tabColourIndex == TabBarPlus::inactiveText ? TabBarPlus::inactiveBg : tabColourIndex);
-										TabBarPlus::setColour(_pBgColour->getColour(), static_cast<TabBarPlus::tabColourIndex>(tabColourIndex), nullptr);
-									}
-									else if (isDocumentMapStyle())
-									{
-										ViewZoneDlg::setColour(_pBgColour->getColour(), ViewZoneDlg::ViewZoneColorIndex::frost);
-									}
-									else
-									{
-										int colourIndex = whichIndividualTabColourId();
-
-										if (colourIndex != -1)
-										{
-											if (colourIndex >= TabBarPlus::individualTabColourId::id5)
-												colourIndex -= TabBarPlus::individualTabColourId::id5;
-
-											NppParameters& nppParamInst = NppParameters::getInstance();
-											nppParamInst.setIndividualTabColor(_pBgColour->getColour(), colourIndex, NppDarkMode::isEnabled());
-										}
-									}
-
-									apply(applicationInfo);
-									return TRUE;
-								}
-								else
-									return FALSE;
-							}
-
-							default :
-							{
-								return FALSE;
-							}
-						}
-						//return TRUE;
-				}
-			}
-			break;
-		}
-		default :
-			return FALSE;
 	}
-	return FALSE;
+	if (_currentThemeIndex == -1)
+	{
+		_currentThemeIndex = defaultThemeIndex;
+	}
+	_hSwitch2ThemeCombo->setCurrentIndex(_currentThemeIndex);
+
+	for (const wchar_t* fontSize : fontSizeStrs)
+		_hFontSizeCombo->addItem(QString::fromWCharArray(fontSize));
+
+	const std::vector<wstring> & fontlist = nppParamInst.getFontList();
+	for (size_t i = 0, len = fontlist.size() ; i < len ; ++i)
+		_hFontNameCombo->addItem(QString::fromStdWString(fontlist[i]));
+	_hFontNameCombo->model()->sort(0);
+
+	_pFgColour = std::make_unique<ColourPicker>();
+	_pBgColour = std::make_unique<ColourPicker>();
+	_pFgColour->init(_hInst, ui.colourgroupStatic);
+	_pBgColour->init(_hInst, ui.colourgroupStatic);
+	_pFgColour->getHSelf()->setObjectName(QStringLiteral("fgColour"));
+	_pBgColour->getHSelf()->setObjectName(QStringLiteral("bgColour"));
+	_pFgColour->setOnPicked([this]() { onColourPicked(C_FOREGROUND); });
+	_pBgColour->setOnPicked([this]() { onColourPicked(C_BACKGROUND); });
+	ui.colourGrid->addWidget(_pFgColour->getHSelf(), 0, 1);
+	ui.colourGrid->addWidget(_pBgColour->getHSelf(), 1, 1);
+
+	_pFgColour->display();
+	_pBgColour->display();
+
+	enableItem(IDC_SAVECLOSE_BUTTON, false);
+
+	_goToSettings.init(_hInst, dialog);
+	_goToSettings.create(ui.globalGotosettingsLink, [this]()
+	{
+		const std::pair<intptr_t, intptr_t> pageAndCtrlID = goToPreferencesSettings();
+		if (pageAndCtrlID.first != -1)
+			::SendMessage(_hParent, NPPM_INTERNAL_LAUNCHPREFERENCES, pageAndCtrlID.first, pageAndCtrlID.second);
+	});
+
+	_globalOverrideLinkTip.init(_hInst, dialog);
+	_globalOverrideLinkTip.create(ui.globalWhatisglobaloverrideLink, std::function<void()>{});
+
+	NativeLangSpeaker* pNativeSpeaker = nppParamInst.getNativeLangSpeaker();
+	wstring globalOverrideTipStr = pNativeSpeaker->getLocalizedStrFromID("global-override-tip", L"Enabling \"Global override\" here will override that parameter in all language styles. What you probably really want is to use the \"Default Style\" settings instead");
+	ui.globalWhatisglobaloverrideLink->setToolTip(QString::fromStdWString(globalOverrideTipStr));
+
+	loadLangListFromNppParam();
+	updateGlobalOverrideCtrls();
+	setVisualFromStyleList();
+
+	const bool isTransparentAvailable = NppParameters::isWindowOpacityAvailable();
+	showItem(IDC_SC_TRANSPARENT_CHECK, isTransparentAvailable);
+	showItem(IDC_SC_PERCENTAGE_SLIDER, isTransparentAvailable);
+	ui.scPercentageSlider->setRange(20, 200);
+	ui.scPercentageSlider->setValue(150);
+	ui.scPercentageSlider->setEnabled(false);
+
+	connectControls();
+	goToCenter();
 }
 
-void WordStyleDlg::move2CtrlRight(int ctrlID, HWND handle2Move, int handle2MoveWidth, int handle2MoveHeight)
+void WordStyleDlg::connectControls()
 {
-	POINT p{};
-	RECT rc{};
-	::GetWindowRect(::GetDlgItem(_hSelf, ctrlID), &rc);
+	const auto onChecked = [this](int id, auto handler)
+	{
+		QObject::connect(button(id), &QAbstractButton::clicked, _hSelf, handler);
+	};
+	onChecked(IDC_BOLD_CHECK, [this]() { onFontStyleToggled(BOLD_STATUS); });
+	onChecked(IDC_ITALIC_CHECK, [this]() { onFontStyleToggled(ITALIC_STATUS); });
+	onChecked(IDC_UNDERLINE_CHECK, [this]() { onFontStyleToggled(UNDERLINE_STATUS); });
+	onChecked(IDCANCEL, [this]() { onCancel(); });
+	onChecked(IDC_SAVECLOSE_BUTTON, [this]() { saveAndClose(); });
 
-	p.x = rc.right + _dpiManager.scale(5);
-	p.y = rc.top + ((rc.bottom - rc.top) / 2) - handle2MoveHeight / 2;
+	auto* slider = qobject_cast<QSlider*>(dlgItem(IDC_SC_PERCENTAGE_SLIDER));
+	QObject::connect(slider, &QSlider::valueChanged, _hSelf, [this](int percent) { NppParameters::setTransparent(_hSelf, percent); });
+	onChecked(IDC_SC_TRANSPARENT_CHECK, [this, slider]()
+	{
+		const bool isChecked = isCheckedOrNot(IDC_SC_TRANSPARENT_CHECK);
+		if (isChecked)
+			NppParameters::setTransparent(_hSelf, slider->value());
+		else
+			NppParameters::removeTransparent(_hSelf);
 
-	::ScreenToClient(_hSelf, &p);
-	::MoveWindow(handle2Move, p.x, p.y, handle2MoveWidth, handle2MoveHeight, TRUE);
+		slider->setEnabled(isChecked);
+	});
+
+	const auto onOverride = [this, onChecked](int id, bool GlobalOverride::*setting)
+	{
+		onChecked(id, [this, id, setting]()
+		{
+			GlobalOverride & glo = (NppParameters::getInstance()).getGlobalOverrideStyle();
+			glo.*setting = isCheckedOrNot(id);
+			notifyDataModified();
+			apply(GENERAL_CHANGE);
+		});
+	};
+	onOverride(IDC_GLOBAL_FG_CHECK, &GlobalOverride::enableFg);
+	onOverride(IDC_GLOBAL_BG_CHECK, &GlobalOverride::enableBg);
+	onOverride(IDC_GLOBAL_FONT_CHECK, &GlobalOverride::enableFont);
+	onOverride(IDC_GLOBAL_FONTSIZE_CHECK, &GlobalOverride::enableFontSize);
+	onOverride(IDC_GLOBAL_BOLD_CHECK, &GlobalOverride::enableBold);
+	onOverride(IDC_GLOBAL_ITALIC_CHECK, &GlobalOverride::enableItalic);
+	onOverride(IDC_GLOBAL_UNDERLINE_CHECK, &GlobalOverride::enableUnderLine);
+
+	QObject::connect(_hFontNameCombo, &QComboBox::activated, _hSelf, [this]()
+	{
+		updateFontName();
+		notifyDataModified();
+		apply(GENERAL_CHANGE);
+	});
+	QObject::connect(_hFontSizeCombo, &QComboBox::activated, _hSelf, [this]()
+	{
+		updateFontSize();
+		notifyDataModified();
+		apply(GENERAL_CHANGE);
+	});
+	QObject::connect(_hLanguagesCombo, &QComboBox::activated, _hSelf, [this](int i)
+	{
+		bool prevThemeState = _isThemeDirty;
+		setStyleListFromLexer(i);
+		_isThemeDirty = prevThemeState;
+	});
+	QObject::connect(_hStylesList, &QListWidget::currentRowChanged, _hSelf, [this]() { setVisualFromStyleList(); });
+	QObject::connect(_hSwitch2ThemeCombo, &QComboBox::activated, _hSelf, [this]() { applyCurrentSelectedThemeAndUpdateUI(); });
+
+	// Filling these from a style does not change it, so that is done with their signals blocked
+	QObject::connect(qobject_cast<QPlainTextEdit*>(dlgItem(IDC_USER_KEYWORDS_EDIT)), &QPlainTextEdit::textChanged, _hSelf, [this]()
+	{
+		updateUserKeywords();
+		notifyDataModified();
+		apply(GENERAL_CHANGE);
+	});
+	QObject::connect(qobject_cast<QLineEdit*>(dlgItem(IDC_USER_EXT_EDIT)), &QLineEdit::textChanged, _hSelf, [this]()
+	{
+		updateExtension();
+		notifyDataModified();
+		apply(NO_VISUAL_CHANGE);
+	});
+}
+
+void WordStyleDlg::onFontStyleToggled(fontStyleType whichStyle)
+{
+	updateFontStyleStatus(whichStyle);
+	notifyDataModified();
+	apply(GENERAL_CHANGE);
+}
+
+void WordStyleDlg::onCancel()
+{
+	if (_isDirty)
+	{
+		NppParameters& nppParamInst = NppParameters::getInstance();
+		if (_restoreInvalid)
+		{
+			wstring str(nppParamInst.getNppGUI()._themeName);
+			nppParamInst.reloadStylers(str.c_str());
+			loadLangListFromNppParam();
+		}
+
+		LexerStylerArray & lsArray = nppParamInst.getLStylerArray();
+		StyleArray & globalStyles = nppParamInst.getGlobalStylers();
+
+		if (_restoreInvalid)
+		{
+			_lsArray = _styles2restored = lsArray;
+			_globalStyles = _gstyles2restored = globalStyles;
+		}
+		else
+		{
+			globalStyles = _globalStyles = _gstyles2restored;
+			lsArray = _lsArray = _styles2restored;
+		}
+
+		restoreGlobalOverrideValues();
+		nppParamInst.initTabCustomColors();
+		nppParamInst.initFindDlgStatusMsgCustomColors();
+
+		_restoreInvalid = false;
+		_isDirty = false;
+		_isThemeDirty = false;
+		setVisualFromStyleList();
+
+		// Otherwise the next save would make the theme that was just cancelled the current one
+		_themeName = nppParamInst.getNppGUI()._themeName;
+		_hSwitch2ThemeCombo->setCurrentIndex(_currentThemeIndex);
+		::SendMessage(_hParent, WM_UPDATESCINTILLAS, _isThemeChanged, 0);
+		::SendMessage(_hParent, WM_UPDATEMAINMENUBITMAPS, 0, 0);
+
+		_isThemeChanged = false;
+	}
+	enableItem(IDC_SAVECLOSE_BUTTON, false);
+	display(false);
+}
+
+void WordStyleDlg::saveAndClose()
+{
+	if (_isDirty)
+	{
+		const LexerStylerArray & lsa = (NppParameters::getInstance()).getLStylerArray();
+		const StyleArray & globalStyles = (NppParameters::getInstance()).getGlobalStylers();
+
+		_lsArray = lsa;
+		_globalStyles = globalStyles;
+		updateThemeName(_themeName);
+		_restoreInvalid = false;
+
+		_currentThemeIndex = _hSwitch2ThemeCombo->currentIndex();
+		_isDirty = false;
+		_isThemeChanged = false;
+	}
+	_isThemeDirty = false;
+	auto newSavedFilePath = (NppParameters::getInstance()).writeStyles(_lsArray, _globalStyles);
+	if (!newSavedFilePath.empty())
+		updateThemeName(newSavedFilePath);
+
+	enableItem(IDC_SAVECLOSE_BUTTON, false);
+	display(false);
+
+	// With the application of each modification, the following 2 actions (applications) are not necessary
+	//::SendMessage(_hParent, WM_UPDATESCINTILLAS, TRUE, 0);
+	//::SendMessage(_hParent, WM_UPDATEMAINMENUBITMAPS, 0, 0);
+
+	const wchar_t* fn = PathFindFileName(_themeName.c_str());
+	NppDarkMode::setThemeName((!NppDarkMode::isEnabled() && wcscmp(fn, L"stylers.xml") == 0) ? L"" : fn);
+}
+
+void WordStyleDlg::onColourPicked(bool which)
+{
+	int applicationInfo = getApplicationInfo();
+
+	int tabColourIndex = whichTabColourIndex();
+
+	if (which == C_FOREGROUND)
+	{
+		updateColour(C_FOREGROUND);
+		notifyDataModified();
+
+		if (tabColourIndex != -1)
+		{
+			TabBarPlus::setColour(_pFgColour->getColour(), static_cast<TabBarPlus::tabColourIndex>(tabColourIndex), nullptr);
+		}
+		else
+		{
+			int findDlgStatusMsgIndex = whichFindDlgStatusMsgColourIndex();
+			if (findDlgStatusMsgIndex != -1)
+			{
+				NppParameters& nppParamInst = NppParameters::getInstance();
+				nppParamInst.setFindDlgStatusMsgIndexColor(_pFgColour->getColour(), findDlgStatusMsgIndex);
+			}
+			else if (isDocumentMapStyle())
+			{
+				ViewZoneDlg::setColour(_pFgColour->getColour(), ViewZoneDlg::ViewZoneColorIndex::focus);
+			}
+		}
+	}
+	else
+	{
+		updateColour(C_BACKGROUND);
+		notifyDataModified();
+
+		if (tabColourIndex != -1)
+		{
+			tabColourIndex = (tabColourIndex == TabBarPlus::inactiveText ? TabBarPlus::inactiveBg : tabColourIndex);
+			TabBarPlus::setColour(_pBgColour->getColour(), static_cast<TabBarPlus::tabColourIndex>(tabColourIndex), nullptr);
+		}
+		else if (isDocumentMapStyle())
+		{
+			ViewZoneDlg::setColour(_pBgColour->getColour(), ViewZoneDlg::ViewZoneColorIndex::frost);
+		}
+		else
+		{
+			int colourIndex = whichIndividualTabColourId();
+
+			if (colourIndex != -1)
+			{
+				if (colourIndex >= TabBarPlus::individualTabColourId::id5)
+					colourIndex -= TabBarPlus::individualTabColourId::id5;
+
+				NppParameters& nppParamInst = NppParameters::getInstance();
+				nppParamInst.setIndividualTabColor(_pBgColour->getColour(), colourIndex, NppDarkMode::isEnabled());
+			}
+		}
+	}
+
+	apply(applicationInfo);
+}
+
+// These labels show whether their setting is in use for the style
+void WordStyleDlg::updateStaticTexts()
+{
+	const Style& style = getCurrentStyler();
+
+	bool isFgEnabled = isColourSet(style._fgColor);
+
+	// Selected text colour style
+	if (style._styleDesc == L"Selected text colour")
+		isFgEnabled = NppParameters::getInstance().getSVP()._selectedTextForegroundSingleColor;
+
+	_hFgColourStaticText->setEnabled(isFgEnabled);
+	_hBgColourStaticText->setEnabled(isColourSet(style._bgColor));
+	_hFontNameStaticText->setEnabled(!style._fontName.empty());
+	_hFontSizeStaticText->setEnabled(style._fontSize != STYLE_NOT_USED && style._fontSize < 100); // style._fontSize has only 2 digits
 }
 
 void WordStyleDlg::loadLangListFromNppParam()
@@ -631,19 +459,18 @@ void WordStyleDlg::loadLangListFromNppParam()
 	_globalStyles = nppParamInst.getGlobalStylers();
 
 	// Clean up Language List
-	::SendDlgItemMessage(_hSelf, IDC_LANGUAGES_COMBO, CB_RESETCONTENT, 0, 0);
+	_hLanguagesCombo->clear();
 
-	::SendDlgItemMessage(_hSelf, IDC_LANGUAGES_COMBO, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Global Styles"));
+	_hLanguagesCombo->addItem(QStringLiteral("Global Styles"));
 	// All the lexers
 	for (size_t i = 0, nb = _lsArray.getNbLexer() ; i < nb ; ++i)
 	{
 		const std::wstring langName = (_lsArray.getLexerDescFromIndex(i));
-		::SendDlgItemMessage(_hSelf, IDC_LANGUAGES_COMBO, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(langName.c_str()));
+		_hLanguagesCombo->addItem(QString::fromStdWString(langName));
 	}
 
 	static constexpr int index2Begin = 0;
-	::SendDlgItemMessage(_hSelf, IDC_LANGUAGES_COMBO, CB_SETCURSEL, index2Begin, 0);
-	::RedrawWindow(::GetDlgItem(_hSelf, IDC_LANGUAGES_COMBO), nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+	_hLanguagesCombo->setCurrentIndex(index2Begin);
 	setStyleListFromLexer(index2Begin);
 }
 
@@ -654,20 +481,13 @@ void WordStyleDlg::updateThemeName(const wstring& themeName)
 	nppGUI._themeName.assign( themeName );
 }
 
-bool WordStyleDlg::getStyleName(std::wstring& styleName, const size_t styleNameLenLimit) const
+bool WordStyleDlg::getStyleName(std::wstring& styleName) const
 {
-	auto i = ::SendDlgItemMessage(_hSelf, IDC_STYLES_LIST, LB_GETCURSEL, 0, 0);
-	if (i == LB_ERR)
-		return false;
-	
-	const auto lbTextLen = ::SendDlgItemMessage(_hSelf, IDC_STYLES_LIST, LB_GETTEXTLEN, i, 0);
-	if (lbTextLen == LB_ERR || static_cast<size_t>(lbTextLen) > styleNameLenLimit)
+	const QListWidgetItem* item = _hStylesList->currentItem();
+	if (!item)
 		return false;
 
-	auto buffer = std::wstring(static_cast<size_t>(lbTextLen), L'\0');
-	::SendDlgItemMessage(_hSelf, IDC_STYLES_LIST, LB_GETTEXT, i, reinterpret_cast<LPARAM>(buffer.data()));
-
-	styleName = buffer;
+	styleName = item->text().toStdWString();
 	return true;
 }
 
@@ -827,28 +647,12 @@ void WordStyleDlg::updateColour(bool which)
 void WordStyleDlg::updateFontSize()
 {
 	Style & style = getCurrentStyler();
-	auto iFontSizeSel = ::SendMessage(_hFontSizeCombo, CB_GETCURSEL, 0, 0);
 
-	if (iFontSizeSel != 0)
+	if (_hFontSizeCombo->currentIndex() != 0)
 	{
-		static constexpr size_t intStrLen = 3;
-		wchar_t intStr[intStrLen]{};
-
-		auto lbTextLen = ::SendMessage(_hFontSizeCombo, CB_GETLBTEXTLEN, iFontSizeSel, 0);
-		if (static_cast<size_t>(lbTextLen) >= intStrLen)
-			return;
-
-		::SendMessage(_hFontSizeCombo, CB_GETLBTEXT, iFontSizeSel, reinterpret_cast<LPARAM>(intStr));
-
-		if (!intStr[0])
-			style._fontSize = STYLE_NOT_USED;
-		else
-		{
-			wchar_t *finStr = nullptr;
-			style._fontSize = wcstol(intStr, &finStr, 10);
-			if (*finStr != '\0')
-				style._fontSize = STYLE_NOT_USED;
-		}
+		bool isNumber = false;
+		const int fontSize = _hFontSizeCombo->currentText().toInt(&isNumber);
+		style._fontSize = isNumber ? fontSize : STYLE_NOT_USED;
 	}
 	else
 		style._fontSize = 0;
@@ -856,29 +660,19 @@ void WordStyleDlg::updateFontSize()
 
 void WordStyleDlg::updateExtension()
 {
-	static constexpr int NB_MAX = 256;
-	wchar_t ext[NB_MAX]{};
-	::SendDlgItemMessage(_hSelf, IDC_USER_EXT_EDIT, WM_GETTEXT, NB_MAX, reinterpret_cast<LPARAM>(ext));
-	_lsArray.getLexerFromIndex(static_cast<size_t>(_currentLexerIndex) - 1).setLexerUserExt(ext);
+	_lsArray.getLexerFromIndex(static_cast<size_t>(_currentLexerIndex) - 1).setLexerUserExt(getItemText(IDC_USER_EXT_EDIT).c_str());
 }
 
 void WordStyleDlg::updateUserKeywords()
 {
 	Style & style = getCurrentStyler();
-	
-	const auto len = static_cast<size_t>(::SendDlgItemMessage(_hSelf, IDC_USER_KEYWORDS_EDIT, WM_GETTEXTLENGTH, 0, 0));
-	auto kw = std::wstring(len + 1, L'\0');
-	::SendDlgItemMessage(_hSelf, IDC_USER_KEYWORDS_EDIT, WM_GETTEXT, static_cast<WPARAM>(kw.length()), reinterpret_cast<LPARAM>(kw.data()));
-	kw.resize(len);
-	style._keywords = wstring2string(kw);
+	style._keywords = wstring2string(getItemText(IDC_USER_KEYWORDS_EDIT));
 }
 
 void WordStyleDlg::updateFontName()
 {
 	Style & style = getCurrentStyler();
-	auto iFontSel = ::SendMessage(_hFontNameCombo, CB_GETCURSEL, 0, 0);
-	auto* fnStr = reinterpret_cast<wchar_t*>(::SendMessage(_hFontNameCombo, CB_GETITEMDATA, iFontSel, 0));
-	style._fontName = fnStr;
+	style._fontName = _hFontNameCombo->currentText().toStdWString();
 }
 
 void WordStyleDlg::updateFontStyleStatus(fontStyleType whitchStyle)
@@ -888,32 +682,28 @@ void WordStyleDlg::updateFontStyleStatus(fontStyleType whitchStyle)
 		style._fontStyle = FONTSTYLE_NONE;
 
 	int fontStyle = FONTSTYLE_UNDERLINE;
-	HWND hWnd = _hCheckUnderline;
+	QAbstractButton* check = _hCheckUnderline;
 
 	if (whitchStyle == BOLD_STATUS)
 	{
 		fontStyle = FONTSTYLE_BOLD;
-		hWnd = _hCheckBold;
+		check = _hCheckBold;
 	}
 	if (whitchStyle == ITALIC_STATUS)
 	{
 		fontStyle = FONTSTYLE_ITALIC;
-		hWnd = _hCheckItalic;
+		check = _hCheckItalic;
 	}
 
-	auto isChecked = ::SendMessage(hWnd, BM_GETCHECK, 0, 0);
-	if (isChecked != BST_INDETERMINATE)
-	{
-		if (isChecked == BST_CHECKED)
-			style._fontStyle |= fontStyle;
-		else
-			style._fontStyle &= ~fontStyle;
-	}
+	if (check->isChecked())
+		style._fontStyle |= fontStyle;
+	else
+		style._fontStyle &= ~fontStyle;
 }
 
 void WordStyleDlg::switchToTheme()
 {
-	auto iSel = ::SendMessage(_hSwitch2ThemeCombo, CB_GETCURSEL, 0, 0);
+	const int iSel = _hSwitch2ThemeCombo->currentIndex();
 
 	wstring prevThemeName(_themeName);
 	_themeName.clear();
@@ -925,10 +715,7 @@ void WordStyleDlg::switchToTheme()
 
 	if (_isThemeDirty)
 	{
-		wchar_t themeFileName[MAX_PATH]{};
-		wcscpy_s(themeFileName, prevThemeName.c_str());
-		PathStripPath(themeFileName);
-		PathRemoveExtension(themeFileName);
+		const wstring themeFileName = QFileInfo(QString::fromStdWString(prevThemeName)).completeBaseName().toStdWString();
 		NativeLangSpeaker *pNativeSpeaker = nppParamInst.getNativeLangSpeaker();
 		int mb_response = pNativeSpeaker->messageBox("SwitchUnsavedThemeWarning",
 			_hSelf,
@@ -936,7 +723,7 @@ void WordStyleDlg::switchToTheme()
 			L"$STR_REPLACE$",
 			MB_ICONWARNING | MB_YESNO | MB_APPLMODAL | MB_SETFOREGROUND,
 			0,
-			themeFileName);
+			themeFileName.c_str());
 		if ( mb_response == IDYES )
 			(NppParameters::getInstance()).writeStyles(_lsArray, _globalStyles);
 	}
@@ -958,11 +745,11 @@ void WordStyleDlg::applyCurrentSelectedThemeAndUpdateUI()
 
 bool WordStyleDlg::selectThemeByName(const wchar_t* themeName)
 {
-	LRESULT iTheme = ::SendMessage(_hSwitch2ThemeCombo, CB_FINDSTRING, 1, reinterpret_cast<LPARAM>(themeName));
-	if (iTheme == CB_ERR)
+	const int iTheme = findPrefix(_hSwitch2ThemeCombo, themeName, 1);
+	if (iTheme == -1)
 		return false;
 
-	::SendMessage(_hSwitch2ThemeCombo, CB_SETCURSEL, iTheme, 0);
+	_hSwitch2ThemeCombo->setCurrentIndex(iTheme);
 
 	applyCurrentSelectedThemeAndUpdateUI();
 
@@ -979,19 +766,22 @@ bool WordStyleDlg::goToSection(const wchar_t* sectionNames)
 	if (sections.size() == 0 || sections.size() >= 3)
 		return false;
 
-	auto i = ::SendDlgItemMessage(_hSelf, IDC_LANGUAGES_COMBO, CB_FINDSTRING, static_cast<WPARAM>(-1), reinterpret_cast<LPARAM>(sections[0].c_str()));
-	if (i == LB_ERR)
+	const int language = findPrefix(_hLanguagesCombo, sections[0].c_str(), -1);
+	if (language == -1)
 		return false;
-	::SendDlgItemMessage(_hSelf, IDC_LANGUAGES_COMBO, CB_SETCURSEL, i, 0);
-	setStyleListFromLexer(static_cast<int>(i));
+	_hLanguagesCombo->setCurrentIndex(language);
+	setStyleListFromLexer(language);
 
 	if (sections.size() == 1)
 		return true;
 
-	i = ::SendDlgItemMessage(_hSelf, IDC_STYLES_LIST, LB_FINDSTRING, static_cast<WPARAM>(-1), reinterpret_cast<LPARAM>(sections[1].c_str()));
-	if (i == LB_ERR)
+	const QList<QListWidgetItem*> styles = _hStylesList->findItems(QString::fromStdWString(sections[1]), Qt::MatchStartsWith);
+	if (styles.isEmpty())
 		return false;
-	::SendDlgItemMessage(_hSelf, IDC_STYLES_LIST, LB_SETCURSEL, i, 0);
+	{
+		const QSignalBlocker blocker(_hStylesList);
+		_hStylesList->setCurrentItem(styles.first());
+	}
 	setVisualFromStyleList();
 
 	grabFocus();
@@ -1005,7 +795,8 @@ void WordStyleDlg::setStyleListFromLexer(int index)
 
 	// Fill out Styles listbox
 	// Before filling out, we clean it
-	::SendDlgItemMessage(_hSelf, IDC_STYLES_LIST, LB_RESETCONTENT, 0, 0);
+	const QSignalBlocker stylesBlocker(_hStylesList);
+	_hStylesList->clear();
 
 	if (index)
 	{
@@ -1014,41 +805,27 @@ void WordStyleDlg::setStyleListFromLexer(int index)
 		const wchar_t *userExt = (_lsArray.getLexerStylerByName(langName))->getLexerUserExt();
 
 		if (ext)
-			::SendDlgItemMessage(_hSelf, IDC_DEF_EXT_EDIT, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(ext));
+			setItemText(IDC_DEF_EXT_EDIT, ext);
 
-		// WM_SETTEXT cause sending WM_COMMAND message with EN_CHANGE.
-		// That makes status dirty, even it shouldn't in this case.
-		// The walk around solution is get the current status before sending WM_SETTEXT,
-		// then restore the status after sending this message.
-		bool isDirty = _isDirty;
-		bool isThemeDirty = _isThemeDirty;
-
-		static constexpr int NB_MAX = 256;
-		wchar_t currentExt[NB_MAX]{};
-		::SendDlgItemMessage(_hSelf, IDC_USER_EXT_EDIT, WM_GETTEXT, NB_MAX, reinterpret_cast<LPARAM>(currentExt));
-
-		if (std::wcscmp(currentExt, userExt) != 0)
-		{
-			::SendDlgItemMessage(_hSelf, IDC_USER_EXT_EDIT, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(userExt));
-		}
-		_isDirty = isDirty;
-		_isThemeDirty = isThemeDirty;
-		::EnableWindow(::GetDlgItem(_hSelf, IDC_SAVECLOSE_BUTTON), isDirty || isThemeDirty);
+		auto* userExtEdit = qobject_cast<QLineEdit*>(dlgItem(IDC_USER_EXT_EDIT));
+		const QSignalBlocker blocker(userExtEdit);
+		userExtEdit->setText(QString::fromWCharArray(userExt));
+		enableItem(IDC_SAVECLOSE_BUTTON, _isDirty || _isThemeDirty);
 	}
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_DEF_EXT_EDIT), index?SW_SHOW:SW_HIDE);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_DEF_EXT_STATIC), index?SW_SHOW:SW_HIDE);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_USER_EXT_EDIT), index?SW_SHOW:SW_HIDE);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_USER_EXT_STATIC), index?SW_SHOW:SW_HIDE);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_PLUSSYMBOL2_STATIC), index?SW_SHOW:SW_HIDE);
+	const bool isLanguage = index != 0;
+	showItem(IDC_DEF_EXT_EDIT, isLanguage);
+	showItem(IDC_DEF_EXT_STATIC, isLanguage);
+	showItem(IDC_USER_EXT_EDIT, isLanguage);
+	showItem(IDC_USER_EXT_STATIC, isLanguage);
+	showItem(IDC_PLUSSYMBOL2_STATIC, isLanguage);
 
 	const StyleArray& lexerStyler = index ? _lsArray.getLexerFromIndex(static_cast<size_t>(index) - 1) : _globalStyles;
 
 	for (const auto& style : lexerStyler)
 	{
-		const std::wstring styleDesc = (style._styleDesc);
-		::SendDlgItemMessage(_hSelf, IDC_STYLES_LIST, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(styleDesc.c_str()));
+		_hStylesList->addItem(QString::fromStdWString(style._styleDesc));
 	}
-	::SendDlgItemMessage(_hSelf, IDC_STYLES_LIST, LB_SETCURSEL, 0, 0);
+	_hStylesList->setCurrentRow(0);
 	setVisualFromStyleList();
 }
 
@@ -1213,37 +990,18 @@ void WordStyleDlg::setVisualFromStyleList()
 	//--Warning text
 	//bool showWarning = ((_currentLexerIndex == 0) && (style._styleID == STYLE_DEFAULT));//?SW_SHOW:SW_HIDE;
 
-	static constexpr size_t strLen = 256;
-	wchar_t str[strLen + 1] = { '\0' };
-
-	str[0] = '\0';
-
-	auto i = ::SendDlgItemMessage(_hSelf, IDC_LANGUAGES_COMBO, CB_GETCURSEL, 0, 0);
-	if (i == LB_ERR)
-		return;
-	auto lbTextLen = ::SendDlgItemMessage(_hSelf, IDC_LANGUAGES_COMBO, CB_GETLBTEXTLEN, i, 0);
-	if (static_cast<size_t>(lbTextLen) > strLen)
+	if (_hLanguagesCombo->currentIndex() == -1)
 		return;
 
-	::SendDlgItemMessage(_hSelf, IDC_LANGUAGES_COMBO, CB_GETLBTEXT, i, reinterpret_cast<LPARAM>(str));
-
-	i = ::SendDlgItemMessage(_hSelf, IDC_STYLES_LIST, LB_GETCURSEL, 0, 0);
-	if (i == LB_ERR)
+	const QListWidgetItem* styleItem = _hStylesList->currentItem();
+	if (!styleItem)
 		return;
-	static constexpr size_t styleNameLen = 64;
-	wchar_t styleName[styleNameLen + 1] = { '\0' };
-	lbTextLen = ::SendDlgItemMessage(_hSelf, IDC_STYLES_LIST, LB_GETTEXTLEN, i, 0);
-	if (static_cast<size_t>(lbTextLen) > styleNameLen)
-		return;
-	::SendDlgItemMessage(_hSelf, IDC_STYLES_LIST, LB_GETTEXT, i, reinterpret_cast<LPARAM>(styleName));
-	wcscat_s(str, L": ");
-	wcscat_s(str, styleName);
 
-	::SetWindowText(_hStyleInfoStaticText, str);
+	_hStyleInfoStaticText->setText(_hLanguagesCombo->currentText() + QStringLiteral(": ") + styleItem->text());
 
 	//-- 2 couleurs : fg et bg
 	bool isEnable = false;
-	if (HIBYTE(HIWORD(style._fgColor)) != 0xFF)
+	if (isColourSet(style._fgColor))
 	{
 		_pFgColour->setColour(style._fgColor);
 		_pFgColour->setEnabled((style._colorStyle & COLORSTYLE_FOREGROUND) != 0);
@@ -1258,62 +1016,59 @@ void WordStyleDlg::setVisualFromStyleList()
 		if (NppParameters::getInstance().getSVP()._selectedTextForegroundSingleColor)
 			isEnable = true;
 	}
-	::EnableWindow(_pFgColour->getHSelf(), isEnable);
-	InvalidateRect(_hFgColourStaticText, NULL, FALSE);
+	_pFgColour->getHSelf()->setEnabled(isEnable);
 
 	isEnable = false;
-	if (HIBYTE(HIWORD(style._bgColor)) != 0xFF)
+	if (isColourSet(style._bgColor))
 	{
 		_pBgColour->setColour(style._bgColor);
 		_pBgColour->setEnabled((style._colorStyle & COLORSTYLE_BACKGROUND) != 0);
 		isEnable = true;
 	}
-	::EnableWindow(_pBgColour->getHSelf(), isEnable);
-	InvalidateRect(_hBgColourStaticText, NULL, FALSE);
+	_pBgColour->getHSelf()->setEnabled(isEnable);
 
 	//-- font name
-	LRESULT iFontName = 0;
+	int iFontName = 0;
 	if (!style._fontName.empty())
 	{
-		iFontName = ::SendMessage(_hFontNameCombo, CB_FINDSTRING, 1, reinterpret_cast<LPARAM>(style._fontName.c_str()));
-		if (iFontName == CB_ERR)
-			iFontName = 0;
+		iFontName = findPrefix(_hFontNameCombo, style._fontName.c_str(), 1);
+		if (iFontName == -1)
+		{
+			// Not installed, as Courier New of the default themes often is here: the system substitutes a font for
+			// it, and the list still says which one the style asks for
+			_hFontNameCombo->addItem(QString::fromStdWString(style._fontName));
+			iFontName = _hFontNameCombo->count() - 1;
+		}
 	}
 
-	::SendMessage(_hFontNameCombo, CB_SETCURSEL, iFontName, 0);
-	::EnableWindow(_hFontNameCombo, style._isFontEnabled);
-	::RedrawWindow(_hFontNameCombo, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
-	InvalidateRect(_hFontNameStaticText, NULL, FALSE);
+	_hFontNameCombo->setCurrentIndex(iFontName);
+	_hFontNameCombo->setEnabled(style._isFontEnabled);
 
 	//-- font size
-	static constexpr size_t intStrLen = 3;
-	LRESULT iFontSize = 0;
+	int iFontSize = 0;
 	if (style._fontSize != STYLE_NOT_USED && style._fontSize < 100) // style._fontSize has only 2 digits
 	{
-		wchar_t intStr[intStrLen]{};
-		wsprintf(intStr, L"%d", style._fontSize);
-		iFontSize = ::SendMessage(_hFontSizeCombo, CB_FINDSTRING, 1, reinterpret_cast<LPARAM>(intStr));
+		iFontSize = _hFontSizeCombo->findText(QString::number(style._fontSize));
+		if (iFontSize == -1)
+			iFontSize = 0;
 	}
-	::SendMessage(_hFontSizeCombo, CB_SETCURSEL, iFontSize, 0);
-	::EnableWindow(_hFontSizeCombo, style._isFontEnabled);
-	::RedrawWindow(_hFontSizeCombo, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
-	InvalidateRect(_hFontSizeStaticText, NULL, FALSE);
-	
+	_hFontSizeCombo->setCurrentIndex(iFontSize);
+	_hFontSizeCombo->setEnabled(style._isFontEnabled);
+
+	updateStaticTexts();
+
 	//-- font style : bold & italic
 	if (style._fontStyle != STYLE_NOT_USED)
 	{
-		int isBold = (style._fontStyle & FONTSTYLE_BOLD)?BST_CHECKED:BST_UNCHECKED;
-		int isItalic = (style._fontStyle & FONTSTYLE_ITALIC)?BST_CHECKED:BST_UNCHECKED;
-		int isUnderline = (style._fontStyle & FONTSTYLE_UNDERLINE)?BST_CHECKED:BST_UNCHECKED;
-		::SendMessage(_hCheckBold, BM_SETCHECK, isBold, 0);
-		::SendMessage(_hCheckItalic, BM_SETCHECK, isItalic, 0);
-		::SendMessage(_hCheckUnderline, BM_SETCHECK, isUnderline, 0);
+		_hCheckBold->setChecked((style._fontStyle & FONTSTYLE_BOLD) != 0);
+		_hCheckItalic->setChecked((style._fontStyle & FONTSTYLE_ITALIC) != 0);
+		_hCheckUnderline->setChecked((style._fontStyle & FONTSTYLE_UNDERLINE) != 0);
 	}
 	else // STYLE_NOT_USED : reset them all
 	{
-		::SendMessage(_hCheckBold, BM_SETCHECK, BST_UNCHECKED, 0);
-		::SendMessage(_hCheckItalic, BM_SETCHECK, BST_UNCHECKED, 0);
-		::SendMessage(_hCheckUnderline, BM_SETCHECK, BST_UNCHECKED, 0);
+		_hCheckBold->setChecked(false);
+		_hCheckItalic->setChecked(false);
+		_hCheckUnderline->setChecked(false);
 	}
 
 	enableFontStyle(style._isFontEnabled);
@@ -1336,50 +1091,32 @@ void WordStyleDlg::setVisualFromStyleList()
 		const char* kws = nppParams.getWordList(lType, style._keywordClass);
 		if (!kws)
 			kws = "";
-		::SendDlgItemMessage(_hSelf, IDC_DEF_KEYWORDS_EDIT, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(string2wstring(kws).c_str()));
+		setItemText(IDC_DEF_KEYWORDS_EDIT, string2wstring(kws));
 
-		const std::wstring ckwStr = string2wstring(style._keywords);
-		::SendDlgItemMessage(_hSelf, IDC_USER_KEYWORDS_EDIT, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(ckwStr.c_str()));
+		auto* userKeywords = qobject_cast<QPlainTextEdit*>(dlgItem(IDC_USER_KEYWORDS_EDIT));
+		const QSignalBlocker blocker(userKeywords);
+		userKeywords->setPlainText(QString::fromStdWString(string2wstring(style._keywords)));
 	}
 
-	int showOption = shouldBeDisplayed?SW_SHOW:SW_HIDE;
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_DEF_KEYWORDS_EDIT), showOption);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_USER_KEYWORDS_EDIT),showOption);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_DEF_KEYWORDS_STATIC), showOption);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_USER_KEYWORDS_STATIC),showOption);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_PLUSSYMBOL_STATIC),showOption);
+	showItem(IDC_DEF_KEYWORDS_EDIT, shouldBeDisplayed);
+	showItem(IDC_USER_KEYWORDS_EDIT, shouldBeDisplayed);
+	showItem(IDC_DEF_KEYWORDS_STATIC, shouldBeDisplayed);
+	showItem(IDC_USER_KEYWORDS_STATIC, shouldBeDisplayed);
+	showItem(IDC_PLUSSYMBOL_STATIC, shouldBeDisplayed);
 
 	redraw();
 }
 
 
-void WordStyleDlg::create(int dialogID, bool isRTL, bool msgDestParent, WORD fontSize, const std::wstring& fontFace)
-{
-	StaticDialog::create(dialogID, isRTL, msgDestParent, fontSize, fontFace);
-
-	if ((NppParameters::getInstance()).isTransparentAvailable())
-	{
-		::ShowWindow(::GetDlgItem(_hSelf, IDC_SC_TRANSPARENT_CHECK), SW_SHOW);
-		::ShowWindow(::GetDlgItem(_hSelf, IDC_SC_PERCENTAGE_SLIDER), SW_SHOW);
-
-		::SendDlgItemMessage(_hSelf, IDC_SC_PERCENTAGE_SLIDER, TBM_SETRANGE, FALSE, MAKELONG(20, 200));
-		::SendDlgItemMessage(_hSelf, IDC_SC_PERCENTAGE_SLIDER, TBM_SETPOS, TRUE, 150);
-		if (!(BST_CHECKED == ::SendDlgItemMessage(_hSelf, IDC_SC_PERCENTAGE_SLIDER, BM_GETCHECK, 0, 0)))
-			::EnableWindow(::GetDlgItem(_hSelf, IDC_SC_PERCENTAGE_SLIDER), FALSE);
-	}
-}
-
 void WordStyleDlg::doDialog(bool isRTL)
 {
 	if (!isCreated())
 	{
-		const auto dpiContext = DPIManagerV2::setThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-		WordStyleDlg::create(IDD_STYLER_DLG, isRTL);
-		DPIManagerV2::setThreadDpiAwarenessContext(dpiContext);
+		createDialog(isRTL);
 		prepare2Cancel();
 	}
 
-	if (!::IsWindowVisible(_hSelf))
+	if (!_hSelf->isVisible())
 	{
 		prepare2Cancel();
 	}
@@ -1388,17 +1125,9 @@ void WordStyleDlg::doDialog(bool isRTL)
 
 void WordStyleDlg::destroy()
 {
-	if (_pFgColour.get() != nullptr)
-	{
-		_pFgColour->destroy();
-		_pBgColour.reset(nullptr);
-	}
-
-	if (_pBgColour.get() != nullptr)
-	{
-		_pBgColour->destroy();
-		_pBgColour.reset(nullptr);
-	}
+	_pFgColour.reset();
+	_pBgColour.reset();
+	StaticDialog::destroy();
 }
 
 void WordStyleDlg::prepare2Cancel()
@@ -1412,8 +1141,6 @@ void WordStyleDlg::redraw(bool forceUpdate) const
 {
 	_pFgColour->redraw(forceUpdate);
 	_pBgColour->redraw(forceUpdate);
-	::InvalidateRect(_hStyleInfoStaticText, NULL, TRUE);
-	::UpdateWindow(_hStyleInfoStaticText);
 }
 
 void WordStyleDlg::restoreGlobalOverrideValues() const
@@ -1437,8 +1164,6 @@ void WordStyleDlg::apply(int applicationInfo)
 		::SendMessage(_hParent, WM_UPDATESCINTILLAS, (applicationInfo & THEME_CHANGE) != 0, 0);
 	if (applicationInfo & COLOR_CHANGE_4_MENU)
 		::SendMessage(_hParent, WM_UPDATEMAINMENUBITMAPS, 0, 0);
-
-	::EnableWindow(::GetDlgItem(_hSelf, IDOK), FALSE);
 }
 
 void WordStyleDlg::addLastThemeEntry() const
@@ -1446,13 +1171,13 @@ void WordStyleDlg::addLastThemeEntry() const
 	NppParameters& nppParamInst = NppParameters::getInstance();
 	ThemeSwitcher& themeSwitcher = nppParamInst.getThemeSwitcher();
 	std::pair<wstring, wstring>& themeInfo = themeSwitcher.getElementFromIndex(themeSwitcher.size() - 1);
-	::SendMessage(_hSwitch2ThemeCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(themeInfo.first.c_str()));
+	_hSwitch2ThemeCombo->addItem(QString::fromStdWString(themeInfo.first));
 }
 
 Style& WordStyleDlg::getCurrentStyler()
 {
-	auto styleIndex = static_cast<int>(::SendDlgItemMessage(_hSelf, IDC_STYLES_LIST, LB_GETCURSEL, 0, 0));
-	if (styleIndex == LB_ERR)
+	int styleIndex = _hStylesList->currentRow();
+	if (styleIndex == -1)
 		styleIndex = 0;
 
 	try {
@@ -1474,16 +1199,16 @@ Style& WordStyleDlg::getCurrentStyler()
 
 void WordStyleDlg::enableFontStyle(bool isEnable) const
 {
-	::EnableWindow(_hCheckBold, isEnable);
-	::EnableWindow(_hCheckItalic, isEnable);
-	::EnableWindow(_hCheckUnderline, isEnable);
+	_hCheckBold->setEnabled(isEnable);
+	_hCheckItalic->setEnabled(isEnable);
+	_hCheckUnderline->setEnabled(isEnable);
 }
 
 long WordStyleDlg::notifyDataModified()
 {
 	_isDirty = true;
 	_isThemeDirty = true;
-	::EnableWindow(::GetDlgItem(_hSelf, IDC_SAVECLOSE_BUTTON), TRUE);
+	enableItem(IDC_SAVECLOSE_BUTTON, true);
 	return TRUE;
 }
 
@@ -1493,13 +1218,13 @@ void WordStyleDlg::showGlobalOverrideCtrls(bool show)
 	{
 		updateGlobalOverrideCtrls();
 	}
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_GLOBAL_FG_CHECK), show ? SW_SHOW : SW_HIDE);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_GLOBAL_BG_CHECK), show ? SW_SHOW : SW_HIDE);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_GLOBAL_FONT_CHECK), show ? SW_SHOW : SW_HIDE);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_GLOBAL_FONTSIZE_CHECK), show ? SW_SHOW : SW_HIDE);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_GLOBAL_BOLD_CHECK), show ? SW_SHOW : SW_HIDE);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_GLOBAL_ITALIC_CHECK), show ? SW_SHOW : SW_HIDE);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_GLOBAL_UNDERLINE_CHECK), show ? SW_SHOW : SW_HIDE);
-	::ShowWindow(::GetDlgItem(_hSelf, IDC_GLOBAL_WHATISGLOBALOVERRIDE_LINK), show ? SW_SHOW : SW_HIDE);
+	showItem(IDC_GLOBAL_FG_CHECK, show);
+	showItem(IDC_GLOBAL_BG_CHECK, show);
+	showItem(IDC_GLOBAL_FONT_CHECK, show);
+	showItem(IDC_GLOBAL_FONTSIZE_CHECK, show);
+	showItem(IDC_GLOBAL_BOLD_CHECK, show);
+	showItem(IDC_GLOBAL_ITALIC_CHECK, show);
+	showItem(IDC_GLOBAL_UNDERLINE_CHECK, show);
+	showItem(IDC_GLOBAL_WHATISGLOBALOVERRIDE_LINK, show);
 	_isShownGOCtrls = show;
 }

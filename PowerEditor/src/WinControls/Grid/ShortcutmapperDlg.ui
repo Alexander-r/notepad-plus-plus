@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ShortcutmapperDlg</class>
+ <widget class="QDialog" name="ShortcutmapperDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>800</width><height>600</height></rect></property>
+  <property name="windowTitle"><string>Shortcut mapper</string></property>
+  <layout class="QVBoxLayout" name="mainLayout">
+   <item><widget class="QTabBar" name="babygridTabbar"><property name="nppId" stdset="0"><number>2604</number></property></widget></item>
+   <item><widget class="QTableWidget" name="shortcutTable"><property name="nppId" stdset="0"><number>2601</number></property></widget></item>
+   <item><widget class="QPlainTextEdit" name="babygridInfo"><property name="nppId" stdset="0"><number>2605</number></property><property name="maximumSize"><size><width>16777215</width><height>80</height></size></property><property name="readOnly"><bool>true</bool></property><property name="tabChangesFocus"><bool>true</bool></property></widget></item>
+   <item><layout class="QHBoxLayout" name="filterLayout">
+    <item><widget class="QLabel" name="babygridStatic"><property name="nppId" stdset="0"><number>2607</number></property><property name="text"><string>Filter:</string></property></widget></item>
+    <item><widget class="QLineEdit" name="babygridFilter"><property name="nppId" stdset="0"><number>2608</number></property></widget></item>
+    <item><widget class="QPushButton" name="babygridFilterClear"><property name="nppId" stdset="0"><number>2609</number></property><property name="maximumSize"><size><width>32</width><height>16777215</height></size></property><property name="text"><string>✕</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+   </layout></item>
+   <item><layout class="QHBoxLayout" name="buttonsLayout">
+    <item><spacer name="buttonsLeft"><property name="orientation"><enum>Qt::Horizontal</enum></property></spacer></item>
+    <item><widget class="QPushButton" name="babygridModify"><property name="nppId" stdset="0"><number>2602</number></property><property name="text"><string>Modify</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+    <item><widget class="QPushButton" name="babygridClear"><property name="nppId" stdset="0"><number>2606</number></property><property name="text"><string>Clear</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+    <item><widget class="QPushButton" name="babygridDelete"><property name="nppId" stdset="0"><number>2603</number></property><property name="text"><string>Delete</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+    <item><widget class="QPushButton" name="ok"><property name="nppId" stdset="0"><number>1</number></property><property name="text"><string>Close</string></property><property name="autoDefault"><bool>false</bool></property><property name="default"><bool>true</bool></property></widget></item>
+    <item><spacer name="buttonsRight"><property name="orientation"><enum>Qt::Horizontal</enum></property></spacer></item>
+   </layout></item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget><class>QTabBar</class><extends>QWidget</extends><header>QTabBar</header></customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>

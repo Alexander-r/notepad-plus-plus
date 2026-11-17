@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>HashfromfilesDlg</class>
+ <widget class="QDialog" name="HashfromfilesDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>529</width><height>318</height></rect></property>
+  <property name="windowTitle"><string>Generate MD5 digest from files</string></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <layout class="QHBoxLayout" name="layout2">
+     <item>
+      <widget class="QPushButton" name="hashFilebrowserButton">
+       <property name="nppId" stdset="0"><number>1922</number></property>
+       <property name="text"><string>Choose files to &amp;generate MD5...</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="spacer3">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QPlainTextEdit" name="hashPathEdit">
+     <property name="nppId" stdset="0"><number>1921</number></property>
+     <property name="readOnly"><bool>true</bool></property>
+     <property name="tabChangesFocus"><bool>true</bool></property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPlainTextEdit" name="hashResultEdit">
+     <property name="nppId" stdset="0"><number>1923</number></property>
+     <property name="readOnly"><bool>true</bool></property>
+     <property name="tabChangesFocus"><bool>true</bool></property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="layout4">
+     <item>
+      <spacer name="spacer5">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="hashToclipboardButton">
+       <property name="nppId" stdset="0"><number>1924</number></property>
+       <property name="text"><string>Co&amp;py to Clipboard</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancel">
+       <property name="nppId" stdset="0"><number>2</number></property>
+       <property name="text"><string>&amp;Close</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

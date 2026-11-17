@@ -16,11 +16,20 @@
 
 #pragma once
 
-#include <windows.h>
-#include <commctrl.h>
-#include "Window.h"
+#pragma once
+
+#include <functional>
+#include <string>
+#include <vector>
+
 #include "Common.h"
 #include "NppDarkMode.h"
+#include "Window.h"
+
+class QTreeWidget;
+class QTreeWidgetItem;
+
+using HTREEITEM = QTreeWidgetItem*;
 
 struct TreeStateNode {
 	std::wstring _label;
@@ -30,7 +39,11 @@ struct TreeStateNode {
 	std::vector<TreeStateNode> _children;
 };
 
+// Compares two items by their parameters, as a negative, zero or positive number
+using TreeCompareFunction = int (*)(LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort);
 
+// A tree whose items each hold an image index and a parameter. A tree can have several top level items, all
+// reached through getRoot() and getNextSibling().
 class TreeView : public Window {
 public:
 	TreeView() = default;
@@ -41,46 +54,30 @@ public:
 	HTREEITEM addItem(const wchar_t *itemName, HTREEITEM hParentItem, int iImage, LPARAM lParam = 0);
 	bool setItemParam(HTREEITEM Item2Set, LPARAM param);
 	LPARAM getItemParam(HTREEITEM Item2Get) const;
+	int getItemImage(HTREEITEM item) const;
 	std::wstring getItemDisplayName(HTREEITEM Item2Set) const;
 	HTREEITEM searchSubItemByName(const wchar_t *itemName, HTREEITEM hParentItem);
 	void removeItem(HTREEITEM hTreeItem);
 	void removeAllItems();
 	bool renameItem(const HTREEITEM Item2Set, const wchar_t* newName);
 	void makeLabelEditable(bool toBeEnabled);
+	void editLabel(HTREEITEM item);
 
-	HTREEITEM getChildFrom(HTREEITEM hTreeItem) const {
-		return TreeView_GetChild(_hSelf, hTreeItem);
-	}
-	HTREEITEM getSelection() const {
-		return TreeView_GetSelection(_hSelf);
-	}
-	bool selectItem(HTREEITEM hTreeItem2Select) const {
-		return TreeView_SelectItem(_hSelf, hTreeItem2Select) == TRUE;
-	}
-	HTREEITEM getRoot() const {
-		return TreeView_GetRoot(_hSelf);
-	}
-	HTREEITEM getParent(HTREEITEM hItem) const {
-		return TreeView_GetParent(_hSelf, hItem);
-	}
-	HTREEITEM getNextSibling(HTREEITEM hItem) const {
-		return TreeView_GetNextSibling(_hSelf, hItem);
-	}
-	HTREEITEM getPrevSibling(HTREEITEM hItem) const {
-		return TreeView_GetPrevSibling(_hSelf, hItem);
-	}
+	HTREEITEM getChildFrom(HTREEITEM hTreeItem) const;
+	HTREEITEM getSelection() const;
+	bool selectItem(HTREEITEM hTreeItem2Select) const;
+	HTREEITEM getRoot() const;
+	HTREEITEM getParent(HTREEITEM hItem) const;
+	HTREEITEM getNextSibling(HTREEITEM hItem) const;
+	HTREEITEM getPrevSibling(HTREEITEM hItem) const;
 
-	void expand(HTREEITEM hItem) const {
-		TreeView_Expand(_hSelf, hItem, TVE_EXPAND);
-	}
-
-	void fold(HTREEITEM hItem) const {
-		TreeView_Expand(_hSelf, hItem, TVE_COLLAPSE);
-	}
+	void expand(HTREEITEM hItem) const;
+	void fold(HTREEITEM hItem) const;
+	bool isExpanded(HTREEITEM hItem) const;
 
 	void foldExpandRecursively(HTREEITEM hItem, bool isFold) const;
 	void foldExpandAll(bool isFold) const;
-	
+
 	void foldAll() const {
 		foldExpandAll(true);
 	}
@@ -89,18 +86,11 @@ public:
 		foldExpandAll(false);
 	}
 
-	void toggleExpandCollapse(HTREEITEM hItem) const {
-		TreeView_Expand(_hSelf, hItem, TVE_TOGGLE);
-	}
+	void toggleExpandCollapse(HTREEITEM hItem) const;
 	void setItemImage(HTREEITEM hTreeItem, int iImage, int iSelectedImage);
 
-	// Drag and Drop operations
-	void beginDrag(NMTREEVIEW* tv);
-	void dragItem(HWND parentHandle, int x, int y);
-	bool isDragging() const {
-		return _isItemDragged;
-	}
-	bool dropItem();
+	// Drag and Drop operations: moving items within the tree with the mouse
+	void enableDragAndDrop(std::function<void()> onDropped = {});
 	void addCanNotDropInList(int val2set) {
 		_canNotDropInList.push_back(val2set);
 	}
@@ -116,30 +106,39 @@ public:
 	bool retrieveFoldingStateTo(TreeStateNode & treeState2Construct, HTREEITEM treeviewNode);
 	bool searchLeafAndBuildTree(const TreeView & tree2Build, const std::wstring & text2Search, int index2Search);
 	void sort(HTREEITEM hTreeItem, bool isRecusive);
-	void customSorting(HTREEITEM hTreeItem, PFNTVCOMPARE sortingCallbackFunc, LPARAM lParam, bool isRecursive);
+	void customSorting(HTREEITEM hTreeItem, TreeCompareFunction sortingCallbackFunc, LPARAM lParam, bool isRecursive);
 	bool setImageList(const std::vector<int>& imageIds, int imgSize = 0);
 	std::vector<int> getImageIds(std::vector<int> stdIds, std::vector<int>darkIds, std::vector<int> lightIds);
 
+	// Takes the images again after the icon set or dark mode changed
+	void refreshImages();
+
+	void setColours(COLORREF background, COLORREF text);
+
+	QTreeWidget* tree() const;
+
+	// For the drag and drop of the tree widget
+	bool canBeDropped(HTREEITEM draggedItem, HTREEITEM targetItem);
+	bool canDragOut(HTREEITEM targetItem);
+	void moveTreeViewItem(HTREEITEM draggedItem, HTREEITEM targetItem);
+	void notifyDropped() const;
+
 protected:
-	HIMAGELIST _hImaLst = nullptr;
-	NppDarkMode::TreeViewStyle _tvStyleType = NppDarkMode::TreeViewStyle::classic;
-
-	static LRESULT CALLBACK staticProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
-
-	void cleanSubEntries(HTREEITEM hTreeItem);
-	void dupTree(HTREEITEM hTree2Dup, HTREEITEM hParentItem);
-	bool searchLeafRecusivelyAndBuildTree(HTREEITEM tree2Build, const std::wstring & text2Search, int index2Search, HTREEITEM tree2Search);
-
-	// Drag and Drop operations
-	HTREEITEM _draggedItem = nullptr;
-	HIMAGELIST _draggedImageList = nullptr;
-	bool _isItemDragged = false;
 	std::vector<int> _canNotDragOutList;
 	std::vector<int> _canNotDropInList;
-	bool canBeDropped(HTREEITEM draggedItem, HTREEITEM targetItem);
-	void moveTreeViewItem(HTREEITEM draggedItem, HTREEITEM targetItem);
+	std::vector<int> _imageIds;
+	std::vector<int> _stdImageIds;
+	std::vector<int> _darkImageIds;
+	std::vector<int> _lightImageIds;
+	std::function<void()> _onDropped;
+
+	void refreshIcon(HTREEITEM item, int iImage) const;
+	void refreshAllIcons(HTREEITEM item) const;
+	void sortChildren(HTREEITEM parent, const std::function<bool(HTREEITEM, HTREEITEM)>& isBefore) const;
+	HTREEITEM dupItem(const TreeView& source, HTREEITEM sourceItem, HTREEITEM hParentItem) const;
+	bool searchLeafRecusivelyAndBuildTree(const TreeView& tree2Build, HTREEITEM hBuildParent, const std::wstring & text2Search, int index2Search, HTREEITEM tree2Search);
+
 	bool isParent(HTREEITEM targetItem, HTREEITEM draggedItem);
 	bool isDescendant(HTREEITEM targetItem, HTREEITEM draggedItem);
-	bool canDragOut(HTREEITEM targetItem);
 	bool canDropIn(HTREEITEM targetItem);
 };

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <string>
+
 #include "DockingDlgInterface.h"
 #include "documentMap_rc.h"
 
@@ -31,25 +33,27 @@ enum moveMode {
 	perPage
 };
 
-class ViewZoneDlg : public StaticDialog
+class DocumentMap;
+
+// The translucent cover of the map, with the part the editor shows in a stronger colour. It takes the mouse and
+// the keyboard, as the map is not to be edited.
+class ViewZoneDlg : public Window
 {
 public :
-	ViewZoneDlg() : StaticDialog(), _viewZoneCanvas(nullptr), _higherY(0), _lowerY(0) {}
+	ViewZoneDlg() = default;
 
 	enum class ViewZoneColorIndex {
 		focus,
 		frost
 	};
 
-	void doDialog();
-
+	void init(HINSTANCE hInst, HWND parent, DocumentMap* map);
 	void destroy() override {}
 
 	void drawZone(long hY, long lY) {
 		_higherY = hY;
 		_lowerY = lY;
-		if (nullptr != _viewZoneCanvas)
-			::InvalidateRect(_viewZoneCanvas, nullptr, TRUE);
+		redraw();
 	}
 
 	int getViewerHeight() const {
@@ -60,23 +64,20 @@ public :
 		return (_lowerY - _higherY)/2 + _higherY;
 	}
 
+	long higherY() const { return _higherY; }
+	long lowerY() const { return _lowerY; }
+
 	static void setColour(COLORREF colour2Set, ViewZoneColorIndex i);
+	static COLORREF colour(ViewZoneColorIndex i);
 
-protected :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-
+private :
 	static COLORREF _focus;
 	static COLORREF _frost;
 
-	void drawPreviewZone(DRAWITEMSTRUCT *pdis);
-
-private :
-	HWND _viewZoneCanvas = nullptr;
-	
 	long _higherY = 0;
 	long _lowerY = 0;
 
-	static LRESULT CALLBACK CanvasProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+	using Window::init;
 };
 
 
@@ -84,15 +85,8 @@ class DocumentMap : public DockingDlgInterface {
 public:
 	DocumentMap(): DockingDlgInterface(IDD_DOCUMENTMAP) {}
 
-	void create(DockedWidgetData * data, bool isRTL = false) override {
-		DockingDlgInterface::create(data, isRTL);
-		data->pszAddInfo = id4dockingCont.c_str();
-	}
-
-	void create(DockedWidgetData* data, std::array<int, 3> iconIDs, bool isRTL = false) override {
-		DockingDlgInterface::create(data, iconIDs, isRTL);
-		data->pszAddInfo = id4dockingCont.c_str();
-	}
+	using DockingDlgInterface::create;
+	void create(DockedWidgetData * data, bool isRTL = false) override;
 
 	void init(HINSTANCE hInst, HWND hPere, ScintillaEditView **ppEditView) {
 		DockingDlgInterface::init(hInst, hPere);
@@ -101,7 +95,7 @@ public:
 
 	void display(bool toShow = true) const override {
 		DockingDlgInterface::display(toShow);
-		_vzDlg.display();
+		_vzDlg.display(toShow);
 	}
 
 	void redraw(bool forceUpdate = false) const override;
@@ -129,8 +123,13 @@ public:
 	bool isTemporarilyShowing() const { return _isTemporarilyShowing; }
 	void setTemporarilyShowing(bool tempShowing) { _isTemporarilyShowing = tempShowing; }
 
+	// From the view zone and from the panel's own resizing
+	void onMouseAt(int y);
+	void onWheel(int delta);
+	void onResized();
+
 protected:
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	void onDockingNotify(const NMHDR& notification) override;
 	bool needToRecomputeWith(const ScintillaEditView *editView = nullptr);
 
 private:
@@ -146,5 +145,4 @@ private:
 	std::wstring id4dockingCont = DM_NOFOCUSWHILECLICKINGCAPTION;
 
 	using DockingDlgInterface::init;
-	using StaticDialog::create;
 };

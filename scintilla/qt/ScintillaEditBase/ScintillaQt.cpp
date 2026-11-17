@@ -19,6 +19,9 @@
 #include <QMimeData>
 #include <QWindow>
 #include <QMenu>
+#ifdef SCI_OWNREGEX
+#include "BoostRegexSearch.h"
+#endif
 #include <QTextCodec>
 #include <QScrollBar>
 #include <QTimer>
@@ -793,6 +796,22 @@ sptr_t ScintillaQt::WndProc(Message iMessage, uptr_t wParam, sptr_t lParam)
 
 		case Message::GetDirectPointer:
 			return reinterpret_cast<sptr_t>(this);
+
+#ifdef SCI_OWNREGEX
+		case Message::GetBoostRegexErrmsg:
+		{
+			// Same contract as the Notepad++ patch in ScintillaWin.cxx (copies behavior of SCI_GETTEXT)
+			if (lParam == 0)
+				return g_exceptionMessage.length() + 1;
+			if (wParam == 0)
+				return 0;
+			char *ptr = CharPtrFromSPtr(lParam);
+			const Sci_Position len = std::min<Sci_Position>(wParam - 1, g_exceptionMessage.length());
+			strncpy(ptr, g_exceptionMessage.c_str(), len);
+			ptr[len] = '\0';
+			return len;
+		}
+#endif
 
 		case Message::SetRectangularSelectionModifier:
 			rectangularSelectionModifier = static_cast<int>(wParam);

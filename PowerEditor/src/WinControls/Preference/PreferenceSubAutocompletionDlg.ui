@@ -1,0 +1,350 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubAutocompletionDlg</class>
+ <widget class="QWidget" name="PreferenceSubAutocompletionDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QGroupBox" name="autocGrpstatic">
+     <property name="nppId" stdset="0"><number>6807</number></property>
+     <property name="title"><string>Auto-Completion</string></property>
+     <layout class="QHBoxLayout" name="layout2">
+      <item>
+       <layout class="QVBoxLayout" name="layout3">
+        <item>
+         <widget class="QCheckBox" name="autocEnablecheck">
+          <property name="nppId" stdset="0"><number>6808</number></property>
+          <property name="text"><string>Enable auto-completion on each input</string></property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="layout4">
+          <item>
+           <spacer name="spacer5">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="autocFuncradio">
+            <property name="nppId" stdset="0"><number>6809</number></property>
+            <property name="text"><string>Function completion</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="layout6">
+          <item>
+           <spacer name="spacer7">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="autocWordradio">
+            <property name="nppId" stdset="0"><number>6810</number></property>
+            <property name="text"><string>Word completion</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="layout8">
+          <item>
+           <spacer name="spacer9">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="autocBothradio">
+            <property name="nppId" stdset="0"><number>6816</number></property>
+            <property name="text"><string>Function and word completion</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="autocBriefCheck">
+          <property name="nppId" stdset="0"><number>6872</number></property>
+          <property name="text"><string>Make auto-completion list brief</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="funcCheck">
+          <property name="nppId" stdset="0"><number>6815</number></property>
+          <property name="text"><string>Function parameters hint on input</string></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer10">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QVBoxLayout" name="layout11">
+        <item>
+         <layout class="QHBoxLayout" name="layout12">
+          <item>
+           <widget class="QLabel" name="autocStaticFrom">
+            <property name="nppId" stdset="0"><number>6811</number></property>
+            <property name="text"><string>From</string></property>
+            <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="autocStaticN">
+            <property name="nppId" stdset="0"><number>6812</number></property>
+            <property name="text"><string>1</string></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="autocStaticChar">
+            <property name="nppId" stdset="0"><number>6813</number></property>
+            <property name="text"><string>th character</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer13">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="layout14">
+          <item>
+           <widget class="QLabel" name="autocSliderMinStatic">
+            <property name="nppId" stdset="0"><number>6874</number></property>
+            <property name="text"><string>1</string></property>
+            <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSlider" name="autocCharSlider">
+            <property name="nppId" stdset="0"><number>6873</number></property>
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="autocSliderMaxStatic">
+            <property name="nppId" stdset="0"><number>6875</number></property>
+            <property name="text"><string>9</string></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="autocUsekeyGrpStatic">
+          <property name="nppId" stdset="0"><number>6869</number></property>
+          <property name="title"><string>Insert Selection</string></property>
+          <layout class="QHBoxLayout" name="layout15">
+           <item>
+            <widget class="QCheckBox" name="autocUsetab">
+             <property name="nppId" stdset="0"><number>6870</number></property>
+             <property name="text"><string>TAB</string></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="autocUseenter">
+             <property name="nppId" stdset="0"><number>6871</number></property>
+             <property name="text"><string>ENTER</string></property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="spacer16">
+             <property name="orientation"><enum>Qt::Horizontal</enum></property>
+             <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+             <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="autocIgnorenumbers">
+          <property name="nppId" stdset="0"><number>6824</number></property>
+          <property name="text"><string>Ignore numbers</string></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer17">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="autocinsertGrpstatic">
+     <property name="nppId" stdset="0"><number>6851</number></property>
+     <property name="title"><string>Auto-Insert</string></property>
+     <layout class="QHBoxLayout" name="layout18">
+      <item>
+       <layout class="QVBoxLayout" name="layout19">
+        <item>
+         <widget class="QCheckBox" name="autocparenthesesCheck">
+          <property name="nppId" stdset="0"><number>6852</number></property>
+          <property name="text"><string> (</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="autocbracketCheck">
+          <property name="nppId" stdset="0"><number>6853</number></property>
+          <property name="text"><string> [</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="autoccurlybracketCheck">
+          <property name="nppId" stdset="0"><number>6854</number></property>
+          <property name="text"><string> {</string></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <spacer name="spacer20">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+        <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+        <property name="sizeHint" stdset="0"><size><width>24</width><height>0</height></size></property>
+       </spacer>
+      </item>
+      <item>
+       <layout class="QVBoxLayout" name="layout21">
+        <item>
+         <widget class="QCheckBox" name="autocDoublequotescheck">
+          <property name="nppId" stdset="0"><number>6855</number></property>
+          <property name="text"><string> "</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="autocQuotescheck">
+          <property name="nppId" stdset="0"><number>6856</number></property>
+          <property name="text"><string> '</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="autoctagCheck">
+          <property name="nppId" stdset="0"><number>6857</number></property>
+          <property name="text"><string> html/xml close tag</string></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <spacer name="spacer22">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+        <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+        <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+       </spacer>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="layout23">
+        <item row="0" column="1">
+         <widget class="QLabel" name="machedpairopenStatic">
+          <property name="nppId" stdset="0"><number>6858</number></property>
+          <property name="text"><string>Open</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QLabel" name="machedpaircloseStatic">
+          <property name="nppId" stdset="0"><number>6859</number></property>
+          <property name="text"><string>Close</string></property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="machedpairStatic1">
+          <property name="nppId" stdset="0"><number>6860</number></property>
+          <property name="text"><string>Matched pair 1:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QLineEdit" name="machedpairopenEdit1">
+          <property name="nppId" stdset="0"><number>6861</number></property>
+          <property name="alignment"><set>Qt::AlignCenter</set></property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QLineEdit" name="machedpaircloseEdit1">
+          <property name="nppId" stdset="0"><number>6862</number></property>
+          <property name="alignment"><set>Qt::AlignCenter</set></property>
+         </widget>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="machedpairStatic2">
+          <property name="nppId" stdset="0"><number>6863</number></property>
+          <property name="text"><string>Matched pair 2:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QLineEdit" name="machedpairopenEdit2">
+          <property name="nppId" stdset="0"><number>6864</number></property>
+          <property name="alignment"><set>Qt::AlignCenter</set></property>
+         </widget>
+        </item>
+        <item row="2" column="2">
+         <widget class="QLineEdit" name="machedpaircloseEdit2">
+          <property name="nppId" stdset="0"><number>6865</number></property>
+          <property name="alignment"><set>Qt::AlignCenter</set></property>
+         </widget>
+        </item>
+        <item row="3" column="0">
+         <widget class="QLabel" name="machedpairStatic3">
+          <property name="nppId" stdset="0"><number>6866</number></property>
+          <property name="text"><string>Matched pair 3:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="3" column="1">
+         <widget class="QLineEdit" name="machedpairopenEdit3">
+          <property name="nppId" stdset="0"><number>6867</number></property>
+          <property name="alignment"><set>Qt::AlignCenter</set></property>
+         </widget>
+        </item>
+        <item row="3" column="2">
+         <widget class="QLineEdit" name="machedpaircloseEdit3">
+          <property name="nppId" stdset="0"><number>6868</number></property>
+          <property name="alignment"><set>Qt::AlignCenter</set></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer24">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+ </buttongroups>
+</ui>

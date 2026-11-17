@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubMiscDlg</class>
+ <widget class="QWidget" name="PreferenceSubMiscDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <layout class="QHBoxLayout" name="layout2">
+     <item>
+      <layout class="QVBoxLayout" name="layout3">
+       <item>
+        <widget class="QGroupBox" name="fileautodetectionStatic">
+         <property name="nppId" stdset="0"><number>6312</number></property>
+         <property name="title"><string>File Status Auto-Detection</string></property>
+         <layout class="QVBoxLayout" name="layout4">
+          <item>
+           <widget class="QComboBox" name="comboFileupdatechoice">
+            <property name="nppId" stdset="0"><number>6347</number></property>
+            <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkUpdatesilently">
+            <property name="nppId" stdset="0"><number>6313</number></property>
+            <property name="text"><string>Update silently</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkUpdategotoeof">
+            <property name="nppId" stdset="0"><number>6325</number></property>
+            <property name="text"><string>Scroll to the last line after update</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="layout5">
+         <item>
+          <widget class="QComboBox" name="comboSystrayActionChoice">
+           <property name="nppId" stdset="0"><number>6307</number></property>
+           <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="systrayStatic">
+           <property name="nppId" stdset="0"><number>6308</number></property>
+           <property name="text"><string>system tray</string></property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="spacer6">
+           <property name="orientation"><enum>Qt::Horizontal</enum></property>
+           <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+           <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="layout7">
+         <item>
+          <widget class="QComboBox" name="comboScTechnologyChoice">
+           <property name="nppId" stdset="0"><number>6362</number></property>
+           <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="scTechnologyStatic">
+           <property name="nppId" stdset="0"><number>6363</number></property>
+           <property name="text"><string>rendering mode</string></property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="spacer8">
+           <property name="orientation"><enum>Qt::Horizontal</enum></property>
+           <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+           <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="layout9">
+         <item>
+          <widget class="QLabel" name="autoupdateStatic">
+           <property name="nppId" stdset="0"><number>6365</number></property>
+           <property name="text"><string>Auto-updater:</string></property>
+           <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="comboAutoupdate">
+           <property name="nppId" stdset="0"><number>6364</number></property>
+           <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="spacer10">
+           <property name="orientation"><enum>Qt::Horizontal</enum></property>
+           <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+           <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkMuteSounds">
+         <property name="nppId" stdset="0"><number>6360</number></property>
+         <property name="text"><string>Mute all sounds</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkDetectencoding">
+         <property name="nppId" stdset="0"><number>6334</number></property>
+         <property name="text"><string>Autodetect character encoding</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkShorttitle">
+         <property name="nppId" stdset="0"><number>6331</number></property>
+         <property name="text"><string>Show only filename in title bar</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkSaveallconfirm">
+         <property name="nppId" stdset="0"><number>6361</number></property>
+         <property name="text"><string>Enable Save All confirm dialog</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkAloowsimlinkfaw">
+         <property name="nppId" stdset="0"><number>6366</number></property>
+         <property name="text"><string>Allow loading symlinks in Folder as Workspace panel</string></property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="spacer11">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="layout12">
+       <item>
+        <widget class="QGroupBox" name="documentswitcherStatic">
+         <property name="nppId" stdset="0"><number>6324</number></property>
+         <property name="title"><string>Document Switcher (Ctrl+TAB)</string></property>
+         <layout class="QVBoxLayout" name="layout13">
+          <item>
+           <widget class="QCheckBox" name="checkEnabledocswitcher">
+            <property name="nppId" stdset="0"><number>6114</number></property>
+            <property name="text"><string>Enable</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkStylemru">
+            <property name="nppId" stdset="0"><number>6117</number></property>
+            <property name="text"><string>Enable MRU behaviour</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="documentpeekStatic">
+         <property name="nppId" stdset="0"><number>6344</number></property>
+         <property name="title"><string>Document Peeker</string></property>
+         <layout class="QVBoxLayout" name="layout14">
+          <item>
+           <widget class="QCheckBox" name="checkEnabledocpeeker">
+            <property name="nppId" stdset="0"><number>6345</number></property>
+            <property name="text"><string>Peek on tab</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkEnabledocpeekonmap">
+            <property name="nppId" stdset="0"><number>6346</number></property>
+            <property name="text"><string>Peek on document map</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <layout class="QGridLayout" name="layout15">
+         <item row="0" column="0">
+          <widget class="QLabel" name="sessionfileextStatic">
+           <property name="nppId" stdset="0"><number>6322</number></property>
+           <property name="text"><string>Session file ext.:</string></property>
+           <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLineEdit" name="editSessionfileext">
+           <property name="nppId" stdset="0"><number>6321</number></property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="workspacefileextStatic">
+           <property name="nppId" stdset="0"><number>6337</number></property>
+           <property name="text"><string>Workspace file ext.:</string></property>
+           <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QLineEdit" name="editWorkspacefileext">
+           <property name="nppId" stdset="0"><number>6336</number></property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <spacer name="spacer16">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <spacer name="spacer17">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -214,7 +214,7 @@ public:
 
 	const wchar_t * getFullPathName() const { return _fullPathName.c_str(); }
 
-	const wchar_t * getFileName() const { return _fileName; }
+	const wchar_t * getFileName() const { return _fileName.c_str(); }
 
 	const wchar_t* getCompactFileName() const { return _compactFileName.c_str(); }
 
@@ -339,9 +339,7 @@ public:
 	void setTabCreatedTimeStringWithCurrentTime() {
 		if (_currentStatus == DOC_UNNAMED)
 		{
-			FILETIME now{};
-			GetSystemTimeAsFileTime(&now);
-			_tabCreatedTimeString = getTimeString(now);
+			_tabCreatedTimeString = getTimeString(currentFileTime());
 		}
 	}
 
@@ -394,15 +392,10 @@ public:
 
 	void startMonitoring() {
 		_isMonitoringOn = true;
-		_eventHandle = ::CreateEvent(nullptr, TRUE, FALSE, nullptr);
 	}
-
-	HANDLE getMonitoringEvent() const { return _eventHandle; }
 
 	void stopMonitoring() {
 		_isMonitoringOn = false;
-		::SetEvent(_eventHandle);
-		::CloseHandle(_eventHandle);
 	}
 
 	bool isMonitoringOn() const { return _isMonitoringOn; }
@@ -482,7 +475,7 @@ private:
 
 	bool _isFileReadOnly = false;
 	std::wstring _fullPathName;
-	wchar_t * _fileName = nullptr; // points to filename part in _fullPathName
+	std::wstring _fileName; // the file name part of _fullPathName
 	std::wstring _compactFileName; // shortened filename form of the _fileName with possible ellipsis (...) at the end
 	bool _needReloading = false; // True if Buffer needs to be reloaded on activation
 
@@ -510,7 +503,6 @@ private:
 	                                // This variable member keeps this situation in memory and when the undo state back to the save_point_reached, it'll still be dirty (its original state) 
 
 	// For the monitoring
-	HANDLE _eventHandle = nullptr;
 	bool _isMonitoringOn = false;
 
 	bool _hasLangBeenSetFromMenu = false;

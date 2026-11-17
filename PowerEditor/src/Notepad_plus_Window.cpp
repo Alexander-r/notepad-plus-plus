@@ -15,74 +15,172 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-#include <shlwapi.h>
 #include "Notepad_plus_Window.h"
 
-HWND Notepad_plus_Window::gNppHWND = NULL;
+#include <QApplication>
+#include <QClipboard>
+#include <QCloseEvent>
+#include <QDir>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QKeyEvent>
+#include <QMainWindow>
+#include <QGuiApplication>
+#include <QTimer>
+#include <QMenuBar>
+#include <QMimeData>
+#include <QResizeEvent>
+#include <QUrl>
 
-namespace // anonymous
+#include "NppResources.h"
+
+HWND Notepad_plus_Window::gNppHWND = nullptr;
+
+namespace
 {
-
-	struct PaintLocker final
+	class MainWidget : public QMainWindow
 	{
-		explicit PaintLocker(HWND handle)
-			: handle(handle)
+	public:
+		explicit MainWidget(QWidget* parent) : QMainWindow(parent)
 		{
-			// disallow drawing on the window
-			LockWindowUpdate(handle);
+			setAcceptDrops(true);
 		}
 
-		~PaintLocker()
+	protected:
+		void closeEvent(QCloseEvent* event) override
 		{
-			// re-allow drawing for the window
-			LockWindowUpdate(NULL);
-
-			// force re-draw
-			InvalidateRect(handle, nullptr, TRUE);
-			RedrawWindow(handle, nullptr, NULL, RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME | RDW_INVALIDATE);
+			// WM_CLOSE has already closed the application when it decides to go ahead
+			event->ignore();
+			::SendMessage(this, WM_CLOSE, 0, 0);
 		}
 
-		HWND handle;
+		void resizeEvent(QResizeEvent* event) override
+		{
+			QMainWindow::resizeEvent(event);
+			::SendMessage(this, WM_SIZE, 0, 0);
+		}
+
+		void moveEvent(QMoveEvent* event) override
+		{
+			QMainWindow::moveEvent(event);
+			::SendMessage(this, WM_MOVE, 0, 0);
+		}
+
+		void changeEvent(QEvent* event) override
+		{
+			QMainWindow::changeEvent(event);
+
+			// The desktop's theme changed. Later, as the style has to deal with this first.
+			if (event->type() == QEvent::ThemeChange)
+				QTimer::singleShot(0, this, [this]() { ::SendMessage(this, WM_SETTINGCHANGE, 0, 0); });
+
+			if (event->type() == QEvent::ActivationChange)
+			{
+				::SendMessage(this, WM_ACTIVATE, isActiveWindow() ? WA_ACTIVE : WA_INACTIVE, 0);
+			}
+			else if (event->type() == QEvent::WindowStateChange && isMinimized())
+			{
+				::SendMessage(this, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+			}
+		}
+
+		void dragEnterEvent(QDragEnterEvent* event) override
+		{
+			if (event->mimeData()->hasUrls())
+				event->acceptProposedAction();
+		}
+
+		void dropEvent(QDropEvent* event) override
+		{
+			std::vector<std::wstring> paths;
+			const QList<QUrl> urls = event->mimeData()->urls();
+			for (const QUrl& url : urls)
+			{
+				if (url.isLocalFile())
+					paths.push_back(QDir::toNativeSeparators(url.toLocalFile()).toStdWString());
+			}
+			event->acceptProposedAction();
+			::SendMessage(this, WM_DROPFILES, reinterpret_cast<WPARAM>(&paths), 0);
+		}
 	};
-
-} // anonymous namespace
-
-using namespace std;
-
-void Notepad_plus_Window::setStartupBgColor(COLORREF BgColor)
-{
-	RECT windowClientArea;
-	HDC hdc = GetDCEx(_hSelf, NULL, DCX_CACHE | DCX_LOCKWINDOWUPDATE); //lock window update flag due to PaintLocker
-	GetClientRect(_hSelf, &windowClientArea);
-	HBRUSH hBrush = ::CreateSolidBrush(BgColor);
-	::FillRect(hdc, &windowClientArea, hBrush);
-	::DeleteObject(hBrush);
-	ReleaseDC(_hSelf, hdc);
 }
 
+namespace
+{
+	// Alt and F10 show and hide the menu bar when the settings keep it hidden
+	class HiddenMenuKeys : public QObject
+	{
+	public:
+		explicit HiddenMenuKeys(QMainWindow* window) : QObject(window), _window(window)
+		{
+			// Choosing from the menu puts it away again
+			QObject::connect(window->menuBar(), &QMenuBar::triggered, this, [this]()
+			{
+				if (!NppParameters::getInstance().getNppGUI()._menuBarShow)
+					_window->menuBar()->hide();
+			});
+		}
+
+	protected:
+		bool eventFilter(QObject* watched, QEvent* event) override
+		{
+			const QEvent::Type type = event->type();
+			if (type == QEvent::KeyPress)
+			{
+				const auto* key = static_cast<QKeyEvent*>(event);
+				_isAltAlone = key->key() == Qt::Key_Alt && key->modifiers() == Qt::AltModifier;
+				if (key->key() == Qt::Key_F10 && key->modifiers() == Qt::NoModifier && isHidingMenu() && !key->isAutoRepeat())
+				{
+					toggleMenu();
+					return true;
+				}
+			}
+			else if (type == QEvent::KeyRelease)
+			{
+				if (static_cast<QKeyEvent*>(event)->key() == Qt::Key_Alt && _isAltAlone && isHidingMenu())
+					toggleMenu();
+				_isAltAlone = false;
+			}
+			else if (type == QEvent::MouseButtonPress)
+			{
+				_isAltAlone = false;
+			}
+			return QObject::eventFilter(watched, event);
+		}
+
+	private:
+		QMainWindow* _window = nullptr;
+		bool _isAltAlone = false;
+
+		bool isHidingMenu() const
+		{
+			return !NppParameters::getInstance().getNppGUI()._menuBarShow && QApplication::activeModalWidget() == nullptr;
+		}
+
+		void toggleMenu() const
+		{
+			QMenuBar* menuBar = _window->menuBar();
+			menuBar->setVisible(menuBar->isHidden());
+		}
+	};
+}
+
+QMainWindow* Notepad_plus_Window::mainWindow() const
+{
+	return static_cast<QMainWindow*>(_hSelf);
+}
+
+void Notepad_plus_Window::destroy()
+{
+	delete _hSelf;
+	_hSelf = nullptr;
+}
 
 void Notepad_plus_Window::init(HINSTANCE hInst, HWND parent, const wchar_t *cmdLine, CmdLineParams *cmdLineParams)
 {
 	Window::init(hInst, parent);
-	WNDCLASS nppClass{};
-
-	nppClass.style = CS_BYTEALIGNWINDOW | CS_DBLCLKS;
-	nppClass.lpfnWndProc = Notepad_plus_Proc;
-	nppClass.cbClsExtra = 0;
-	nppClass.cbWndExtra = 0;
-	nppClass.hInstance = _hInst;
-	nppClass.hIcon = ::LoadIcon(hInst, MAKEINTRESOURCE(IDI_M30ICON));
-	nppClass.hCursor = ::LoadCursor(NULL, IDC_ARROW);
-	nppClass.hbrBackground = ::CreateSolidBrush(::GetSysColor(COLOR_MENU));
-	nppClass.lpszMenuName = MAKEINTRESOURCE(IDR_M30_MENU);
-	nppClass.lpszClassName = _className;
 
 	_isPrelaunch = cmdLineParams->_isPreLaunch;
-
-	if (!::RegisterClass(&nppClass))
-	{
-		throw std::runtime_error("Notepad_plus_Window::init : RegisterClass() function failed");
-	}
 
 	NppParameters& nppParams = NppParameters::getInstance();
 	NppGUI & nppGUI = nppParams.getNppGUI();
@@ -94,22 +192,36 @@ void Notepad_plus_Window::init(HINSTANCE hInst, HWND parent, const wchar_t *cmdL
 	nppGUI._isFullReadOnly = cmdLineParams->_isFullReadOnly;
 	nppGUI._isFullReadOnlySavingForbidden = cmdLineParams->_isFullReadOnlySavingForbidden;
 
-	_hIconAbsent = ::LoadIcon(hInst, MAKEINTRESOURCE(IDI_ICONABSENT));
+	_hIconAbsent = nppLoadIcon(IDI_ICONABSENT);
 
-	_hSelf = ::CreateWindowEx(
-		WS_EX_ACCEPTFILES | (_notepad_plus_plus_core._nativeLangSpeaker.isRTL() ? WS_EX_LAYOUTRTL : 0),
-		_className,
-		L"Notepad++",
-		(WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN),
-		// CreateWindowEx bug : set all 0 to walk around the problem
-		0, 0, 0, 0,
-		_hParent, nullptr, _hInst,
-		(LPVOID) this); // pass the ptr of this instantiated object
-        // for retrieve it in Notepad_plus_Proc from
-        // the CREATESTRUCT.lpCreateParams afterward.
+	auto* window = new MainWidget(_hParent);
+	_hSelf = window;
 
-	if (NULL == _hSelf)
-		throw std::runtime_error("Notepad_plus_Window::init : CreateWindowEx() function return null");
+	// Coming back to the application is when it looks for files changed by others
+	QObject::connect(qApp, &QGuiApplication::applicationStateChanged, window, [window](Qt::ApplicationState state)
+	{
+		if (state == Qt::ApplicationActive)
+			::SendMessage(window, WM_ACTIVATEAPP, TRUE, 0);
+	});
+	window->setWindowTitle(QStringLiteral("Notepad++"));
+	if (QIcon* appIcon = nppLoadIcon(IDI_M30ICON))
+		window->setWindowIcon(*appIcon);
+	if (_notepad_plus_plus_core._nativeLangSpeaker.isRTL())
+		window->setLayoutDirection(Qt::RightToLeft);
+
+	nppSetMainWindow(_hSelf);
+	nppRegisterMessageTarget(_hSelf, [this](UINT message, WPARAM wParam, LPARAM lParam) -> LRESULT
+	{
+		return _notepad_plus_plus_core.process(_hSelf, message, wParam, lParam);
+	});
+
+	_notepad_plus_plus_core._pPublicInterface = this;
+	_notepad_plus_plus_core.init(_hSelf);
+
+	QObject::connect(QApplication::clipboard(), &QClipboard::dataChanged, window, [this]()
+	{
+		::SendMessage(_hSelf, WM_CLIPBOARDUPDATE, 0, 0);
+	});
 
 	if (!cmdLineParams->_pluginMessage.empty())
 	{
@@ -120,47 +232,21 @@ void Notepad_plus_Window::init(HINSTANCE hInst, HWND parent, const wchar_t *cmdL
 		_notepad_plus_plus_core._pluginsManager.notify(&scnN);
 	}
 
-	PaintLocker paintLocker{_hSelf};
-
 	_notepad_plus_plus_core.staticCheckMenuAndTB();
 
 	gNppHWND = _hSelf;
 
 	if (cmdLineParams->isPointValid())
-	{
-		::MoveWindow(_hSelf, cmdLineParams->_point.x, cmdLineParams->_point.y, nppGUI._appPos.right, nppGUI._appPos.bottom, TRUE);
-	}
+		_hSelf->setGeometry(cmdLineParams->_point.x, cmdLineParams->_point.y, nppGUI._appPos.right, nppGUI._appPos.bottom);
 	else
-	{
-		WINDOWPLACEMENT posInfo{};
-		posInfo.length = sizeof(WINDOWPLACEMENT);
-		posInfo.flags = 0;
-		if (_isPrelaunch)
-			posInfo.showCmd = SW_HIDE;
-		else
-			posInfo.showCmd = nppGUI._isMaximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
-
-		posInfo.ptMinPosition.x = (LONG)-1;
-		posInfo.ptMinPosition.y = (LONG)-1;
-		posInfo.ptMaxPosition.x = (LONG)-1;
-		posInfo.ptMaxPosition.y = (LONG)-1;
-		posInfo.rcNormalPosition.left   = nppGUI._appPos.left;
-		posInfo.rcNormalPosition.top    = nppGUI._appPos.top;
-		posInfo.rcNormalPosition.bottom = nppGUI._appPos.top + nppGUI._appPos.bottom;
-		posInfo.rcNormalPosition.right  = nppGUI._appPos.left + nppGUI._appPos.right;
-
-		//SetWindowPlacement will take care of situations, where saved position was in no longer available monitor
-		::SetWindowPlacement(_hSelf,&posInfo);
-		
-		if (NppDarkMode::isEnabled())
-			setStartupBgColor(NppDarkMode::getDlgBackgroundColor()); //draw dark background when opening Npp without position data
-	}
+		_hSelf->setGeometry(nppGUI._appPos.left, nppGUI._appPos.top, nppGUI._appPos.right, nppGUI._appPos.bottom);
 
 	if ((nppGUI._tabStatus & TAB_MULTILINE) != 0)
 		::SendMessage(_hSelf, NPPM_INTERNAL_MULTILINETABBAR, 0, 0);
 
 	if (!nppGUI._menuBarShow)
-		::SetMenu(_hSelf, NULL);
+		mainWindow()->menuBar()->hide();
+	qApp->installEventFilter(new HiddenMenuKeys(mainWindow()));
 
 	if (cmdLineParams->_isNoTab || (nppGUI._tabStatus & TAB_HIDE))
 	{
@@ -191,25 +277,22 @@ void Notepad_plus_Window::init(HINSTANCE hInst, HWND parent, const wchar_t *cmdL
 
 	if (nppParams.doFunctionListExport() || nppParams.doPrintAndExit())
 	{
-		::ShowWindow(_hSelf, SW_HIDE);
+		_hSelf->hide();
 	}
 	else if (!cmdLineParams->_isPreLaunch)
 	{
 		if (cmdLineParams->isPointValid())
-			::ShowWindow(_hSelf, SW_SHOW);
+			_hSelf->show();
+		else if (nppGUI._isMaximized)
+			_hSelf->showMaximized();
 		else
-			::ShowWindow(_hSelf, nppGUI._isMaximized ? SW_MAXIMIZE : SW_SHOW);
+			_hSelf->show();
 	}
 	else
 	{
-		HICON icon = nullptr;
-		loadTrayIcon(_hInst, &icon);
-		_notepad_plus_plus_core._pTrayIco = new trayIconControler(_hSelf, IDI_M30ICON, NPPM_INTERNAL_MINIMIZED_TRAY, icon, L"");
+		_notepad_plus_plus_core._pTrayIco = new trayIconControler(_hSelf, IDI_M30ICON, NPPM_INTERNAL_MINIMIZED_TRAY, nppLoadIcon(IDI_M30ICON), L"");
 		_notepad_plus_plus_core._pTrayIco->doTrayIcon(ADD);
 	}
-
-	if(cmdLineParams->isPointValid() && NppDarkMode::isEnabled())
-		setStartupBgColor(NppDarkMode::getDlgBackgroundColor()); //draw dark background when opening Npp through cmd with position data
 
 	std::vector<std::wstring> fileNames;
 	std::vector<std::wstring> patterns;
@@ -219,7 +302,8 @@ void Notepad_plus_Window::init(HINSTANCE hInst, HWND parent, const wchar_t *cmdL
 
 	LocalizationSwitcher & localizationSwitcher = nppParams.getLocalizationSwitcher();
 	std::wstring localizationDir = nppDir;
-	pathAppend(localizationDir, L"localization\\");
+	pathAppend(localizationDir, L"localization");
+	localizationDir += nppPathSepStr;
 
 	_notepad_plus_plus_core.getMatchedFileNames(localizationDir.c_str(), 0, patterns, fileNames, false, false);
 	for (const auto& fileName : fileNames)
@@ -235,7 +319,8 @@ void Notepad_plus_Window::init(HINSTANCE hInst, HWND parent, const wchar_t *cmdL
 	if (!userDataThemeDir.empty() && userDataThemeDir != nppDir)	
 	{
 		// append files from userDataThemeDir, unless it matches nppDir (which means the themes are already in the internal structure)
-		pathAppend(userDataThemeDir, L"themes\\");
+		pathAppend(userDataThemeDir, L"themes");
+		userDataThemeDir += nppPathSepStr;
 		_notepad_plus_plus_core.getMatchedFileNames(userDataThemeDir.c_str(), 0, patterns, fileNames, false, false);
 		for (const auto& fileName: fileNames)
 		{
@@ -246,7 +331,8 @@ void Notepad_plus_Window::init(HINSTANCE hInst, HWND parent, const wchar_t *cmdL
 	fileNames.clear();
 
 	std::wstring nppThemeDir = nppDir; // <- should use the pointer to avoid the constructor of copy
-	pathAppend(nppThemeDir, L"themes\\");
+	pathAppend(nppThemeDir, L"themes");
+	nppThemeDir += nppPathSepStr;
 
 	// Set theme directory to their installation directory
 	themeSwitcher.setThemeDirPath(nppThemeDir);
@@ -265,10 +351,10 @@ void Notepad_plus_Window::init(HINSTANCE hInst, HWND parent, const wchar_t *cmdL
 
 				if (!doesDirectoryExist(userDataThemePath.c_str()))
 				{
-					::CreateDirectory(userDataThemePath.c_str(), NULL);
+					QDir().mkpath(QString::fromStdWString(userDataThemePath));
 				}
 
-				wchar_t* fn = PathFindFileName(fileName.c_str());
+				const wchar_t* fn = PathFindFileName(fileName.c_str());
 				pathAppend(userDataThemePath, fn);
 				themeSwitcher.addThemeStylerSavePath(fileName, userDataThemePath);
 			}
@@ -284,7 +370,7 @@ void Notepad_plus_Window::init(HINSTANCE hInst, HWND parent, const wchar_t *cmdL
 			if (!nppParams.isLocal() || nppParams.isCloud())
 			{
 				themePath = nppParams.getUserPath();
-				pathAppend(themePath, L"themes\\");
+				pathAppend(themePath, L"themes");
 				pathAppend(themePath, xmlFileName);
 			}
 
@@ -450,24 +536,4 @@ void Notepad_plus_Window::init(HINSTANCE hInst, HWND parent, const wchar_t *cmdL
 
 	if (nppParams.doPrintAndExit())
 		::SendMessage(_hSelf, NPPM_INTERNAL_PRNTANDQUIT, 0, 0);
-}
-
-
-bool Notepad_plus_Window::isDlgsMsg(MSG *msg) const
-{
-	if (_notepad_plus_plus_core.processTabSwitchAccel(msg))
-		return true;
-
-	if (_notepad_plus_plus_core.processIncrFindAccel(msg))
-		return true;
-
-	if (_notepad_plus_plus_core.processFindAccel(msg))
-		return true;
-
-	for (size_t i = 0, len = _notepad_plus_plus_core._hModelessDlgs.size(); i < len; ++i)
-	{
-		if (::IsDialogMessageW(_notepad_plus_plus_core._hModelessDlgs[i], msg))
-			return true;
-	}
-	return false;
 }

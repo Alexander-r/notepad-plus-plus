@@ -17,150 +17,93 @@
 
 #include "GoToLineDlg.h"
 
-#include <windows.h>
+#include <QAbstractButton>
+#include <QDialog>
+#include <QLineEdit>
 
-#include <string>
-
-#include <Scintilla.h>
-
-#include "NppConstants.h"
-#include "NppDarkMode.h"
 #include "Parameters.h"
-#include "resource.h"
+#include "ui_GolineDlg.h"
 
-intptr_t CALLBACK GoToLineDlg::run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam)
+void GoToLineDlg::doDialog(bool isRTL)
 {
-	switch (message)
+	if (!isCreated())
 	{
-		case WM_INITDIALOG:
-		{
-			NppDarkMode::autoSubclassAndThemeChildControls(_hSelf);
+		QDialog* dialog = createDialogWidget(isRTL);
+		Ui::GolineDlg ui;
+		ui.setupUi(dialog);
 
-			setChecked(IDC_RADIO_GOTOLINE);
-			goToCenter(SWP_SHOWWINDOW | SWP_NOSIZE);
-			return TRUE;
-		}
+		ui.radioGotoline->setChecked(true);
+		goToCenter();
 
-		case WM_CTLCOLOREDIT:
-		{
-			return NppDarkMode::onCtlColorCtrl(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_CTLCOLORDLG:
-		{
-			return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_CTLCOLORSTATIC:
-		{
-			const auto hdcStatic = reinterpret_cast<HDC>(wParam);
-			const auto dlgCtrlID = ::GetDlgCtrlID(reinterpret_cast<HWND>(lParam));
-			if (dlgCtrlID == ID_CURRLINE_EDIT)
-			{
-				return NppDarkMode::onCtlColor(hdcStatic);
-			}
-			return NppDarkMode::onCtlColorDlg(hdcStatic);
-		}
-
-		case WM_PRINTCLIENT:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				return TRUE;
-			}
-			break;
-		}
-
-		case NPPM_INTERNAL_REFRESHDARKMODE:
-		{
-			NppDarkMode::autoThemeChildControls(_hSelf);
-			return TRUE;
-		}
-
-		case WM_DPICHANGED:
-		{
-			_dpiManager.setDpiWP(wParam);
-			setPositionDpi(lParam);
-
-			return TRUE;
-		}
-
-		case WM_COMMAND:
-		{
-			switch (LOWORD(wParam))
-			{
-				case IDCANCEL : // Close
-					display(false);
-					return TRUE;
-
-				case IDOK :
-                {
-					(*_ppEditView)->execute(SCI_SETMODEVENTMASK, MODEVENTMASK_OFF);
-                    long long line = getLine();
-                    if (line != -1)
-                    {
-                        display(false);
-						if (_mode == go2line)
-						{
-							(*_ppEditView)->execute(SCI_ENSUREVISIBLE, static_cast<WPARAM>(line - 1));
-							(*_ppEditView)->execute(SCI_GOTOLINE, static_cast<WPARAM>(line - 1));
-						}
-						else
-						{
-							size_t posToGoto = 0;
-							if (line > 0)
-							{
-								// make sure not jumping into the middle of a multibyte character
-								// or into the middle of a CR/LF pair for Windows files
-								auto before = (*_ppEditView)->execute(SCI_POSITIONBEFORE, static_cast<WPARAM>(line));
-								posToGoto = (*_ppEditView)->execute(SCI_POSITIONAFTER, before);
-							}
-							auto sci_line = (*_ppEditView)->execute(SCI_LINEFROMPOSITION, posToGoto);
-							(*_ppEditView)->execute(SCI_ENSUREVISIBLE, sci_line);
-							(*_ppEditView)->execute(SCI_GOTOPOS, posToGoto);
-						}
-					}
-					unsigned long MODEVENTMASK_ON = NppParameters::getInstance().getScintillaModEventMask();
-					(*_ppEditView)->execute(SCI_SETMODEVENTMASK, MODEVENTMASK_ON);
-
-					SCNotification notification{};
-					notification.nmhdr.code = SCN_PAINTED;
-					notification.nmhdr.hwndFrom = _hSelf;
-					notification.nmhdr.idFrom = ::GetDlgCtrlID(_hSelf);
-					::SendMessage(_hParent, WM_NOTIFY, LINKTRIGGERED, reinterpret_cast<LPARAM>(&notification));
-
-                    (*_ppEditView)->grabFocus();
-                    return TRUE;
-                }
-
-				case IDC_RADIO_GOTOLINE:
-				case IDC_RADIO_GOTOOFFSET:
-				{
-					if (wParam == IDC_RADIO_GOTOLINE)
-					{
-						_mode = go2line;
-					}
-					else
-					{
-						_mode = go2offsset;
-					}
-
-					updateLinesNumbers();
-					return TRUE;
-				}
-
-				default:
-				{
-					break;
-				}
-			}
-			return FALSE;
-		}
-
-		default :
-			return FALSE;
+		QObject::connect(ui.cancel, &QAbstractButton::clicked, dialog, [this]() { display(false); });
+		QObject::connect(ui.ok, &QAbstractButton::clicked, dialog, [this]() { onGo(); });
+		QObject::connect(ui.golineEdit, &QLineEdit::returnPressed, dialog, [this]() { onGo(); });
+		QObject::connect(ui.radioGotoline, &QAbstractButton::clicked, dialog, [this]() { _mode = go2line; updateLinesNumbers(); });
+		QObject::connect(ui.radioGotooffset, &QAbstractButton::clicked, dialog, [this]() { _mode = go2offsset; updateLinesNumbers(); });
 	}
-	return FALSE;
+	display();
+}
+
+void GoToLineDlg::display(bool toShow) const
+{
+	Window::display(toShow);
+	if (toShow)
+	{
+		updateLinesNumbers();
+		dlgItem(ID_GOLINE_EDIT)->setFocus();
+	}
+	else if (_hSelf)
+	{
+		// clean Line Edit
+		setItemText(ID_GOLINE_EDIT, L"");
+	}
+}
+
+long long GoToLineDlg::getLine() const
+{
+	const std::wstring text = getItemText(ID_GOLINE_EDIT);
+	if (text.empty())
+		return -1;
+	return wcstoll(text.c_str(), nullptr, 10);
+}
+
+void GoToLineDlg::onGo()
+{
+	(*_ppEditView)->execute(SCI_SETMODEVENTMASK, MODEVENTMASK_OFF);
+	long long line = getLine();
+	if (line != -1)
+	{
+	    display(false);
+		if (_mode == go2line)
+		{
+			(*_ppEditView)->execute(SCI_ENSUREVISIBLE, static_cast<WPARAM>(line - 1));
+			(*_ppEditView)->execute(SCI_GOTOLINE, static_cast<WPARAM>(line - 1));
+		}
+		else
+		{
+			size_t posToGoto = 0;
+			if (line > 0)
+			{
+				// make sure not jumping into the middle of a multibyte character
+				// or into the middle of a CR/LF pair for Windows files
+				auto before = (*_ppEditView)->execute(SCI_POSITIONBEFORE, static_cast<WPARAM>(line));
+				posToGoto = (*_ppEditView)->execute(SCI_POSITIONAFTER, before);
+			}
+			auto sci_line = (*_ppEditView)->execute(SCI_LINEFROMPOSITION, posToGoto);
+			(*_ppEditView)->execute(SCI_ENSUREVISIBLE, sci_line);
+			(*_ppEditView)->execute(SCI_GOTOPOS, posToGoto);
+		}
+	}
+	unsigned long MODEVENTMASK_ON = NppParameters::getInstance().getScintillaModEventMask();
+	(*_ppEditView)->execute(SCI_SETMODEVENTMASK, MODEVENTMASK_ON);
+
+	SCNotification notification{};
+	notification.nmhdr.code = SCN_PAINTED;
+	notification.nmhdr.hwndFrom = _hSelf;
+	notification.nmhdr.idFrom = 0;
+	::SendMessage(_hParent, WM_NOTIFY, LINKTRIGGERED, reinterpret_cast<LPARAM>(&notification));
+
+	(*_ppEditView)->grabFocus();
 }
 
 void GoToLineDlg::updateLinesNumbers() const
@@ -180,6 +123,6 @@ void GoToLineDlg::updateLinesNumbers() const
 		limit = (currentDocLength > 0 ? currentDocLength - 1 : 0);
 	}
 
-	::SetDlgItemTextW(_hSelf, ID_CURRLINE_EDIT, std::to_wstring(current).c_str());
-	::SetDlgItemTextW(_hSelf, ID_LASTLINE, std::to_wstring(limit).c_str());
+	setItemText(ID_CURRLINE_EDIT, std::to_wstring(current));
+	setItemText(ID_LASTLINE, std::to_wstring(limit));
 }

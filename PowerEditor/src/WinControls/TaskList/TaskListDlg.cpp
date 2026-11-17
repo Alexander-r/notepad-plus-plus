@@ -17,248 +17,227 @@
 
 #include "TaskListDlg.h"
 
-#include <windows.h>
+#include <QApplication>
+#include <QDialog>
+#include <QEvent>
+#include <QFontMetrics>
+#include <QGuiApplication>
+#include <QKeyEvent>
+#include <QListWidget>
+#include <QScreen>
+#include <QTimer>
+#include <QVBoxLayout>
+#include <QMouseEvent>
+#include <QWheelEvent>
 
+#include <algorithm>
+
+#include "IconList.h"
 #include "Notepad_plus_msgs.h"
 #include "NppConstants.h"
 #include "NppDarkMode.h"
 #include "Parameters.h"
-#include "StaticDialog.h"
-#include "TaskListDlg_rc.h"
-#include "colors.h"
 
 int TaskListDlg::_instanceCount = 0;
 
-static HWND hWndServer = nullptr;
-static HHOOK hook = nullptr;
-static winVer windowsVersion = WV_UNKNOWN;
-
-static LRESULT CALLBACK hookProc(int nCode, WPARAM wParam, LPARAM lParam)
+namespace
 {
-	// only when list control has focus
-	const bool shouldPostMsg = (nCode >= 0)
-		&& (::GetFocus() == hWndServer
-			|| ::IsChild(hWndServer, ::GetFocus()) == TRUE);
-	if (shouldPostMsg && (wParam == WM_RBUTTONUP))
+	class SwitcherEvents : public QObject
 	{
-		::PostMessage(hWndServer, WM_RBUTTONUP, 0, 0);
-	}
-	else if (shouldPostMsg && (wParam == WM_MOUSEWHEEL) && windowsVersion >= WV_WIN10)
-	{
-		auto* pMD = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
-		RECT rCtrl{};
-		::GetWindowRect(hWndServer, &rCtrl);
+	public:
+		SwitcherEvents(TaskListDlg* owner, QObject* parent) : QObject(parent), _owner(owner) {}
 
-		RECT rcNpp{};
-		::GetWindowRect(::GetParent(hWndServer), &rcNpp);
-		// To avoid duplicate messages, only send this message to the list control if it comes from outside the control window,
-		// and it is still inside Notepad++ window. To avoid affecting both list control and other "app".
-		// If the message occurs while the mouse is inside the control, the control will have receive the mouse wheel message itself.
-		if (::PtInRect(&rCtrl, pMD->pt) == FALSE && ::PtInRect(&rcNpp, pMD->pt) == TRUE)
+		bool eventFilter(QObject* watched, QEvent* event) override
 		{
-			::PostMessage(hWndServer, WM_MOUSEWHEEL, WPARAM{ pMD->mouseData }, MAKELPARAM(pMD->pt.x, pMD->pt.y));
-		}
-	}
-
-	return ::CallNextHookEx(hook, nCode, wParam, lParam);
-}
-
-int TaskListDlg::doDialog(bool isRTL)
-{
-	return static_cast<int>(StaticDialog::myCreateDialogBoxIndirectParam(IDD_TASKLIST_DLG, isRTL));
-}
-
-intptr_t CALLBACK TaskListDlg::run_dlgProc(UINT Message, WPARAM wParam, LPARAM lParam)
-{
-	switch (Message)
-	{
-		case WM_INITDIALOG :
-		{
-			NppDarkMode::autoSubclassAndThemeChildControls(_hSelf);
-
-			::SendMessage(_hParent, WM_GETTASKLISTINFO, reinterpret_cast<WPARAM>(&_taskListInfo), 0);
-			const int nbTotal = static_cast<int>(_taskListInfo._tlfsLst.size());
-
-			int i2set = _taskListInfo._currentIndex + (_initDir == dirDown?1:-1);
-			
-			if (i2set < 0)
-				i2set = nbTotal - 1;
-
-			if (i2set > (nbTotal - 1))
-				i2set = 0;
-
-			_taskList.init(_hInst, _hSelf, _hImalist, nbTotal, i2set);
-			_taskList.setFont(NppParameters::getInstance().getDlgFontSize() + 2);
-			_rc = _taskList.adjustSize();
-
-			reSizeTo(_rc);
-			goToCenter();
-
-			_taskList.display(true);
-			hWndServer = _hSelf;
-			windowsVersion = NppParameters::getInstance().getWinVersion();
-
-			_hHooker = ::SetWindowsHookEx(WH_MOUSE_LL, hookProc, _hInst, 0);
-			hook = _hHooker;
-			return FALSE;
-		}
-
-		case WM_CTLCOLORDLG:
-		case WM_CTLCOLORSTATIC:
-		{
-			return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_PRINTCLIENT:
-		{
-			if (NppDarkMode::isEnabled())
+			switch (event->type())
 			{
-				return TRUE;
-			}
-			break;
-		}
+				case QEvent::ShortcutOverride:
+					event->accept(); // the keys belong to the switcher, not to the menu commands
+					return true;
 
-		case WM_DESTROY :
-		{
-			_taskList.destroy();
-			::UnhookWindowsHookEx(_hHooker);
-			_instanceCount--;
-			return TRUE;
-		}
-
-		case WM_ACTIVATE:
-		{
-			// Dismiss it if window became active again while not pressing ctrl key or mouse right button.
-			// But allow mouse clicking to change document.
-			if (LOWORD(wParam) == WA_ACTIVE
-				&& ::GetKeyState(VK_CONTROL) >= 0
-				&& ::GetKeyState(VK_RBUTTON) >= 0)
-			{
-				::EndDialog(_hSelf, -1);
-				return TRUE;
-			}
-			break;
-		}
-
-		case WM_RBUTTONUP:
-		{
-			::SendMessage(_hSelf, WM_COMMAND, ID_PICKEDUP, _taskList.getCurrentIndex());
-			return TRUE;
-		}
-		
-		case WM_MOUSEWHEEL:
-		{
-			::SendMessage(_taskList.getHSelf(), WM_MOUSEWHEEL, wParam, lParam);
-			return TRUE;
-		}
-
-		case WM_DRAWITEM :
-		{
-			drawItem(reinterpret_cast<DRAWITEMSTRUCT*>(lParam));
-			return TRUE;
-		}
-
-		case WM_NOTIFY:
-		{
-			switch (reinterpret_cast<LPNMHDR>(lParam)->code)
-			{
-				case LVN_GETDISPINFO:
+				case QEvent::KeyPress:
 				{
-					auto& lvItem = reinterpret_cast<NMLVDISPINFOW*>(lParam)->item;
+					const auto* key = static_cast<QKeyEvent*>(event);
+					if (key->modifiers() & Qt::ControlModifier)
+					{
+						switch (key->key())
+						{
+							// Ctrl+F4 will dismiss document switcher
+							case Qt::Key_F4:
+								_owner->dismiss();
+								break;
 
-					TaskLstFnStatus & fileNameStatus = _taskListInfo._tlfsLst[lvItem.iItem];
+							// Shift+Tab is cool but I think VK_UP and VK_LEFT are also cool :-)
+							case Qt::Key_Backtab:
+							case Qt::Key_Up:
+							case Qt::Key_Left:
+								_owner->moveSelection(-1);
+								break;
 
-					lvItem.pszText = fileNameStatus._fn.data();
-					lvItem.iImage = fileNameStatus._status;
+							// VK_DOWN and VK_RIGHT do the same as VK_TAB does
+							case Qt::Key_Tab:
+								_owner->moveSelection((key->modifiers() & Qt::ShiftModifier) ? -1 : 1);
+								break;
 
-					return TRUE;
+							case Qt::Key_Down:
+							case Qt::Key_Right:
+								_owner->moveSelection(1);
+								break;
+
+							default:
+								break;
+						}
+					}
+					else if (key->key() == Qt::Key_Escape)
+					{
+						_owner->dismiss();
+					}
+					return true;
 				}
-		
-				case NM_CLICK :
-				case NM_RCLICK :
+
+				case QEvent::KeyRelease:
 				{
-					::SendMessage(_hSelf, WM_COMMAND, ID_PICKEDUP, _taskList.updateCurrentIndex());
-					return TRUE;
+					const auto* key = static_cast<QKeyEvent*>(event);
+					if (key->key() == Qt::Key_Control)
+						_owner->pickCurrent();
+					// Ctrl+W will dismiss document switcher on releasing 'W' key to avoid accidently closing newly activated document
+					else if (key->key() == Qt::Key_W && (key->modifiers() & Qt::ControlModifier))
+						_owner->dismiss();
+					return true;
+				}
+
+				// Holding the right button is the other way to keep the switcher open
+				case QEvent::MouseButtonRelease:
+				{
+					if (static_cast<QMouseEvent*>(event)->button() == Qt::RightButton)
+					{
+						_owner->pickCurrent();
+						return true;
+					}
+					break;
+				}
+
+				case QEvent::Wheel:
+				{
+					_owner->moveSelection(static_cast<QWheelEvent*>(event)->angleDelta().y() > 0 ? -1 : 1);
+					return true;
 				}
 
 				default:
 					break;
 			}
-			break;
+			return QObject::eventFilter(watched, event);
 		}
 
-		case WM_COMMAND:
-		{
-			switch (wParam)
-			{
-				case ID_PICKEDUP :
-				{
-					auto listIndex = lParam;
-					int view2set = _taskListInfo._tlfsLst[listIndex]._iView;
-					int index2Switch = _taskListInfo._tlfsLst[listIndex]._docIndex;
-					::SendMessage(_hParent, NPPM_ACTIVATEDOC, view2set, index2Switch);
-					::EndDialog(_hSelf, -1);
-					return TRUE;
-				}
-
-				// fallback in case window is not dismissed automatically, pressing Esc key should dismiss it
-				case IDCANCEL:
-				{
-					::EndDialog(_hSelf, -1);
-					return TRUE;
-				}
-
-				default:
-					return FALSE;
-			}
-		}
-
-		default :
-			return FALSE;
-	}
-
-	return FALSE;
+	private:
+		TaskListDlg* _owner;
+	};
 }
 
-void TaskListDlg::drawItem(LPDRAWITEMSTRUCT lpDrawItemStruct)
+int TaskListDlg::doDialog(bool isRTL)
 {
-	RECT rect = lpDrawItemStruct->rcItem;
-	HDC hDC = lpDrawItemStruct->hDC;
-	int nItem = lpDrawItemStruct->itemID;
-	const wchar_t *label = _taskListInfo._tlfsLst[nItem]._fn.c_str();
-	int iImage = _taskListInfo._tlfsLst[nItem]._status;
+	::SendMessage(_hParent, WM_GETTASKLISTINFO, reinterpret_cast<WPARAM>(&_taskListInfo), 0);
+	const int nbTotal = static_cast<int>(_taskListInfo._tlfsLst.size());
+	if (nbTotal == 0)
+		return -1;
 
-	const int aSpaceWidth = ListView_GetStringWidth(_taskList.getHSelf(), L" ");
+	int i2set = _taskListInfo._currentIndex + (_initDir == dirDown?1:-1);
 
-	COLORREF textColor = NppDarkMode::isEnabled() ? NppDarkMode::getDarkerTextColor() : darkGrey;
-	int imgStyle = ILD_SELECTED;
+	if (i2set < 0)
+		i2set = nbTotal - 1;
 
-	if (lpDrawItemStruct->itemState & ODS_SELECTED)
+	if (i2set > (nbTotal - 1))
+		i2set = 0;
+
+	QDialog* dialog = createDialogWidget(isRTL);
+	dialog->setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
+
+	_list = new QListWidget(dialog);
+	_list->setSelectionMode(QAbstractItemView::SingleSelection);
+	_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+	_list->setUniformItemSizes(true);
+	_list->setTextElideMode(Qt::ElideMiddle);
+
+	QFont listFont = _list->font();
+	listFont.setPointSize(listFont.pointSize() + 2);
+	_list->setFont(listFont);
+
+	auto* layout = new QVBoxLayout(dialog);
+	layout->setContentsMargins(0, 0, 0, 0);
+	layout->addWidget(_list);
+
+	const QFontMetrics metrics(listFont);
+	int widest = 150;
+	for (const TaskLstFnStatus& status : _taskListInfo._tlfsLst)
 	{
-		imgStyle = ILD_TRANSPARENT;
-		textColor = NppDarkMode::isEnabled() ? NppDarkMode::getTextColor() : black;
-		::SelectObject(hDC, _taskList.GetFontSelected());
+		const QString name = QString::fromStdWString(status._fn);
+		auto* item = new QListWidgetItem(name, _list);
+		if (_icons && static_cast<size_t>(status._status) < _icons->size())
+			item->setIcon(_icons->icon(status._status));
+		widest = std::max(widest, metrics.horizontalAdvance(name));
 	}
-	
-	//
-	// DRAW IMAGE
-	//
-	HIMAGELIST hImgLst = _taskList.getImgLst();
 
-	IMAGEINFO info{};
-	::ImageList_GetImageInfo(hImgLst, iImage, &info);
+	QObject::connect(_list, &QListWidget::itemClicked, dialog, [this]() { pickCurrent(); });
+	_list->installEventFilter(new SwitcherEvents(this, dialog));
 
-	RECT & imageRect = info.rcImage;
-	// center icon position, prefer bottom orientation
-	imageRect.top = ((rect.bottom - rect.top) - (imageRect.bottom - imageRect.top) + 1) / 2;
+	selectRow(i2set);
 
-	rect.left += aSpaceWidth;
-	::ImageList_Draw(hImgLst, iImage, hDC, rect.left, rect.top + imageRect.top, imgStyle);
-	rect.left += imageRect.right - imageRect.left + aSpaceWidth * 2;
+	const QRect available = _hParent->screen()->availableGeometry();
+	const int rowHeight = std::max(_list->sizeHintForRow(0), metrics.height());
+	const int width = std::min(widest + 64, available.width() * 4 / 5);
+	const int height = std::min(rowHeight * nbTotal + 8, available.height() * 4 / 5);
+	dialog->resize(width, height);
+	goToCenter();
+	_list->setFocus();
 
-	//
-	// DRAW TEXT
-	//
-	::SetTextColor(hDC, textColor);
-	::DrawText(hDC, label, -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+	// Ctrl may be up already, when the switcher was slower to come than the user's fingers
+	QTimer::singleShot(0, dialog, [this]()
+	{
+		if (!(QGuiApplication::queryKeyboardModifiers() & Qt::ControlModifier) && !(QGuiApplication::mouseButtons() & Qt::RightButton))
+			pickCurrent();
+	});
+
+	return runModal();
+}
+
+void TaskListDlg::selectRow(int row)
+{
+	const int current = _list->currentRow();
+	if (auto* item = _list->item(current))
+	{
+		QFont font = item->font();
+		font.setBold(false);
+		item->setFont(font);
+	}
+	_list->setCurrentRow(row);
+	if (auto* item = _list->item(row))
+	{
+		QFont font = _list->font();
+		font.setBold(true);
+		item->setFont(font);
+		_list->scrollToItem(item);
+	}
+}
+
+void TaskListDlg::moveSelection(int direction)
+{
+	const int count = _list->count();
+	selectRow((_list->currentRow() + direction + count) % count);
+}
+
+void TaskListDlg::pickCurrent()
+{
+	const int listIndex = _list->currentRow();
+	if (listIndex >= 0 && static_cast<size_t>(listIndex) < _taskListInfo._tlfsLst.size())
+	{
+		const int view2set = _taskListInfo._tlfsLst[listIndex]._iView;
+		const int index2Switch = _taskListInfo._tlfsLst[listIndex]._docIndex;
+		::SendMessage(_hParent, NPPM_ACTIVATEDOC, view2set, index2Switch);
+	}
+	dismiss();
+}
+
+void TaskListDlg::dismiss()
+{
+	endDialog(-1);
 }

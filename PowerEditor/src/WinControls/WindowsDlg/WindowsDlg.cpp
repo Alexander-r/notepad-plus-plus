@@ -17,32 +17,40 @@
 
 #include "WindowsDlg.h"
 
-#include <windows.h>
+#include <QAbstractButton>
+#include <QAction>
+#include <QApplication>
+#include <QDateTime>
+#include <QDialog>
+#include <QEvent>
+#include <QHeaderView>
+#include <QItemSelectionModel>
+#include <QKeyEvent>
+#include <QMenu>
+#include <QPalette>
+#include <QPushButton>
+#include <QTableWidget>
+#include <QTimer>
 
 #include <algorithm>
-#include <cassert>
-#include <cctype>
-#include <cstdio>
-#include <cstdlib>
 #include <cwchar>
 #include <cwctype>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "Buffer.h"
 #include "Common.h"
-#include "ContextMenu.h"
 #include "DocTabView.h"
-#include "ListView.h"
-#include "NppDarkMode.h"
+#include "NppMenu.h"
 #include "Parameters.h"
 #include "StaticDialog.h"
 #include "WindowsDlgRc.h"
-#include "dpiManagerV2.h"
 #include "localization.h"
 #include "menuCmdID.h"
 #include "resource.h"
+#include "ui_WindowsDlg.h"
 
 using namespace std;
 
@@ -56,38 +64,47 @@ using namespace std;
 #define WD_MENUCOPYNAME				"MenuCopyName"
 #define WD_MENUCOPYPATH				"MenuCopyPath"
 
-// WM_CHAR replacement
-#define WM_CHAR_REPLACEMENT			(WM_USER + WM_CHAR)
-
 static const wchar_t *readonlyString = L" [Read Only]";
-const UINT WDN_NOTIFY = RegisterWindowMessage(L"WDN_NOTIFY");
-/*
-inline static DWORD GetStyle(HWND hWnd) {
-	return (DWORD)GetWindowLongPtr(hWnd, GWL_STYLE);
-}
 
-inline static DWORD GetExStyle(HWND hWnd) {
-	return (DWORD)GetWindowLongPtr(hWnd, GWL_EXSTYLE);
-}
+namespace
+{
+	constexpr int nbColumns = 5;
 
-inline static BOOL ModifyStyle(HWND hWnd, DWORD dwRemove, DWORD dwAdd) {
-	DWORD dwStyle = (DWORD)::GetWindowLongPtr(hWnd, GWL_STYLE);
-	DWORD dwNewStyle = (dwStyle & ~dwRemove) | dwAdd;
-	if (dwStyle == dwNewStyle)
-		return FALSE;
-	::SetWindowLongPtr(hWnd, GWL_STYLE, dwNewStyle);
-	return TRUE;
-}
+	// The keys of the list that are not for the list itself
+	class ListKeys : public QObject
+	{
+	public:
+		ListKeys(QObject* parent, std::function<void(wchar_t)> onChar, std::function<void()> onCopy)
+			: QObject(parent), _onChar(std::move(onChar)), _onCopy(std::move(onCopy)) {}
 
-inline static BOOL ModifyStyleEx(HWND hWnd, DWORD dwRemove, DWORD dwAdd) {
-	DWORD dwStyle = (DWORD)::GetWindowLongPtr(hWnd, GWL_EXSTYLE);
-	DWORD dwNewStyle = (dwStyle & ~dwRemove) | dwAdd;
-	if (dwStyle == dwNewStyle)
-		return FALSE;
-	::SetWindowLongPtr(hWnd, GWL_EXSTYLE, dwNewStyle);
-	return TRUE;
+	protected:
+		bool eventFilter(QObject* watched, QEvent* event) override
+		{
+			if (event->type() == QEvent::KeyPress)
+			{
+				const auto* key = static_cast<QKeyEvent*>(event);
+				const Qt::KeyboardModifiers modifiers = key->modifiers();
+				if (key->key() == Qt::Key_C && (modifiers & Qt::ControlModifier))
+				{
+					_onCopy();
+					return true;
+				}
+
+				const QString text = key->text();
+				if (!(modifiers & (Qt::ControlModifier | Qt::AltModifier)) && !text.isEmpty() && text.at(0).isPrint())
+				{
+					_onChar(text.toStdWString().front());
+					return true;
+				}
+			}
+			return QObject::eventFilter(watched, event);
+		}
+
+	private:
+		std::function<void(wchar_t)> _onChar;
+		std::function<void()> _onCopy;
+	};
 }
-*/
 
 struct NumericStringEquivalence
 {
@@ -130,11 +147,11 @@ struct NumericStringEquivalence
 			}
 			else
 			{
-				if (::iswascii(*str1) && std::iswupper(*str1))
+				if (*str1 < 128 && std::iswupper(*str1))
 					c1 = towlower(*str1);
 				else
 					c1 = *str1;
-				if (::iswascii(*str2) && std::iswupper(*str2))
+				if (*str2 < 128 && std::iswupper(*str2))
 					c2 = towlower(*str2);
 				else
 					c2 = *str2;
@@ -163,14 +180,6 @@ struct BufferEquivalent
 		if (i1 == i2) return false; // equivalence test not equality
 		if (_reverse) std::swap(i1, i2);
 		return compare(i1, i2);
-	}
-
-	static inline unsigned long long to_u64(const FILETIME& ft)
-	{
-		ULARGE_INTEGER u{};
-		u.LowPart = ft.dwLowDateTime;
-		u.HighPart = ft.dwHighDateTime;
-		return u.QuadPart; // 100-ns ticks since 1601 UTC
 	}
 
 	bool compare(int i1, int i2) const
@@ -230,8 +239,8 @@ struct BufferEquivalent
 			}
 			else if (_iColumn == 4)
 			{
-				const auto v1 = to_u64(b1->getLastModifiedTimestamp());
-				const auto v2 = to_u64(b2->getLastModifiedTimestamp());
+				const auto v1 = fileTimeTicks(b1->getLastModifiedTimestamp());
+				const auto v2 = fileTimeTicks(b2->getLastModifiedTimestamp());
 
 				if (v1 != v2)
 					return (v1 < v2); //_isAscending ? (v1 < v2) : (v1 > v2);
@@ -246,454 +255,241 @@ struct BufferEquivalent
 	}
 };
 
-//////////////////
-// Window map tells CWinMgr how to position dialog controls
-//
-BEGIN_WINDOW_MAP(WindowsDlgMap)
-	BEGINROWS(WRCT_REST,0,RCMARGINS(8,8))
-		BEGINCOLS(WRCT_REST,0,0)                       // Begin list control column
-			BEGINROWS(WRCT_REST,0,0)
-				RCREST(IDC_WINDOWS_LIST)
-			ENDGROUP()
-			RCSPACE(12)
-			BEGINROWS(WRCT_TOFIT,0,0)
-			RCSPACE(12)
-			RCTOFIT(IDOK)
-			RCSPACE(-12)
-			RCTOFIT(IDC_WINDOWS_SAVE)
-			RCSPACE(-12)
-			RCTOFIT(IDC_WINDOWS_CLOSE)
-			RCSPACE(-12)
-			RCTOFIT(IDC_WINDOWS_SORT)
-			RCREST(-1)
-			RCTOFIT(IDCANCEL)
-			ENDGROUP()
-		ENDGROUP()
-	ENDGROUP()
-END_WINDOW_MAP()
-
-RECT WindowsDlg::_lastKnownLocation;
-HHOOK WindowsDlg::_hMsgHook = nullptr;
-HWND WindowsDlg::_hThisDlg = nullptr;
-
-WindowsDlg::WindowsDlg() : MyBaseClass(WindowsDlgMap)
-{
-}
+QRect WindowsDlg::_lastKnownLocation;
 
 void WindowsDlg::init(HINSTANCE hInst, HWND parent, DocTabView *pTab)
 {
-	MyBaseClass::init(hInst, parent);
+	StaticDialog::init(hInst, parent);
 	_pTab = pTab;
 }
 
-void WindowsDlg::init(HINSTANCE hInst, HWND parent)
+void WindowsDlg::finish(int result)
 {
-	assert(false && "Call other initialize method");
-	MyBaseClass::init(hInst, parent);
-	_pTab = NULL;
+	_lastKnownLocation = _hSelf->geometry();
+	endDialog(result);
 }
 
-LRESULT CALLBACK WindowsDlg::getMsgProc(int code, WPARAM wParam, LPARAM lParam) 
+void WindowsDlg::onCancel()
 {
-	if (code >= 0 && wParam == PM_REMOVE) 
-	{
-		MSG* pMsg = reinterpret_cast<MSG*>(lParam);
-		if (pMsg->message == WM_CHAR) 
-		{
-			// forward a WM_CHAR replacement message to the dialog
-			::PostMessage(_hThisDlg, WM_CHAR_REPLACEMENT, pMsg->wParam, pMsg->lParam);
+	finish(IDCANCEL);
+}
 
-			// suppress the original one 
-			// to prevent it from reaching the list view
-			pMsg->message = WM_NULL;
-			return 0;
+wstring WindowsDlg::cellText(int row, int column) const
+{
+	Buffer* buf = getBuffer(row);
+	if (!buf)
+		return {};
+
+	wstring text;
+	if (column == 0) // file name
+	{
+		text = buf->getFileName();
+		if (buf->isDirty())
+		{
+			text += '*';
+		}
+		else if (buf->isReadOnly())
+		{
+			text += readonlyString;
+		}
+	}
+	else if (column == 1) // directory
+	{
+		const wchar_t *fullName = buf->getFullPathName();
+		const wchar_t *fileName = buf->getFileName();
+		auto len = static_cast<intptr_t>(std::wcslen(fullName) - std::wcslen(fileName));
+		if (len > 0)
+			text.assign(fullName, static_cast<size_t>(len));
+	}
+	else if (column == 2) // Type
+	{
+		NppParameters& nppParameters = NppParameters::getInstance();
+		Lang* lang = nppParameters.getLangFromID(buf->getLangType());
+		if (lang)
+		{
+			text = lang->getLangName();
+		}
+	}
+	else if (column == 3) // size
+	{
+		text = to_wstring(buf->docLength());
+	}
+	else if (column == 4) // Modified time
+	{
+		// handle unsaved or unknown timestamp
+		static constexpr std::uint64_t unixEpochAsFileTime = 116444736000000000ULL;
+		const std::uint64_t ticks = fileTimeTicks(buf->getLastModifiedTimestamp());
+		if (ticks > unixEpochAsFileTime)
+		{
+			const QDateTime modified = QDateTime::fromMSecsSinceEpoch(static_cast<qint64>((ticks - unixEpochAsFileTime) / 10000));
+			text = modified.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")).toStdWString();
+		}
+	}
+	return text;
+}
+
+// The list has a row for each entry of _idxMap, showing what the document holds now
+void WindowsDlg::refreshList() const
+{
+	if (!_hList)
+		return;
+
+	const int rows = static_cast<int>(_idxMap.size());
+	_hList->setRowCount(rows);
+	for (int row = 0; row < rows; ++row)
+	{
+		for (int column = 0; column < nbColumns; ++column)
+		{
+			QTableWidgetItem* item = _hList->item(row, column);
+			if (!item)
+			{
+				item = new QTableWidgetItem;
+				if (column == 2 || column == 3)
+					item->setTextAlignment(Qt::AlignCenter);
+				_hList->setItem(row, column, item);
+			}
+			item->setText(QString::fromStdWString(cellText(row, column)));
+		}
+	}
+}
+
+vector<int> WindowsDlg::selectedRows() const
+{
+	vector<int> rows;
+	const QModelIndexList selected = _hList->selectionModel()->selectedRows();
+	rows.reserve(selected.size());
+	for (const QModelIndex& index : selected)
+		rows.push_back(index.row());
+	std::sort(rows.begin(), rows.end());
+	return rows;
+}
+
+void WindowsDlg::setRowSelected(int row, bool isSelected, bool isFocused) const
+{
+	const QModelIndex index = _hList->model()->index(row, 0);
+	QItemSelectionModel* model = _hList->selectionModel();
+	model->select(index, (isSelected ? QItemSelectionModel::Select : QItemSelectionModel::Deselect) | QItemSelectionModel::Rows);
+	if (isFocused)
+		model->setCurrentIndex(index, QItemSelectionModel::NoUpdate);
+}
+
+void WindowsDlg::onColumnClicked(int column)
+{
+	_currentColumn = column;
+
+	if (_lastSort == _currentColumn)
+	{
+		_reverseSort = true;
+		_lastSort = -1;
+	}
+	else
+	{
+		_reverseSort = false;
+		_lastSort = _currentColumn;
+	}
+
+	updateColumnNames();
+	doColumnSort();
+}
+
+void WindowsDlg::onSortTabs()
+{
+	// they never set a column to sort by, so assume they wanted filename
+	if (_currentColumn == -1)
+	{
+		_currentColumn = 0;
+		_reverseSort = false;
+		_lastSort = _currentColumn;
+
+		updateColumnNames();
+		doColumnSort();
+	}
+
+	doSortToTabs();
+
+	// must re-sort because tab indexes changed
+	doColumnSort();
+}
+
+// Selecting by the first character of the name, which cycles through the names that match
+void WindowsDlg::onCharTyped(wchar_t ch)
+{
+	const int itemCount = _hList->rowCount();
+
+	// backup current state
+	vector<bool> stateMap(itemCount, false);
+	for (int row : selectedRows())
+		stateMap[row] = true;
+
+	int firstMatchFound = -1;
+	int lastMatchSel = -1;
+	int targetedIndex = -1;
+
+	// find items whose first character matches the typed character
+	for (int index = 0; index < itemCount; ++index)
+	{
+		const wstring name = cellText(index, 0);
+		if (!name.empty() && towlower(name[0]) == towlower(ch))
+		{
+			// mark the first matching item index found
+			if (firstMatchFound == -1)
+				firstMatchFound = index;
+
+			// if the item is currenly selected, skip and find the next item
+			if (stateMap[index])
+			{
+				lastMatchSel = index;
+				continue;
+			}
+
+			// stop at the next matching item
+			// after the last selected matching one
+			if (lastMatchSel != -1)
+			{
+				targetedIndex = index;
+				break;
+			}
 		}
 	}
 
-	return CallNextHookEx(_hMsgHook, code, wParam, lParam);
+	// otherwise, that means either of these cases:
+	//  1. no matching item is currently selected
+	//	2. the last matching item is currently selected
+	//	3. all matching items are currently selected
+	if (targetedIndex == -1)
+		targetedIndex = firstMatchFound;
+
+	if (targetedIndex != -1)
+	{
+		_hList->clearSelection();
+		setRowSelected(targetedIndex, true, true);
+		_hList->scrollToItem(_hList->item(targetedIndex, 0));
+	}
+	else
+	{
+		// no matching item is found: the state stays, with a beep
+		const NppGUI& nppGUI = NppParameters::getInstance().getNppGUI();
+		if (!nppGUI._muteSounds)
+			QApplication::beep();
+	}
 }
 
-intptr_t CALLBACK WindowsDlg::run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam)
+void WindowsDlg::showListMenu(const QPoint& position)
 {
-	switch (message)
-	{
-		case WM_INITDIALOG :
-		{
-			NativeLangSpeaker *pNativeSpeaker = (NppParameters::getInstance()).getNativeLangSpeaker();
-			pNativeSpeaker->changeDlgLang(_hSelf, "Window");
+	NativeLangSpeaker* pNativeSpeaker = (NppParameters::getInstance()).getNativeLangSpeaker();
+	const bool enableMenu = !selectedRows().empty();
 
-			NppDarkMode::autoSubclassAndThemeChildControls(_hSelf);
-			ListViewBase::subclassParentNotifyListViewCustomDraw(_hSelf, IDC_WINDOWS_LIST);
+	QMenu menu;
+	QAction* copyName = menu.addAction(QString::fromStdWString(pNativeSpeaker->getAttrNameStr(L"Copy Name(s)", WD_ROOTNODE, WD_MENUCOPYNAME)));
+	QAction* copyPath = menu.addAction(QString::fromStdWString(pNativeSpeaker->getAttrNameStr(L"Copy Pathname(s)", WD_ROOTNODE, WD_MENUCOPYPATH)));
+	copyName->setEnabled(enableMenu);
+	copyPath->setEnabled(enableMenu);
 
-			// install message hook to intercept WM_CHAR
-			_hThisDlg = _hSelf;
-			initMessageHook();
-
-			return MyBaseClass::run_dlgProc(message, wParam, lParam);
-		}
-
-		case WM_CTLCOLORDLG:
-		case WM_CTLCOLORSTATIC:
-		{
-			return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_PRINTCLIENT:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				return TRUE;
-			}
-			break;
-		}
-
-		case NPPM_INTERNAL_REFRESHDARKMODE:
-		{
-			NppDarkMode::autoThemeChildControls(_hSelf);
-			return TRUE;
-		}
-
-		case WM_COMMAND :
-		{
-			switch (wParam)
-			{
-				case IDOK:
-				{
-					activateCurrent();
-					return TRUE;
-				}
-				case IDCANCEL:
-				{
-					::GetWindowRect(_hSelf, &_lastKnownLocation);
-					EndDialog(_hSelf, IDCANCEL);
-					return TRUE;
-				}
-				case IDC_WINDOWS_SAVE:
-				{
-					doSave();
-					return TRUE;
-				}
-				case IDC_WINDOWS_CLOSE:
-				{
-					doClose();
-					return TRUE;
-				}
-				case IDC_WINDOWS_SORT:
-				{
-					// they never set a column to sort by, so assume they wanted filename
-					if (_currentColumn == -1)
-					{
-						_currentColumn = 0;
-						_reverseSort = false;
-						_lastSort = _currentColumn;
-
-						updateColumnNames();
-						doColumnSort();
-					}
-
-					doSortToTabs();
-
-					// must re-sort because tab indexes changed
-					doColumnSort();
-					break;
-				}
-
-				default:
-					if (HIWORD(wParam) == 0)
-					{
-						// Menu
-						switch (LOWORD(wParam))
-						{
-						case IDM_WINDOW_COPY_NAME:
-							putItemsToClipboard(false);
-							break;
-						case IDM_WINDOW_COPY_PATH:
-							putItemsToClipboard(true);
-							break;
-						}
-					}
-					break;
-			}
-			break;
-		}
-
-		case WM_DESTROY:
-		{
-			// uninstall WM_CHAR message hook
-			removeMessageHook();
-
-			//destroy();
-			return TRUE;
-		}
-
-		case WM_NOTIFY :
-		{
-			if (wParam == IDC_WINDOWS_LIST)
-			{
-				NMHDR* pNMHDR = reinterpret_cast<NMHDR*>(lParam);
-				if (pNMHDR->code == LVN_GETDISPINFO)
-				{
-					auto pLvdi = reinterpret_cast<NMLVDISPINFOW*>(pNMHDR);
-
-					if (pLvdi->item.mask & LVIF_TEXT)
-					{
-						pLvdi->item.pszText[0] = 0;
-						Buffer* buf = getBuffer(pLvdi->item.iItem);
-						if (!buf)
-							return FALSE;
-						wstring text;
-						if (pLvdi->item.iSubItem == 0) // file name
-						{
-							text = buf->getFileName();
-							if (buf->isDirty())
-							{
-								text += '*';
-							}
-							else if (buf->isReadOnly())
-							{
-								text += readonlyString;
-							}
-						}
-						else if (pLvdi->item.iSubItem == 1) // directory
-						{
-							const wchar_t *fullName = buf->getFullPathName();
-							const wchar_t *fileName = buf->getFileName();
-							auto len = static_cast<intptr_t>(std::wcslen(fullName) - std::wcslen(fileName));
-							if (len <= 0)
-							{
-								len = 1;
-								fullName = L"";
-							}
-							text.assign(fullName, static_cast<size_t>(len));
-						}
-						else if (pLvdi->item.iSubItem == 2) // Type
-						{
-							NppParameters& nppParameters = NppParameters::getInstance();
-							Lang* lang = nppParameters.getLangFromID(buf->getLangType());
-							if (lang)
-							{
-								text = lang->getLangName();
-							}
-						}
-						else if (pLvdi->item.iSubItem == 3) // size
-						{
-							size_t docSize = buf->docLength();
-							string docSizeText = to_string(docSize);
-							text = wstring(docSizeText.begin(), docSizeText.end());
-						}
-						else if (pLvdi->item.iSubItem == 4) // Modified time
-						{
-							FILETIME ft = buf->getLastModifiedTimestamp();
-
-							// handle unsaved or unknown timestamp
-							if (ft.dwLowDateTime == 0 && ft.dwHighDateTime == 0) 
-							{
-								text = L""; // or L"—"
-							}
-							else 
-							{
-								FILETIME localFt{};
-								SYSTEMTIME st{};
-								if (FileTimeToLocalFileTime(&ft, &localFt) && FileTimeToSystemTime(&localFt, &st)) 
-								{
-									wchar_t bufW[20]; // "YYYY-MM-DD HH:MM:SS" = 19 + NUL
-									swprintf(bufW, 20, L"%04u-%02u-%02u %02u:%02u:%02u",
-										st.wYear, st.wMonth, st.wDay,
-										st.wHour, st.wMinute, st.wSecond);
-									text = bufW;
-								}
-								else 
-								{
-									text = L"";
-								}
-							}
-						}
-
-						if (static_cast<int>(text.length()) < pLvdi->item.cchTextMax)
-						{
-							// Copy the resulting text to destination with a null terminator.
-							wcscpy_s(pLvdi->item.pszText, text.length() + 1, text.c_str());
-						}
-					}
-					return TRUE;
-				}
-				else if (pNMHDR->code == LVN_COLUMNCLICK) // sort columns with stable sort
-				{
-					const NMLISTVIEW* pNMLV = reinterpret_cast<NMLISTVIEW*>(pNMHDR);
-					if (pNMLV->iItem == -1)
-					{
-						_currentColumn = pNMLV->iSubItem;
-
-						if (_lastSort == _currentColumn)
-						{
-							_reverseSort = true;
-							_lastSort = -1;
-						}
-						else
-						{
-							_reverseSort = false;
-							_lastSort = _currentColumn;
-						}
-
-						updateColumnNames();
-						doColumnSort();
-					}
-					return TRUE;
-				}
-				else if (pNMHDR->code == LVN_ITEMACTIVATE || pNMHDR->code == LVN_ITEMCHANGED || pNMHDR->code == LVN_ODSTATECHANGED)
-				{
-					updateButtonState();
-					return TRUE;
-				}
-				else if (pNMHDR->code == NM_DBLCLK)
-				{
-					::PostMessage(_hSelf, WM_COMMAND, IDOK, 0);
-					return TRUE;
-				}
-				else if (pNMHDR->code == LVN_KEYDOWN)
-				{
-					const NMLVKEYDOWN* lvkd = reinterpret_cast<NMLVKEYDOWN*>(pNMHDR);
-					const bool ctrl = ::GetKeyState(VK_CONTROL) < 0;
-					const bool alt = ::GetKeyState(VK_MENU) < 0;
-					const bool shift = ::GetKeyState(VK_SHIFT) < 0;
-					if (lvkd->wVKey == 'A' && ctrl && !alt && !shift)
-					{
-						// Ctrl + A
-						for (int i=0, n=ListView_GetItemCount(_hList); i<n; ++i)
-							ListView_SetItemState(_hList, i, LVIS_SELECTED, LVIS_SELECTED);
-					}
-					else if (lvkd->wVKey == 'C' && ctrl)
-					{
-						// Ctrl + C
-						if (ListView_GetSelectedCount(_hList) != 0)
-							putItemsToClipboard(true);
-					}
-					return TRUE;
-				}
-			}
-			break;
-		}
-
-		case WM_CHAR_REPLACEMENT:
-		{
-			if (!_hList)
-				return TRUE;
-
-			wchar_t ch = static_cast<wchar_t>(wParam);
-			int itemCount = ListView_GetItemCount(_hList);
-
-			// backup current state
-			vector<int> stateMap;
-			stateMap.reserve(itemCount);
-			for (int index = 0; index < itemCount; index++)
-				stateMap.push_back(ListView_GetItemState(_hList, index, LVIS_SELECTED | LVIS_FOCUSED));
-
-			// temporarily clear existing selection
-			ListView_SetItemState(_hList, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
-
-			LVITEM lvItem {};
-			wchar_t buffer[MAX_PATH] = L"\0";
-
-			int firstMatchFound = -1;
-			int lastMatchSel = -1;
-			int targetedIndex = -1;
-
-			// find items whose first character matches the typed character
-			for (int index = 0; index < itemCount; ++index)
-			{
-				lvItem.iItem = index;
-				lvItem.mask = LVIF_TEXT;
-				lvItem.pszText = buffer;
-				lvItem.cchTextMax = MAX_PATH;
-
-				if (ListView_GetItem(_hList, &lvItem))
-				{
-					if (towlower(buffer[0]) == towlower(ch))
-					{
-						// mark the first matching item index found
-						if (firstMatchFound == -1)
-							firstMatchFound = index;
-
-						// if the item is currenly selected, skip and find the next item
-						if (stateMap.at(index) & LVIS_SELECTED) 
-						{
-							lastMatchSel = index;
-							continue;
-						}
-
-						// stop at the next matching item 
-						// after the last selected matching one
-						if (lastMatchSel != -1) 
-						{
-							targetedIndex = index;
-							break;
-						}
-					}
-				}
-			}
-
-			// targeted item is found
-			if (targetedIndex != -1)
-			{
-				ListView_SetItemState(_hList, targetedIndex, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-				ListView_EnsureVisible(_hList, targetedIndex, FALSE);
-			}
-
-			// otherwise, that means either of these cases: 
-			//  1. no matching item is currently selected
-			//	2. the last matching item is currently selected
-			//	3. all matching items are currently selected
-			//	4. no matching item is found
-			else
-			{
-				// case 1 -> 3: select the first matching item
-				if (firstMatchFound != -1)
-				{
-					ListView_SetItemState(_hList, firstMatchFound, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-					ListView_EnsureVisible(_hList, firstMatchFound, FALSE);
-				}
-
-				// case 4:
-				else
-				{
-					// restore previous state
-					for (int index = 0; index < itemCount; index++)
-						ListView_SetItemState(_hList, index, stateMap.at(index), LVIS_SELECTED | LVIS_FOCUSED);
-
-					// make a beep sound
-					const NppGUI& nppGUI = NppParameters::getInstance().getNppGUI();
-					if (!nppGUI._muteSounds)
-						MessageBeep(0xFFFFFFFF);
-				}
-			}
-
-			return TRUE;
-		}
-
-		case WM_CONTEXTMENU:
-			{
-				if (!_listMenu.isCreated())
-				{
-					NativeLangSpeaker* pNativeSpeaker = (NppParameters::getInstance()).getNativeLangSpeaker();
-					const std::vector<MenuItemUnit> itemUnitArray
-					{
-						{IDM_WINDOW_COPY_NAME, pNativeSpeaker->getAttrNameStr(L"Copy Name(s)", WD_ROOTNODE, WD_MENUCOPYNAME)},
-						{IDM_WINDOW_COPY_PATH, pNativeSpeaker->getAttrNameStr(L"Copy Pathname(s)", WD_ROOTNODE, WD_MENUCOPYPATH)}
-					};
-					_listMenu.create(_hSelf, itemUnitArray);
-				}
-
-				const bool enableMenu = ListView_GetSelectedCount(_hList) != 0;
-				_listMenu.enableItem(IDM_WINDOW_COPY_NAME, enableMenu);
-				_listMenu.enableItem(IDM_WINDOW_COPY_PATH, enableMenu);
-
-				POINT p{};
-				::GetCursorPos(&p);
-				_listMenu.display(p);
-			}
-			return TRUE;
-	}
-	return MyBaseClass::run_dlgProc(message, wParam, lParam);
+	const QAction* chosen = menu.exec(_hList->viewport()->mapToGlobal(position));
+	if (chosen == copyName)
+		putItemsToClipboard(false);
+	else if (chosen == copyPath)
+		putItemsToClipboard(true);
 }
 
 void WindowsDlg::doColumnSort()
@@ -701,121 +497,94 @@ void WindowsDlg::doColumnSort()
 	if (_currentColumn == -1)
 		return;
 
-	size_t i = 0;
 	size_t n = _idxMap.size();
-	vector<int> sortMap;
-	sortMap.resize(n);
-	for (; i < n; ++i)
-		sortMap[_idxMap[i]] = ListView_GetItemState(_hList, i, LVIS_SELECTED);
+	vector<bool> isSelected(n, false);
+	for (int row : selectedRows())
+		isSelected[_idxMap[row]] = true;
 
 	stable_sort(_idxMap.begin(), _idxMap.end(), BufferEquivalent(_pTab, _currentColumn, _reverseSort));
-	for (i = 0; i < n; ++i)
-		ListView_SetItemState(_hList, i, sortMap[_idxMap[i]] ? LVIS_SELECTED : 0, LVIS_SELECTED);
+	for (size_t i = 0; i < n; ++i)
+		setRowSelected(static_cast<int>(i), isSelected[_idxMap[i]]);
 
-	::InvalidateRect(_hList, nullptr, FALSE);
+	refreshList();
 	updateButtonState();
 }
 
-
 void WindowsDlg::updateButtonState()
 {
-	int nSelection = ListView_GetSelectedCount(_hList);
-	if (nSelection == 0)
-	{
-		EnableWindow(GetDlgItem(_hSelf, IDOK), FALSE);
-		EnableWindow(GetDlgItem(_hSelf, IDC_WINDOWS_SAVE), FALSE);
-		EnableWindow(GetDlgItem(_hSelf, IDC_WINDOWS_CLOSE), FALSE);
-	}
-	else
-	{
-		EnableWindow(GetDlgItem(_hSelf, IDC_WINDOWS_SAVE), TRUE);
-		EnableWindow(GetDlgItem(_hSelf, IDC_WINDOWS_CLOSE), TRUE);
-		if (nSelection == 1)
-			EnableWindow(GetDlgItem(_hSelf, IDOK), TRUE);
-		else
-			EnableWindow(GetDlgItem(_hSelf, IDOK), FALSE);
-	}
-	EnableWindow(GetDlgItem(_hSelf, IDC_WINDOWS_SORT), TRUE);
+	const size_t nSelection = selectedRows().size();
+	enableItem(IDOK, nSelection == 1);
+	enableItem(IDC_WINDOWS_SAVE, nSelection != 0);
+	enableItem(IDC_WINDOWS_CLOSE, nSelection != 0);
+	enableItem(IDC_WINDOWS_SORT, true);
 }
 
 int WindowsDlg::doDialog()
 {
-	const auto dpiContext = DPIManagerV2::setThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_UNAWARE_GDISCALED);
-	const auto result = static_cast<int>(StaticDialog::myCreateDialogBoxIndirectParam(IDD_WINDOWS, false));
-	DPIManagerV2::setThreadDpiAwarenessContext(dpiContext);
+	QDialog* dialog = createDialogWidget(false);
+	Ui::WindowsDlg ui;
+	ui.setupUi(dialog);
 
-	return result;
-}
+	NativeLangSpeaker *pNativeSpeaker = (NppParameters::getInstance()).getNativeLangSpeaker();
+	pNativeSpeaker->changeDlgLang(dialog, "Window");
 
-BOOL WindowsDlg::onInitDialog()
-{
-	_winMgr.InitToFitSizeFromCurrent(_hSelf);
+	_hList = ui.windowsList;
+	_hList->setColumnCount(nbColumns);
+	_hList->setSelectionBehavior(QAbstractItemView::SelectRows);
+	_hList->setSelectionMode(QAbstractItemView::ExtendedSelection);
+	_hList->setEditTriggers(QAbstractItemView::NoEditTriggers);
+	_hList->setShowGrid(false);
+	_hList->setWordWrap(false);
+	_hList->setContextMenuPolicy(Qt::CustomContextMenu);
+	_hList->verticalHeader()->hide();
+	_hList->verticalHeader()->setDefaultSectionSize(_hList->fontMetrics().height() + 6);
 
-	// save min size for OK/Cancel buttons
-	_szMinButton = RectToSize(_winMgr.GetRect(IDOK));
-	_szMinListCtrl = RectToSize(_winMgr.GetRect(IDC_WINDOWS_LIST));
+	const auto toColor = [](COLORREF colour) { return QColor(colour & 0xFF, (colour >> 8) & 0xFF, (colour >> 16) & 0xFF); };
+	QPalette colours = _hList->palette();
+	colours.setColor(QPalette::Base, toColor(NppParameters::getInstance().getCurrentDefaultBgColor()));
+	colours.setColor(QPalette::Text, toColor(NppParameters::getInstance().getCurrentDefaultFgColor()));
+	_hList->setPalette(colours);
+
+	updateColumnNames();
+	QHeaderView* header = _hList->horizontalHeader();
+	header->setSectionsMovable(true);
+	header->setSectionsClickable(true);
+	header->setSectionResizeMode(QHeaderView::Interactive);
+	// The path takes what is left. When nothing is, as with a large font, the header leaves it the size it has, so that
+	// is its title's, and the list scrolls.
+	header->resizeSection(1, header->sectionSizeHint(1));
+	header->setSectionResizeMode(1, QHeaderView::Stretch);
+	header->resizeSection(0, dialog->width() / 4);
+	header->resizeSection(2, std::max(90, header->sectionSizeHint(2)));
+	header->resizeSection(3, std::max(90, header->sectionSizeHint(3)));
+	header->resizeSection(4, _hList->fontMetrics().horizontalAdvance(QStringLiteral("0000-00-00 00:00:00")) + 16);
+
 	_currentColumn = -1;
 	_lastSort = -1;
 	_reverseSort = false;
 
-	_winMgr.CalcLayout(_hSelf);
-	_winMgr.SetWindowPositions(_hSelf);
+	_hList->installEventFilter(new ListKeys(_hList,
+		[this](wchar_t ch) { onCharTyped(ch); },
+		[this]()
+		{
+			if (!selectedRows().empty())
+				putItemsToClipboard(true);
+		}));
 
-	_hList = ::GetDlgItem(_hSelf, IDC_WINDOWS_LIST);
-	DWORD exStyle = ListView_GetExtendedListViewStyle(_hList);
-	exStyle |= LVS_EX_HEADERDRAGDROP|LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER;
-	ListView_SetExtendedListViewStyle(_hList, exStyle);
+	QObject::connect(header, &QHeaderView::sectionClicked, dialog, [this](int column) { onColumnClicked(column); });
+	QObject::connect(_hList, &QTableWidget::itemSelectionChanged, dialog, [this]() { updateButtonState(); });
+	QObject::connect(_hList, &QTableWidget::cellDoubleClicked, dialog, [this]() { activateCurrent(); });
+	QObject::connect(_hList, &QWidget::customContextMenuRequested, dialog, [this](const QPoint& position) { showListMenu(position); });
+	QObject::connect(ui.ok, &QAbstractButton::clicked, dialog, [this]() { activateCurrent(); });
+	QObject::connect(ui.cancel, &QAbstractButton::clicked, dialog, [this]() { finish(IDCANCEL); });
+	QObject::connect(ui.windowsSave, &QAbstractButton::clicked, dialog, [this]() { doSave(); });
+	QObject::connect(ui.windowsClose, &QAbstractButton::clicked, dialog, [this]() { doClose(); });
+	QObject::connect(ui.windowsSort, &QAbstractButton::clicked, dialog, [this]() { onSortTabs(); });
 
-	COLORREF fgColor = (NppParameters::getInstance()).getCurrentDefaultFgColor();
-	COLORREF bgColor = (NppParameters::getInstance()).getCurrentDefaultBgColor();
-
-	ListView_SetBkColor(_hList, bgColor);
-	ListView_SetTextBkColor(_hList, bgColor);
-	ListView_SetTextColor(_hList, fgColor);
-
-	RECT rc{};
-	GetClientRect(_hList, &rc);
-	LONG width = rc.right - rc.left;
-
-	LVCOLUMN lvColumn{};
-	lvColumn.mask = LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM | LVCF_FMT;
-	lvColumn.fmt = LVCFMT_LEFT;
-
-	wstring columnText;
-	NativeLangSpeaker *pNativeSpeaker = (NppParameters::getInstance()).getNativeLangSpeaker();
-
-	columnText = L"⇵ " + pNativeSpeaker->getAttrNameStr(L"Name", WD_ROOTNODE, WD_CLMNNAME);
-	lvColumn.pszText = columnText.data();
-	lvColumn.cx = width / 4;
-	::SendMessage(_hList, LVM_INSERTCOLUMN, 0, reinterpret_cast<LPARAM>(&lvColumn));
-
-	columnText = L"⇵ " + pNativeSpeaker->getAttrNameStr(L"Path", WD_ROOTNODE, WD_CLMNPATH);
-	lvColumn.pszText = columnText.data();
-	lvColumn.cx = 300;
-	::SendMessage(_hList, LVM_INSERTCOLUMN, 1, reinterpret_cast<LPARAM>(&lvColumn));
-
-	lvColumn.fmt = LVCFMT_CENTER;
-	columnText = L"⇵ " + pNativeSpeaker->getAttrNameStr(L"Type", WD_ROOTNODE, WD_CLMNTYPE);
-	lvColumn.pszText = columnText.data();
-	lvColumn.cx = 100;
-	::SendMessage(_hList, LVM_INSERTCOLUMN, 2, reinterpret_cast<LPARAM>(&lvColumn));
-
-	columnText = L"⇵ " + pNativeSpeaker->getAttrNameStr(L"Size", WD_ROOTNODE, WD_CLMNSIZE);
-	lvColumn.pszText = columnText.data();
-	lvColumn.cx = 100;
-	::SendMessage(_hList, LVM_INSERTCOLUMN, 3, reinterpret_cast<LPARAM>(&lvColumn));
-
-	columnText = L"⇵ " + pNativeSpeaker->getAttrNameStr(L"Modified time", WD_ROOTNODE, WD_CLMNDT);
-	lvColumn.pszText = columnText.data();
-	lvColumn.cx = 120;
-	::SendMessage(_hList, LVM_INSERTCOLUMN, 4, reinterpret_cast<LPARAM>(&lvColumn));
-
-	fitColumnsToSize();
-
-	if (_lastKnownLocation.bottom > 0 && _lastKnownLocation.right > 0)
+	if (_lastKnownLocation.isValid())
 	{
-		SetWindowPos(_hSelf, NULL, _lastKnownLocation.left, _lastKnownLocation.top,
-			_lastKnownLocation.right-_lastKnownLocation.left, _lastKnownLocation.bottom-_lastKnownLocation.top, SWP_SHOWWINDOW);
+		dialog->setGeometry(_lastKnownLocation);
+		dialog->show();
 	}
 	else
 	{
@@ -823,145 +592,53 @@ BOOL WindowsDlg::onInitDialog()
 	}
 
 	doRefresh();
-	return TRUE;
+	_hList->setFocus();
+
+	const int result = runModal();
+	_hList = nullptr;
+	return result;
 }
 
 void WindowsDlg::updateColumnNames() const
 {
-	LVCOLUMN lvColumn{};
-	lvColumn.mask = LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM | LVCF_FMT;
-	lvColumn.fmt = LVCFMT_LEFT;
-
-	wstring columnText;
 	NativeLangSpeaker *pNativeSpeaker = (NppParameters::getInstance()).getNativeLangSpeaker();
 
-	columnText = pNativeSpeaker->getAttrNameStr(L"Name", WD_ROOTNODE, WD_CLMNNAME);
-	if (_currentColumn != 0)
-	{
-		columnText = L"⇵ " + columnText;
-	}
-	else if (_reverseSort)
-	{
-		columnText = L"△ " + columnText;
-	}
-	else
-	{
-		columnText = L"▽ " + columnText;
-	}
-	lvColumn.pszText = columnText.data();
-	lvColumn.cx = static_cast<int>(SendMessage(_hList, LVM_GETCOLUMNWIDTH, 0, 0));
-	::SendMessage(_hList, LVM_SETCOLUMN, 0, reinterpret_cast<LPARAM>(&lvColumn));
+	const wstring names[nbColumns] = {
+		pNativeSpeaker->getAttrNameStr(L"Name", WD_ROOTNODE, WD_CLMNNAME),
+		pNativeSpeaker->getAttrNameStr(L"Path", WD_ROOTNODE, WD_CLMNPATH),
+		pNativeSpeaker->getAttrNameStr(L"Type", WD_ROOTNODE, WD_CLMNTYPE),
+		pNativeSpeaker->getAttrNameStr(L"Size", WD_ROOTNODE, WD_CLMNSIZE),
+		pNativeSpeaker->getAttrNameStr(L"Modified time", WD_ROOTNODE, WD_CLMNDT)
+	};
 
-	columnText = pNativeSpeaker->getAttrNameStr(L"Path", WD_ROOTNODE, WD_CLMNPATH);
-	if (_currentColumn != 1)
+	for (int column = 0; column < nbColumns; ++column)
 	{
-		columnText = L"⇵ " + columnText;
-	}
-	else if (_reverseSort)
-	{
-		columnText = L"△ " + columnText;
-	}
-	else
-	{
-		columnText = L"▽ " + columnText;
-	}
-	lvColumn.pszText = columnText.data();
-	lvColumn.cx = static_cast<int>(SendMessage(_hList, LVM_GETCOLUMNWIDTH, 1, 0));
-	::SendMessage(_hList, LVM_SETCOLUMN, 1, reinterpret_cast<LPARAM>(&lvColumn));
+		wstring columnText;
+		if (_currentColumn != column)
+			columnText = L"⇵ " + names[column];
+		else if (_reverseSort)
+			columnText = L"△ " + names[column];
+		else
+			columnText = L"▽ " + names[column];
 
-	lvColumn.fmt = LVCFMT_CENTER;
-	columnText = pNativeSpeaker->getAttrNameStr(L"Type", WD_ROOTNODE, WD_CLMNTYPE);
-	if (_currentColumn != 2)
-	{
-		columnText = L"⇵ " + columnText;
-	}
-	else if (_reverseSort)
-	{
-		columnText = L"△ " + columnText;
-	}
-	else
-	{
-		columnText = L"▽ " + columnText;
-	}
-	lvColumn.pszText = columnText.data();
-	lvColumn.cx = static_cast<int>(SendMessage(_hList, LVM_GETCOLUMNWIDTH, 2, 0));
-	::SendMessage(_hList, LVM_SETCOLUMN, 2, reinterpret_cast<LPARAM>(&lvColumn));
-
-	columnText = pNativeSpeaker->getAttrNameStr(L"Size", WD_ROOTNODE, WD_CLMNSIZE);
-	if (_currentColumn != 3)
-	{
-		columnText = L"⇵ " + columnText;
-	}
-	else if (_reverseSort)
-	{
-		columnText = L"△ " + columnText;
-	}
-	else
-	{
-		columnText = L"▽ " + columnText;
-	}
-	lvColumn.pszText = columnText.data();
-	lvColumn.cx = static_cast<int>(SendMessage(_hList, LVM_GETCOLUMNWIDTH, 3, 0));
-	::SendMessage(_hList, LVM_SETCOLUMN, 3, reinterpret_cast<LPARAM>(&lvColumn));
-
-	// Modified time
-	lvColumn.fmt = LVCFMT_LEFT;
-	columnText = pNativeSpeaker->getAttrNameStr(L"Modified time", WD_ROOTNODE, WD_CLMNDT);
-	if (_currentColumn != 4) 
-	{
-		columnText = L"⇵ " + columnText;
-	}
-	else if (_reverseSort) 
-	{
-		columnText = L"△ " + columnText;
-	}
-	else 
-	{
-		columnText = L"▽ " + columnText;
-	}
-	lvColumn.pszText = columnText.data();
-	lvColumn.cx = static_cast<int>(SendMessage(_hList, LVM_GETCOLUMNWIDTH, 4, 0));
-	::SendMessage(_hList, LVM_SETCOLUMN, 4, reinterpret_cast<LPARAM>(&lvColumn));
-}
-
-void WindowsDlg::onSize(UINT nType, int cx, int cy)
-{
-	MyBaseClass::onSize(nType, cx, cy);
-	fitColumnsToSize();
-}
-
-LRESULT WindowsDlg::onWinMgr(WPARAM wp, LPARAM lp)
-{
-	NMWINMGR &nmw = *reinterpret_cast<NMWINMGR *>(lp);
-	if (nmw.code==NMWINMGR::GET_SIZEINFO) 
-	{
-		switch(wp)
+		QTableWidgetItem* header = _hList->horizontalHeaderItem(column);
+		if (!header)
 		{
-		case IDOK:
-		case IDCANCEL:
-		case IDC_WINDOWS_SAVE:
-		case IDC_WINDOWS_CLOSE:
-		case IDC_WINDOWS_SORT:
-			nmw.sizeinfo.szMin = _szMinButton;
-			nmw.processed = TRUE;
-			return TRUE;
-
-		case IDC_WINDOWS_LIST:
-			nmw.sizeinfo.szMin = _szMinListCtrl;
-			nmw.processed = TRUE;
-			return TRUE;
+			header = new QTableWidgetItem;
+			header->setTextAlignment((column == 2 || column == 3) ? Qt::AlignCenter : (Qt::AlignLeft | Qt::AlignVCenter));
+			_hList->setHorizontalHeaderItem(column, header);
 		}
+		header->setText(QString::fromStdWString(columnText));
 	}
-	return MyBaseClass::onWinMgr(wp, lp);
 }
 
 void WindowsDlg::doRefresh()
 {
-	if (_hSelf != NULL && isVisible())
+	if (_hSelf != nullptr && isVisible())
 	{
-		if (_hList != NULL)
+		if (_hList != nullptr)
 		{
-			size_t count = (_pTab != NULL) ? _pTab->nbItem() : 0;
+			size_t count = (_pTab != nullptr) ? _pTab->nbItem() : 0;
 			size_t oldSize = _idxMap.size();
 			if (count == oldSize)
 				return;
@@ -973,30 +650,12 @@ void WindowsDlg::doRefresh()
 			for (size_t i = lo; i < count; ++i)
 				_idxMap[i] = static_cast<int>(i);
 
-			::SendMessage(_hList, LVM_SETITEMCOUNT, count, LVSICF_NOSCROLL | LVSICF_NOINVALIDATEALL);
-			::InvalidateRect(_hList, nullptr, FALSE);
+			refreshList();
 
 			resetSelection();
 			updateButtonState();
 			doCount();
 		}
-	}
-}
-
-void WindowsDlg::fitColumnsToSize() const
-{
-	// perhaps make the path column auto size
-	RECT rc{};
-	if (GetClientRect(_hList, &rc))
-	{
-		int len = (rc.right - rc.left);
-		len -= static_cast<int>(SendMessage(_hList, LVM_GETCOLUMNWIDTH, 0, 0));
-		len -= static_cast<int>(SendMessage(_hList, LVM_GETCOLUMNWIDTH, 2, 0));
-		len -= static_cast<int>(SendMessage(_hList, LVM_GETCOLUMNWIDTH, 3, 0));
-		len -= static_cast<int>(SendMessage(_hList, LVM_GETCOLUMNWIDTH, 4, 0));
-		len -= GetSystemMetrics(SM_CXVSCROLL);
-		len -= 1;
-		SendMessage(_hList, LVM_SETCOLUMNWIDTH, 1, len);
 	}
 }
 
@@ -1011,88 +670,78 @@ void WindowsDlg::resetSelection()
 	{
 		if (*itr == curSel)
 		{
-			ListView_SetItemState(_hList, pos, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-			ListView_EnsureVisible(_hList, pos, FALSE);
+			setRowSelected(pos, true, true);
+			_hList->scrollToItem(_hList->item(pos, 0));
 		}
 		else
 		{
-			ListView_SetItemState(_hList, pos, 0, LVIS_SELECTED);
+			setRowSelected(pos, false);
 		}
 	}
 }
 
 void WindowsDlg::doSave()
 {
+	const vector<int> rows = selectedRows();
+	if (rows.empty())
+		return;
+
 	NMWINDLG nmdlg{};
 	nmdlg.type = WDT_SAVE;
-	nmdlg.curSel = ListView_GetNextItem(_hList, -1, LVNI_SELECTED);
+	nmdlg.curSel = rows.front();
 	nmdlg.hwndFrom = _hSelf;
 	nmdlg.code = WDN_NOTIFY;
-	nmdlg.nItems = ListView_GetSelectedCount(_hList);
+	nmdlg.nItems = static_cast<UINT>(rows.size());
 	std::vector<UINT> items(nmdlg.nItems);
 	nmdlg.Items = items.data();
 
-	int i = -1;
 	for (UINT j = 0; j < nmdlg.nItems; ++j)
-	{
-		i = ListView_GetNextItem(_hList, i, LVNI_SELECTED);
-		if (i == -1) break;
-		nmdlg.Items[j] = _idxMap[i];
-	}
+		nmdlg.Items[j] = _idxMap[rows[j]];
+
 	::SendMessage(_hParent, WDN_NOTIFY, 0, reinterpret_cast<LPARAM>(&nmdlg));
-	::InvalidateRect(_hList, nullptr, FALSE);
-	ListView_RedrawItems(_hList, 0, ListView_GetSelectedCount(_hList));
-}
-
-void WindowsDlg::destroy()
-{
-	::GetWindowRect(_hSelf, &_lastKnownLocation);
-
-	HWND hSelf = _hSelf;
-	_hSelf = NULL;
-	::DestroyWindow(hSelf);
+	refreshList();
 }
 
 void WindowsDlg::activateCurrent()
 {
-	if (ListView_GetSelectedCount(_hList) == 1)
+	const vector<int> rows = selectedRows();
+	if (rows.size() == 1)
 	{
 		NMWINDLG nmdlg{};
 		nmdlg.type = WDT_ACTIVATE;
-		nmdlg.curSel = _idxMap[ListView_GetNextItem(_hList, -1, LVNI_ALL|LVNI_SELECTED)];
+		nmdlg.curSel = _idxMap[rows.front()];
 		nmdlg.hwndFrom = _hSelf;
 		nmdlg.code = WDN_NOTIFY;
 		::SendMessage(_hParent, WDN_NOTIFY, 0, reinterpret_cast<LPARAM>(&nmdlg));
 
-		::GetWindowRect(_hSelf, &_lastKnownLocation);
-		EndDialog(_hSelf, IDOK);
+		finish(IDOK);
 	}
 }
 
 void WindowsDlg::doClose()
 {
+	const vector<int> rows = selectedRows();
+	if (rows.empty())
+		return;
+
+	int index = rows.front();
+
 	NMWINDLG nmdlg{};
 	nmdlg.type = WDT_CLOSE;
-	int index = ListView_GetNextItem(_hList, -1, LVNI_ALL|LVNI_SELECTED);
-	if (index == -1) return;
-
 	nmdlg.curSel = _idxMap[index];
 	nmdlg.hwndFrom = _hSelf;
 	nmdlg.code = WDN_NOTIFY;
-	UINT n = nmdlg.nItems = ListView_GetSelectedCount(_hList);
+	UINT n = nmdlg.nItems = static_cast<UINT>(rows.size());
 	std::vector<UINT> items(nmdlg.nItems);
 	nmdlg.Items = items.data();
 	vector<int> key;
 	key.resize(n, 0x7fffffff);
 
-	int i = -1;
+	_hList->clearSelection();
 	for (UINT j = 0; j < n; ++j)
 	{
-		i = ListView_GetNextItem(_hList, i, LVNI_SELECTED);
-		if (i == -1) break;
-		ListView_SetItemState(_hList, i, 0, LVIS_SELECTED); // deselect
-		nmdlg.Items[j] = _idxMap[i];
-		key[j] = i;
+		nmdlg.Items[j] = _idxMap[rows[j]];
+		key[j] = rows[j];
 	}
 	::SendMessage(_hParent, WDN_NOTIFY, 0, reinterpret_cast<LPARAM>(&nmdlg));
 	if (nmdlg.processed)
@@ -1114,25 +763,27 @@ void WindowsDlg::doClose()
 	}
 
 	if (_idxMap.size() < 1)
-		::SendMessage(_hSelf, WM_CLOSE, 0, 0);
+	{
+		finish(IDCANCEL);
+		return;
+	}
 	else if (_pTab->nbItem() != _idxMap.size())
 	{
 		doRefresh();
-		::SetFocus(::GetDlgItem(_hSelf, IDC_WINDOWS_CLOSE));
+		dlgItem(IDC_WINDOWS_CLOSE)->setFocus();
 	}
 	else
 	{
+		refreshList();
+
 		// select first previously selected item (or last one if only the last one was removed)
 		if (index == static_cast<int>(_idxMap.size()))
 			index -= 1;
 
 		if (index >= 0)
-		{
-			ListView_SetItemState(_hList, index, LVIS_SELECTED, LVIS_SELECTED);
-			ListView_RedrawItems(_hList, 0, _idxMap.size() - 1);
-		}
-		ListView_SetItemCount(_hList, _idxMap.size());
-		::SetFocus(::GetDlgItem(_hSelf, IDC_WINDOWS_CLOSE));
+			setRowSelected(index, true);
+
+		dlgItem(IDC_WINDOWS_CLOSE)->setFocus();
 	}
 	doCount();
 }
@@ -1148,7 +799,7 @@ void WindowsDlg::doCount()
 	msg += pNativeSpeaker->getAttrNameStr(L"Total documents: ", WD_ROOTNODE, WD_NBDOCSTOTAL);
 	msg += L" ";
 	msg += to_wstring(_idxMap.size());
-	SetWindowText(_hSelf,msg.c_str());
+	_hSelf->setWindowTitle(QString::fromStdWString(msg));
 }
 
 void WindowsDlg::doSort()
@@ -1179,7 +830,7 @@ void WindowsDlg::doSort()
 
 	//After sorting, need to open the active tab before sorting
 	//This will be helpful when large number of documents are opened
-	__int64 newPosition = -1;
+	long long newPosition = -1;
 	std::vector<int>::iterator it = std::find(_idxMap.begin(), _idxMap.end(), currrentTabIndex);
 	if (it != _idxMap.end())
 	{
@@ -1268,28 +919,22 @@ void WindowsDlg::refreshMap()
 
 void WindowsDlg::doSortToTabs()
 {
-	int curSel = ListView_GetNextItem(_hList, -1, LVNI_SELECTED);
-
-	if (curSel == -1)
-		curSel = 0;
+	const vector<int> rows = selectedRows();
+	int curSel = rows.empty() ? 0 : rows.front();
 
 	NMWINDLG nmdlg{};
 	nmdlg.type = WDT_SORT;
 	nmdlg.hwndFrom = _hSelf;
 	nmdlg.curSel = _idxMap[curSel];
 	nmdlg.code = WDN_NOTIFY;
-	nmdlg.nItems = ListView_GetItemCount(_hList);
+	nmdlg.nItems = static_cast<UINT>(_idxMap.size());
 	std::vector<UINT> items(nmdlg.nItems);
 	nmdlg.Items = items.data();
 
-	int i = -1;
 	for (UINT j = 0; j < nmdlg.nItems; ++j)
 	{
-		i = ListView_GetNextItem(_hList, i, LVNI_ALL);
-		if (i == -1)
-			break;
-		nmdlg.Items[j] = _idxMap[i];
-		if (i == curSel)
+		nmdlg.Items[j] = _idxMap[j];
+		if (static_cast<int>(j) == curSel)
 			nmdlg.curSel = j;
 	}
 
@@ -1303,16 +948,10 @@ void WindowsDlg::doSortToTabs()
 
 void WindowsDlg::putItemsToClipboard(bool isFullPath)
 {
+	// Not the text of the list, because its first column may contain "*" or "[Read Only]".
 	std::vector<Buffer*> buffers;
-	int i = -1;
-	do
-	{
-		i = ListView_GetNextItem(_hList, i, LVNI_SELECTED);
-		// Get the file name.
-		// Do not use ListView_GetItemText() because 1st column may contain "*" or "[Read Only]".
-		buffers.push_back(getBuffer(i));
-	}
-	while (i >= 0);
+	for (int row : selectedRows())
+		buffers.push_back(getBuffer(row));
 
 	buf2Clipboard(buffers, isFullPath, _hList);
 }
@@ -1330,10 +969,22 @@ Buffer* WindowsDlg::getBuffer(int index) const
 	return MainFileManager.getBufferByID(bufID);
 }
 
-void WindowsMenu::init(HMENU hMainMenu)
+void WindowsMenu::init(HMENU hMainMenu, HWND commandTarget)
 {
-	_hMenu = ::GetSubMenu(hMainMenu, MENUINDEX_WINDOW);
-	_hMenuList = ::GetSubMenu(hMainMenu, MENUINDEX_LIST);
+	_hMenu = nppSubMenuAt(hMainMenu, MENUINDEX_WINDOW);
+	_hMenuList = nppSubMenuAt(hMainMenu, MENUINDEX_LIST);
+	_commandTarget = commandTarget;
+
+	for (HMENU menu : { _hMenu, _hMenuList })
+	{
+		if (menu)
+		{
+			QObject::connect(menu, &QMenu::aboutToShow, menu, [commandTarget, menu]()
+			{
+				::SendMessage(commandTarget, WM_INITMENUPOPUP, reinterpret_cast<WPARAM>(menu), 0);
+			});
+		}
+	}
 }
 
 void WindowsMenu::initPopupMenu(HMENU hMenu, DocTabView* pTab)
@@ -1342,13 +993,11 @@ void WindowsMenu::initPopupMenu(HMENU hMenu, DocTabView* pTab)
 
 	UINT firstId = 0;
 	UINT limitId = 0;
-	UINT menuPosId = 0;
 
 	if (hMenu == _hMenu)
 	{
 		firstId = IDM_WINDOW_MRU_FIRST;
 		limitId = IDM_WINDOW_MRU_LIMIT;
-		menuPosId = IDM_WINDOW_WINDOWS;
 	}
 	else if (hMenu == _hMenuList)
 	{
@@ -1361,10 +1010,9 @@ void WindowsMenu::initPopupMenu(HMENU hMenu, DocTabView* pTab)
 
 		firstId = IDM_DROPLIST_MRU_FIRST;
 		limitId = IDM_DROPLIST_MRU_FIRST + _limitPrev - 1;
-		menuPosId = IDM_DROPLIST_LIST;
 	}
 
-	if (firstId > 0 && limitId > 0 && menuPosId > 0)
+	if (firstId > 0 && limitId > 0)
 	{
 		auto curDoc = pTab->getCurrentTabIndex();
 		size_t nMaxDoc = static_cast<size_t>(limitId) - firstId + 1;
@@ -1378,44 +1026,30 @@ void WindowsMenu::initPopupMenu(HMENU hMenu, DocTabView* pTab)
 			BufferID bufID = pTab->getBufferByIndex(pos);
 			Buffer* buf = MainFileManager.getBufferByID(bufID);
 
-			MENUITEMINFO mii{};
-			mii.cbSize = sizeof(mii);
-			mii.fMask = MIIM_STRING | MIIM_STATE | MIIM_ID;
-
 			wstring strBuffer(BuildMenuFileName(60, static_cast<int>(pos), buf->getFileName(), !isDropListMenu));
-			std::vector<wchar_t> vBuffer(strBuffer.begin(), strBuffer.end());
-			if (buf->isDirty()) 
+			if (buf->isDirty())
 			{
 				// add a '*' after the modified tab name (like Visual Studio)
-				vBuffer.push_back('*');
+				strBuffer += L'*';
 			}
-			vBuffer.push_back('\0');
-			mii.dwTypeData = (&vBuffer[0]);
 
-			mii.fState &= ~(MF_GRAYED | MF_DISABLED | MF_CHECKED);
-			if (static_cast<int>(pos) == curDoc)
+			if (!nppFindMenuAction(hMenu, id))
 			{
-				mii.fState |= MF_CHECKED;
-			}
-			mii.wID = id;
-
-			UINT state = GetMenuState(hMenu, id, MF_BYCOMMAND);
-			if (state == static_cast<UINT>(-1))
-			{
-				InsertMenuItem(hMenu, menuPosId, TRUE, &mii);
+				nppAddMenuItem(hMenu, id, strBuffer, _commandTarget);
 				if (isDropListMenu)
 				{
-					DeleteMenu(hMenu, menuPosId, FALSE);
+					nppRemoveMenuCommand(hMenu, IDM_DROPLIST_LIST);
 				}
 			}
 			else
 			{
-				SetMenuItemInfo(hMenu, id, FALSE, &mii);
+				nppSetMenuCommandText(hMenu, id, strBuffer);
 			}
+			nppCheckMenuCommand(hMenu, id, static_cast<int>(pos) == curDoc);
 		}
 		for (; id <= limitId; ++id)
 		{
-			DeleteMenu(hMenu, id, FALSE);
+			nppRemoveMenuCommand(hMenu, id);
 		}
 
 		if (isDropListMenu)

@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <windows.h>
-
 #include <memory>
 #include <string>
 #include <utility>
@@ -34,16 +32,17 @@
 
 enum fontStyleType {BOLD_STATUS, ITALIC_STATUS, UNDERLINE_STATUS};
 
+class QAbstractButton;
+class QComboBox;
+class QLabel;
+class QListWidget;
+class QSlider;
+
 class WordStyleDlg : public StaticDialog
 {
 public :
 	WordStyleDlg() = default;
-	~WordStyleDlg() override {
-		if (_globalOverrideTip)
-			::DestroyWindow(_globalOverrideTip);
-	}
 
-	void create(int dialogID, bool isRTL = false, bool msgDestParent = true, WORD fontSize = 0, const std::wstring& fontFace = L"") override;
 	void doDialog(bool isRTL = false);
 	void destroy() override;
 	void prepare2Cancel();
@@ -62,22 +61,23 @@ private :
     int _currentLexerIndex = 0;
 	int _currentThemeIndex = 0;
 
-    HWND _hCheckBold = nullptr;
-    HWND _hCheckItalic = nullptr;
-	HWND _hCheckUnderline = nullptr;
-    HWND _hFontNameCombo = nullptr;
-    HWND _hFontSizeCombo = nullptr;
-	HWND _hSwitch2ThemeCombo = nullptr;
+	QAbstractButton* _hCheckBold = nullptr;
+	QAbstractButton* _hCheckItalic = nullptr;
+	QAbstractButton* _hCheckUnderline = nullptr;
+	QComboBox* _hFontNameCombo = nullptr;
+	QComboBox* _hFontSizeCombo = nullptr;
+	QComboBox* _hSwitch2ThemeCombo = nullptr;
+	QComboBox* _hLanguagesCombo = nullptr;
+	QListWidget* _hStylesList = nullptr;
 
-	HWND _hFgColourStaticText = nullptr;
-	HWND _hBgColourStaticText = nullptr;
-	HWND _hFontNameStaticText = nullptr;
-	HWND _hFontSizeStaticText = nullptr;
-	HWND _hStyleInfoStaticText = nullptr;
+	QLabel* _hFgColourStaticText = nullptr;
+	QLabel* _hBgColourStaticText = nullptr;
+	QLabel* _hFontNameStaticText = nullptr;
+	QLabel* _hFontSizeStaticText = nullptr;
+	QLabel* _hStyleInfoStaticText = nullptr;
 
 	URLCtrl _goToSettings;
 	URLCtrl _globalOverrideLinkTip;
-	HWND _globalOverrideTip = nullptr;
 
 	LexerStylerArray _lsArray;
     StyleArray _globalStyles;
@@ -95,11 +95,17 @@ private :
 
 	std::pair<intptr_t, intptr_t> goToPreferencesSettings();
 
-	intptr_t CALLBACK run_dlgProc(UINT Message, WPARAM wParam, LPARAM lParam) override;
+	void createDialog(bool isRTL);
+	void connectControls();
+	void onCancel() override;
+	void saveAndClose();
+	void onColourPicked(bool which);
+	void onFontStyleToggled(fontStyleType whichStyle);
+	void updateStaticTexts();
 
 	Style& getCurrentStyler();
 
-	bool getStyleName(std::wstring& styleName, const size_t styleNameLenLimit = 128) const;
+	bool getStyleName(std::wstring& styleName) const;
 
 	int whichTabColourIndex() const;
 	int whichIndividualTabColourId();
@@ -107,7 +113,6 @@ private :
 	void apply(int applicationInfo);
 	int getApplicationInfo() const;
 	bool isDocumentMapStyle();
-	void move2CtrlRight(int ctrlID, HWND handle2Move, int handle2MoveWidth, int handle2MoveHeight);
 	void updateColour(bool which);
 	void updateFontStyleStatus(fontStyleType whitchStyle);
 	void updateExtension();

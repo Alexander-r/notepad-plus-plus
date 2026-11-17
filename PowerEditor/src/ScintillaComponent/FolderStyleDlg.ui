@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>FolderStyleDlg</class>
+ <widget class="QWidget" name="FolderStyleDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>699</width><height>674</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <layout class="QHBoxLayout" name="layout2">
+     <item>
+      <widget class="QGroupBox" name="webHelpDescgroupStatic">
+       <property name="nppId" stdset="0"><number>21105</number></property>
+       <property name="title"><string>Documentation</string></property>
+       <layout class="QVBoxLayout" name="layout3">
+        <item>
+         <widget class="QLabel" name="webHelpLink">
+          <property name="nppId" stdset="0"><number>21103</number></property>
+          <property name="text"><string>User Defined Languages online help</string></property>
+          <property name="wordWrap"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <widget class="QGroupBox" name="defaultDescgroupStatic">
+       <property name="nppId" stdset="0"><number>21101</number></property>
+       <property name="title"><string>Default style</string></property>
+       <layout class="QHBoxLayout" name="layout4">
+        <item>
+         <widget class="QPushButton" name="defaultStyler">
+          <property name="nppId" stdset="0"><number>21102</number></property>
+          <property name="text"><string>Styler</string></property>
+          <property name="autoDefault"><bool>false</bool></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="folderFoldCompact">
+          <property name="nppId" stdset="0"><number>21106</number></property>
+          <property name="text"><string>Fold &amp;compact (fold empty lines too)</string></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer5">
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="folderInCommentDescgroupStatic">
+     <property name="nppId" stdset="0"><number>21420</number></property>
+     <property name="title"><string>Folding in comment style</string></property>
+     <layout class="QVBoxLayout" name="layout6">
+      <item>
+       <layout class="QHBoxLayout" name="layout7">
+        <item>
+         <widget class="QPushButton" name="folderInCommentStyler">
+          <property name="nppId" stdset="0"><number>21427</number></property>
+          <property name="text"><string>Styler</string></property>
+          <property name="autoDefault"><bool>false</bool></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer8">
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="layout9">
+        <item row="0" column="0">
+         <widget class="QLabel" name="folderInCommentOpenStatic">
+          <property name="nppId" stdset="0"><number>21424</number></property>
+          <property name="text"><string>Open:</string></property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLabel" name="folderInCommentMiddleStatic">
+          <property name="nppId" stdset="0"><number>21425</number></property>
+          <property name="text"><string>Middle:</string></property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QLabel" name="folderInCommentCloseStatic">
+          <property name="nppId" stdset="0"><number>21426</number></property>
+          <property name="text"><string>Close:</string></property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QPlainTextEdit" name="folderInCommentOpenEdit">
+          <property name="nppId" stdset="0"><number>21421</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QPlainTextEdit" name="folderInCommentMiddleEdit">
+          <property name="nppId" stdset="0"><number>21422</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QPlainTextEdit" name="folderInCommentCloseEdit">
+          <property name="nppId" stdset="0"><number>21423</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="folderInCode1DescgroupStatic">
+     <property name="nppId" stdset="0"><number>21220</number></property>
+     <property name="title"><string>Folding in code 1 style</string></property>
+     <layout class="QVBoxLayout" name="layout10">
+      <item>
+       <layout class="QHBoxLayout" name="layout11">
+        <item>
+         <widget class="QPushButton" name="folderInCode1Styler">
+          <property name="nppId" stdset="0"><number>21227</number></property>
+          <property name="text"><string>Styler</string></property>
+          <property name="autoDefault"><bool>false</bool></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer12">
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="layout13">
+        <item row="0" column="0">
+         <widget class="QLabel" name="folderInCode1OpenStatic">
+          <property name="nppId" stdset="0"><number>21224</number></property>
+          <property name="text"><string>Open:</string></property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLabel" name="folderInCode1MiddleStatic">
+          <property name="nppId" stdset="0"><number>21225</number></property>
+          <property name="text"><string>Middle:</string></property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QLabel" name="folderInCode1CloseStatic">
+          <property name="nppId" stdset="0"><number>21226</number></property>
+          <property name="text"><string>Close:</string></property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QPlainTextEdit" name="folderInCode1OpenEdit">
+          <property name="nppId" stdset="0"><number>21221</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QPlainTextEdit" name="folderInCode1MiddleEdit">
+          <property name="nppId" stdset="0"><number>21222</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QPlainTextEdit" name="folderInCode1CloseEdit">
+          <property name="nppId" stdset="0"><number>21223</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="folderInCode2DescgroupStatic">
+     <property name="nppId" stdset="0"><number>21320</number></property>
+     <property name="title"><string>Folding in code 2 style (separators needed)</string></property>
+     <layout class="QVBoxLayout" name="layout14">
+      <item>
+       <layout class="QHBoxLayout" name="layout15">
+        <item>
+         <widget class="QPushButton" name="folderInCode2Styler">
+          <property name="nppId" stdset="0"><number>21327</number></property>
+          <property name="text"><string>Styler</string></property>
+          <property name="autoDefault"><bool>false</bool></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer16">
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="layout17">
+        <item row="0" column="0">
+         <widget class="QLabel" name="folderInCode2OpenStatic">
+          <property name="nppId" stdset="0"><number>21324</number></property>
+          <property name="text"><string>Open:</string></property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLabel" name="folderInCode2MiddleStatic">
+          <property name="nppId" stdset="0"><number>21325</number></property>
+          <property name="text"><string>Middle:</string></property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QLabel" name="folderInCode2CloseStatic">
+          <property name="nppId" stdset="0"><number>21326</number></property>
+          <property name="text"><string>Close:</string></property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QPlainTextEdit" name="folderInCode2OpenEdit">
+          <property name="nppId" stdset="0"><number>21321</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QPlainTextEdit" name="folderInCode2MiddleEdit">
+          <property name="nppId" stdset="0"><number>21322</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QPlainTextEdit" name="folderInCode2CloseEdit">
+          <property name="nppId" stdset="0"><number>21323</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer18">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

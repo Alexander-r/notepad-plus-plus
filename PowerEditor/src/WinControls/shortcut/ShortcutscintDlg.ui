@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ShortcutscintDlg</class>
+ <widget class="QDialog" name="ShortcutscintDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>423</width><height>186</height></rect></property>
+  <property name="windowTitle"><string>Shortcut</string></property>
+  <layout class="QHBoxLayout" name="layout1">
+   <item>
+    <layout class="QVBoxLayout" name="layout2">
+     <item>
+      <widget class="QListWidget" name="listKeys">
+       <property name="nppId" stdset="0"><number>5011</number></property>
+      </widget>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="layout3">
+       <item>
+        <widget class="QPushButton" name="buttonAdd">
+         <property name="nppId" stdset="0"><number>5008</number></property>
+         <property name="text"><string>A&amp;dd</string></property>
+         <property name="autoDefault"><bool>false</bool></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="buttonRmve">
+         <property name="nppId" stdset="0"><number>5009</number></property>
+         <property name="text"><string>Remo&amp;ve</string></property>
+         <property name="autoDefault"><bool>false</bool></property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QVBoxLayout" name="layout4">
+     <item>
+      <layout class="QHBoxLayout" name="layout5">
+       <item>
+        <widget class="QLabel" name="nameStatic">
+         <property name="nppId" stdset="0"><number>5006</number></property>
+         <property name="text"><string>&amp;Name:</string></property>
+         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         <property name="buddy"><cstring>nameEdit</cstring></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLineEdit" name="nameEdit">
+         <property name="nppId" stdset="0"><number>5005</number></property>
+         <property name="readOnly"><bool>true</bool></property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="layout6">
+       <item>
+        <layout class="QVBoxLayout" name="layout7">
+         <item>
+          <widget class="QCheckBox" name="ctrlCheck">
+           <property name="nppId" stdset="0"><number>5001</number></property>
+           <property name="text"><string>&amp;CTRL</string></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="altCheck">
+           <property name="nppId" stdset="0"><number>5002</number></property>
+           <property name="text"><string>&amp;ALT</string></property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="label">
+         <property name="nppId" stdset="0"><number>-1</number></property>
+         <property name="text"><string>+</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="shiftCheck">
+         <property name="nppId" stdset="0"><number>5003</number></property>
+         <property name="text"><string>&amp;SHIFT</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label2">
+         <property name="nppId" stdset="0"><number>-1</number></property>
+         <property name="text"><string>+</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="keyCombo">
+         <property name="nppId" stdset="0"><number>5004</number></property>
+         <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="spacer8">
+         <property name="orientation"><enum>Qt::Horizontal</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="layout9">
+       <item>
+        <spacer name="spacer10">
+         <property name="orientation"><enum>Qt::Horizontal</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QPushButton" name="buttonApply">
+         <property name="nppId" stdset="0"><number>5010</number></property>
+         <property name="text"><string>Appl&amp;y</string></property>
+         <property name="autoDefault"><bool>false</bool></property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <spacer name="spacer11">
+       <property name="orientation"><enum>Qt::Vertical</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="layout12">
+       <item>
+        <spacer name="spacer13">
+         <property name="orientation"><enum>Qt::Horizontal</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QPushButton" name="ok">
+         <property name="nppId" stdset="0"><number>1</number></property>
+         <property name="text"><string>OK</string></property>
+         <property name="autoDefault"><bool>false</bool></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="cancel">
+         <property name="nppId" stdset="0"><number>2</number></property>
+         <property name="text"><string>Cancel</string></property>
+         <property name="autoDefault"><bool>false</bool></property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <widget class="QLabel" name="warningStatic">
+       <property name="nppId" stdset="0"><number>5007</number></property>
+       <property name="text"><string>This will remove shortcut from this command</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="conflictStatic">
+       <property name="nppId" stdset="0"><number>5012</number></property>
+       <property name="text"><string>CONFLICT FOUND!</string></property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

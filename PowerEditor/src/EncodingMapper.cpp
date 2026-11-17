@@ -17,6 +17,7 @@
 
 #include <string.h>
 #include "EncodingMapper.h"
+#include "NppPlatform.h"
 #include "Scintilla.h"
 
 // Don't change the order

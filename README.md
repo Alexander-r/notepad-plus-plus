@@ -1,50 +1,83 @@
 What is Notepad++ ?
 ===================
 
-[![GitHub release](https://img.shields.io/github/release/notepad-plus-plus/notepad-plus-plus.svg)](../../releases/latest)&nbsp;&nbsp;&nbsp;&nbsp;[![Build Status](https://img.shields.io/github/actions/workflow/status/notepad-plus-plus/notepad-plus-plus/CI_build.yml)](https://github.com/notepad-plus-plus/notepad-plus-plus/actions/workflows/CI_build.yml)
-&nbsp;&nbsp;&nbsp;&nbsp;[![Join the discussions at https://community.notepad-plus-plus.org/](https://notepad-plus-plus.org/assets/images/NppCommunityBadge.svg)](https://community.notepad-plus-plus.org/)
+Notepad++ is a free source code editor and Notepad replacement that supports
+several programming languages and natural languages.
 
-Notepad++ is a free (free as in both "free speech" and "free beer") source code
-editor and Notepad replacement that supports several programming languages and
-natural languages. Running in the MS Windows environment, its use is governed by
-[GPL License](LICENSE).
+This repository is a port of Notepad++ from the Windows API to
+Qt 6 QWidgets, so that it builds and runs on Linux, under Wayland and X11.
+It follows upstream Notepad++ 8.9.9.1. This is not an official Notepad++
+release, so the problems with the port should be reported here and not to
+the upstream project.
 
-See the [Notepad++ official site](https://notepad-plus-plus.org/) for more information.
-
-
-Notepad++ GPG Release Key
--------------------------
-_Since the release of version 7.6.5 Notepad++ is signed using GPG with the following key:_
-
-- **Signer:** Notepad++
-- **E-mail:** don.h@free.fr
-- **Key ID:** 0x8D84F46E
-- **Key fingerprint:** 14BC E436 2749 B2B5 1F8C 7122 6C42 9F1D 8D84 F46E
-- **Key type:** RSA 4096/4096
-- **Created:** 2019-03-11
-- **Expires:** 2027-03-13
-
-https://github.com/notepad-plus-plus/notepad-plus-plus/blob/master/nppGpgPub.asc
+It is under the [GPL License](LICENSE), version 3, same as Notepad++.
 
 
-Supported OS
-------------
+State of the port
+-----------------
 
-All the Windows systems still supported by Microsoft are supported by Notepad++. However, not all Notepad++ users can or want to use the newest system. Here is the [Supported systems information](SUPPORTED_SYSTEM.md) you may need in case you are one of them.
+The application builds and runs, and every dialog and panel is ported.
 
+What stays as on Windows:
 
+- The editor is the same Scintilla and Lexilla, with Scintilla's own Qt layer.
+- Find, Replace, Find in Files and Mark use the same Boost regex search, which
+  sees the text as Windows does, so search results are the same.
+- Languages, themes, User Defined Languages, the Function List, macros,
+  `shortcuts.xml`, sessions, context menus and the translations work as on
+  Windows, and their XML files have the same format.
+- Plugins have the same API: the same exports and the same `NPPM_*` and `SCI_*`
+  messages.
+
+What is different on Linux:
+
+- **Look:** the windows follow the desktop's theme in light and in dark mode.
+- **Settings** are kept in `~/.config/notepad++/`. The preferences that were in
+  `config.xml` are now in `config.ini`, and an existing `config.xml` is imported
+  once. The other settings files stay XML. A `doLocalConf.xml` file beside the
+  program still keeps everything beside it, for a portable setup.
+- **Plugins** must be recompiled as Linux libraries, and are loaded from
+  `plugins/Name/Name.so` or `plugins/Name/libName.so`, beside the program or in
+  the settings folder. Code without a user interface usually compiles with few
+  changes, while dialogs made from Windows resources have to be rewritten with
+  Qt. [PowerEditor/Test/plugins](PowerEditor/Test/plugins/README.md) explains
+  how, with MIME Tools as a ported example.
+- **Adapted:** the commands that opened Explorer or `cmd` open the desktop's
+  file manager and terminal. "Save as administrator" asks for the password
+  through `pkexec`. File associations are made by the
+  [desktop file](PowerEditor/src/notepad-plus-plus.desktop) instead of a page
+  of the preferences.
+
+Known gaps:
+
+- The tab bar has only one row, so the multi-line tab bar option does nothing.
+- Dropping a tab onto another running Notepad++ opens a new instance.
+- Folder as Workspace watches each folder with inotify, so a very large tree can
+  run out of watches.
 
 
 Build Notepad++
 ---------------
 
-Please follow [build guide](BUILD.md) to build Notepad++ from source.
+You need CMake 3.21 or later, a C++20 compiler, and Qt 6 with the Widgets,
+Core5Compat, Network, PrintSupport and Test modules. Scintilla, Lexilla
+and Boost regex are part of this repository.
 
+```
+cmake -S . -B build
+cmake --build build -j
+build/bin/notepad++
+```
 
-Contribution
-------------
+The build puts the languages, themes, translations, function list and
+auto-completion files beside the program in `build/bin`, where it finds them.
 
-Contributions are welcome. Be mindful of our [Contribution Rules](CONTRIBUTING.md) to increase the likelihood of your contribution getting accepted.
+To run the tests, build all targets and then run:
 
-[Notepad++ Contributors](https://github.com/notepad-plus-plus/notepad-plus-plus/graphs/contributors)
+```
+ctest --test-dir build --output-on-failure
+```
 
+Without a display, set `QT_QPA_PLATFORM=offscreen`. The app tests use the
+clipboard and take the focus, so run them offscreen or in a private session
+rather than on your desktop.

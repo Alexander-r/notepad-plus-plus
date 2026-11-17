@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubMultiinstanceDlg</class>
+ <widget class="QWidget" name="PreferenceSubMultiinstanceDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <layout class="QHBoxLayout" name="layout2">
+     <item>
+      <layout class="QVBoxLayout" name="layout3">
+       <item>
+        <widget class="QGroupBox" name="multiinstGbStatic">
+         <property name="nppId" stdset="0"><number>6151</number></property>
+         <property name="title"><string>Multi-instance settings *</string></property>
+         <layout class="QVBoxLayout" name="layout4">
+          <item>
+           <widget class="QRadioButton" name="monoinstRadio">
+            <property name="nppId" stdset="0"><number>6154</number></property>
+            <property name="text"><string>Default (mono-instance)</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+           </widget>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="multiinstRadio">
+            <property name="nppId" stdset="0"><number>6153</number></property>
+            <property name="text"><string>Always in multi-instance mode</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+           </widget>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="sessionininstRadio">
+            <property name="nppId" stdset="0"><number>6152</number></property>
+            <property name="text"><string>Open session in a new instance (and save session automatically on exit)</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="datetimeformatGbStatic">
+         <property name="nppId" stdset="0"><number>6171</number></property>
+         <property name="title"><string>Customize insert Date Time</string></property>
+         <layout class="QVBoxLayout" name="layout5">
+          <item>
+           <widget class="QCheckBox" name="datetimeformatReverseorderCheck">
+            <property name="nppId" stdset="0"><number>6175</number></property>
+            <property name="text"><string>Reverse default date time order (short &amp;&amp; long formats)</string></property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="layout6">
+            <item>
+             <widget class="QLabel" name="label">
+              <property name="nppId" stdset="0"><number>-1</number></property>
+              <property name="text"><string>yyyy-MM-dd HH:mm:ss
+H:m d/M/yyyy
+MMM d, yyyy  tt h:m</string></property>
+              <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+              <property name="wordWrap"><bool>true</bool></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="label2">
+              <property name="nppId" stdset="0"><number>-1</number></property>
+              <property name="text"><string>1985-10-26 16:24:42
+16:24 26/10/1985
+Oct 26, 1985  PM 4:24</string></property>
+              <property name="wordWrap"><bool>true</bool></property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="spacer7">
+              <property name="orientation"><enum>Qt::Horizontal</enum></property>
+              <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+              <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+             </spacer>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="layout8">
+            <item>
+             <widget class="QLabel" name="datetimeformatStatic">
+              <property name="nppId" stdset="0"><number>6172</number></property>
+              <property name="text"><string>Custom format:</string></property>
+              <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="datetimeformatEdit">
+              <property name="nppId" stdset="0"><number>6173</number></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="datetimeformatResultStatic">
+            <property name="nppId" stdset="0"><number>6174</number></property>
+            <property name="text"><string/></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="staticRestartnote">
+         <property name="nppId" stdset="0"><number>6155</number></property>
+         <property name="text"><string>* The modification of this setting needs to restart Notepad++</string></property>
+         <property name="wordWrap"><bool>true</bool></property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="spacer9">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="layout10">
+       <item>
+        <widget class="QGroupBox" name="panelIgnoresessionGbStatic">
+         <property name="nppId" stdset="0"><number>6181</number></property>
+         <property name="title"><string>Panel State and [-nosession] *</string></property>
+         <layout class="QVBoxLayout" name="layout11">
+          <item>
+           <widget class="QLabel" name="staticPanelstateDescription">
+            <property name="nppId" stdset="0"><number>6182</number></property>
+            <property name="text"><string>Remember panel state (panel is open) in other instances (multi-instance mode) or when using command line parameter [-nosession]</string></property>
+            <property name="wordWrap"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkClipboardhistory">
+            <property name="nppId" stdset="0"><number>6183</number></property>
+            <property name="text"><string>Clipboard History</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkDoclist">
+            <property name="nppId" stdset="0"><number>6184</number></property>
+            <property name="text"><string>Document List</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkCharpanel">
+            <property name="nppId" stdset="0"><number>6185</number></property>
+            <property name="text"><string>Character Panel</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkFilebrowser">
+            <property name="nppId" stdset="0"><number>6186</number></property>
+            <property name="text"><string>Folder as Workspace</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkProjectpanel">
+            <property name="nppId" stdset="0"><number>6187</number></property>
+            <property name="text"><string>Project Panels</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkDocmap">
+            <property name="nppId" stdset="0"><number>6188</number></property>
+            <property name="text"><string>Document Map</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkFunclist">
+            <property name="nppId" stdset="0"><number>6189</number></property>
+            <property name="text"><string>Function List</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkPluginpanel">
+            <property name="nppId" stdset="0"><number>6190</number></property>
+            <property name="text"><string>Plugin Panels</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="spacer12">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <spacer name="spacer13">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+ </buttongroups>
+</ui>

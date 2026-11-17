@@ -17,7 +17,9 @@
 #pragma once
 
 #include <string>
-#include <windows.h>
+
+#include "NppMessages.h"
+#include "NppPlatform.h"
 
 enum class FluentColor;
 struct TbIconInfo;
@@ -47,22 +49,6 @@ namespace NppDarkMode
 		bool enablePlugin = false;
 	};
 
-	struct NppDarkModeParams
-	{
-		const wchar_t* _themeClassName = nullptr;
-		bool _subclass = false;
-		bool _theme = false;
-	};
-
-	enum class ToolTipsType
-	{
-		tooltip,
-		toolbar,
-		listview,
-		treeview,
-		tabbar
-	};
-
 	enum ColorTone {
 		blackTone  = 0,
 		redTone    = 1,
@@ -74,26 +60,15 @@ namespace NppDarkMode
 		customizedTone = 32
 	};
 
-	enum class TreeViewStyle
-	{
-		classic = 0,
-		light = 1,
-		dark = 2
-	};
-
-	constexpr UINT WM_SETBUTTONIDEALSIZE = (WM_USER + 4200);
-
-	void initDarkMode();				// pulls options from NppParameters
-	void refreshDarkMode(HWND hwnd, bool forceRefresh = false);	// attempts to apply new options from NppParameters, sends NPPM_INTERNAL_REFRESHDARKMODE to hwnd's top level parent
+	void initDarkMode();				// pulls options from NppParameters, and applies them to the application palette
+	void refreshDarkMode(HWND hwnd, bool forceRefresh = false);	// attempts to apply new options from NppParameters
 
 	void initAdvancedOptions();
 
 	bool isEnabled();
 	bool isEnabledForPlugins();
-	bool isExperimentalActive();
-	bool isExperimentalSupported();
 
-	bool isWindowsModeEnabled();
+	bool isWindowsModeEnabled(); // whether to follow the desktop's light or dark preference
 	void setWindowsMode(bool enable);
 	std::wstring getThemeName();
 	void setThemeName(const std::wstring& newThemeName);
@@ -112,10 +87,6 @@ namespace NppDarkMode
 	bool useTabTheme();
 	void setAdvancedOptions();
 
-	bool isWindows10();
-	bool isWindows11();
-	DWORD getWindowsBuildNumber();
-
 	COLORREF invertLightness(COLORREF c);
 	double calculatePerceivedLightness(COLORREF c);
 
@@ -130,6 +101,18 @@ namespace NppDarkMode
 	COLORREF getDlgBackgroundColor();
 	COLORREF getErrorBackgroundColor();
 
+	bool isDesktopDark();
+	bool desktopPrefersDark();
+
+	// Whether the controls are dark. What is drawn on them goes by this, which can differ from isEnabled(), the mode,
+	// for a tone or a theme that does not suit it.
+	bool usesDarkWidgets();
+
+	// The WCAG contrast of two colours, from 1 to 21, and the first one moved towards black or white until it has that
+	// much contrast with the second
+	double contrastRatio(COLORREF first, COLORREF second);
+	COLORREF readableOn(COLORREF colour, COLORREF background, double minimumContrast = 3.0);
+
 	COLORREF getTextColor();
 	COLORREF getDarkerTextColor();
 	COLORREF getDisabledTextColor();
@@ -138,23 +121,6 @@ namespace NppDarkMode
 	COLORREF getEdgeColor();
 	COLORREF getHotEdgeColor();
 	COLORREF getDisabledEdgeColor();
-
-	HBRUSH getBackgroundBrush();
-	HBRUSH getDlgBackgroundBrush();
-	HBRUSH getCtrlBackgroundBrush();
-	HBRUSH getHotBackgroundBrush();
-	HBRUSH getErrorBackgroundBrush();
-
-	HBRUSH getEdgeBrush();
-	HBRUSH getHotEdgeBrush();
-	HBRUSH getDisabledEdgeBrush();
-
-	HBRUSH getDarkerTextBrush();
-
-	HPEN getDarkerTextPen();
-	HPEN getEdgePen();
-	HPEN getHotEdgePen();
-	HPEN getDisabledEdgePen();
 
 	void setBackgroundColor(COLORREF c);
 	void setCtrlBackgroundColor(COLORREF c);
@@ -172,72 +138,7 @@ namespace NppDarkMode
 	Colors getDarkModeDefaultColors(ColorTone colorTone = ColorTone::blackTone);
 	void changeCustomTheme(const Colors& colors);
 
-	// handle events
-	void handleSettingChange(HWND hwnd, LPARAM lParam, bool isFromBtn = false);
-	bool isDarkModeReg();
-
-	// from DarkMode.h
-	void initExperimentalDarkMode();
-	void setDarkMode(bool useDark, bool fixDarkScrollbar);
-	void allowDarkModeForApp(bool allow);
-	bool allowDarkModeForWindow(HWND hWnd, bool allow);
-	void setTitleBarThemeColor(HWND hWnd);
-
-	// enhancements to DarkMode.h
-	void enableDarkScrollBarForWindowAndChildren(HWND hwnd);
-
-	void paintRoundRect(HDC hdc, const RECT rect, const HPEN hpen, const HBRUSH hBrush, int width = 0, int height = 0);
-	inline void paintRoundFrameRect(HDC hdc, const RECT rect, const HPEN hpen, int width = 0, int height = 0);
-
-	void subclassButtonControl(HWND hwnd);
-	void subclassGroupboxControl(HWND hwnd);
-	void subclassTabControl(HWND hwnd);
-	void subclassComboBoxControl(HWND hwnd);
-	void subclassListViewControl(HWND hwnd);
-	bool subclassTabUpDownControl(HWND hwnd);
-
-	void subclassAndThemeButton(HWND hwnd, NppDarkModeParams p);
-	void subclassAndThemeComboBox(HWND hwnd, NppDarkModeParams p);
-	void subclassAndThemeListBoxOrEditControl(HWND hwnd, NppDarkModeParams p, bool isListBox);
-	void subclassAndThemeListView(HWND hwnd, NppDarkModeParams p);
-	void themeTreeView(HWND hwnd, NppDarkModeParams p);
-	void themeToolbar(HWND hwnd, NppDarkModeParams p);
-	void themeRichEdit(HWND hwnd, NppDarkModeParams p);
-
-	void autoSubclassAndThemeChildControls(HWND hwndParent, bool subclass = true, bool theme = true);
-	void autoThemeChildControls(HWND hwndParent);
-
-	void autoSubclassAndThemePluginDockWindow(HWND hwnd);
-	ULONG autoSubclassAndThemePlugin(HWND hwnd, ULONG dmFlags);
-	void autoSubclassCtlColor(HWND hWnd);
-	void autoSubclassAndThemeWindowNotify(HWND hwnd);
-	void autoSubclassWindowMenuBar(HWND hWnd);
-
-	void setDarkTitleBar(HWND hwnd);
-	void setDarkExplorerTheme(HWND hwnd);
-	void setDarkScrollBar(HWND hwnd);
-	void setDarkTooltips(HWND hwnd, ToolTipsType type);
-	void setDarkLineAbovePanelToolbar(HWND hwnd);
-	void setDarkListView(HWND hwnd);
-
-	void disableVisualStyle(HWND hwnd, bool doDisable);
-	void calculateTreeViewStyle();
-	void updateTreeViewStylePrev();
-	TreeViewStyle getTreeViewStyle();
-	void setTreeViewStyle(HWND hWnd, bool force = false);
 	bool isThemeDark();
-	void setBorder(HWND hwnd, bool border = true);
-
-	void setDarkAutoCompletion();
-
-	LRESULT onCtlColor(HDC hdc);
-	LRESULT onCtlColorCtrl(HDC hdc);
-	LRESULT onCtlColorDlg(HDC hdc);
-	LRESULT onCtlColorError(HDC hdc);
-	LRESULT onCtlColorDlgStaticText(HDC hdc, bool isTextEnabled);
-	LRESULT onCtlColorDlgLinkText(HDC hdc, bool isTextEnabled = true);
-	LRESULT onCtlColorListbox(WPARAM wParam, LPARAM lParam);
 
 	int darkMessageBoxW(HWND hWnd, LPCWSTR lpText, LPCWSTR lpCaption, UINT uType);
-	BOOL darkChooseColorW(LPCHOOSECOLORW cc);
 }

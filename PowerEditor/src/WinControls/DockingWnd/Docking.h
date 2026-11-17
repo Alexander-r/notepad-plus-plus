@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <windows.h>
+#include "NppPlatform.h"
 
 // ATTENTION : It's a part of interface header, so don't include the others header here
 
@@ -79,6 +79,7 @@ struct tDockMgr {
 };
 
 
+#define	HIGH_CAPTION		18
 #define	HIT_TEST_THICKNESS		20
 #define SPLITTER_WIDTH			4
 

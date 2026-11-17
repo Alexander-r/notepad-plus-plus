@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ColumneditDlg</class>
+ <widget class="QDialog" name="ColumneditDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>330</width><height>347</height></rect></property>
+  <property name="windowTitle"><string>Column / Multi-Selection Editor</string></property>
+  <layout class="QHBoxLayout" name="layout1">
+   <item>
+    <layout class="QVBoxLayout" name="layout2">
+     <item>
+      <widget class="QRadioButton" name="colTextRadio">
+       <property name="nppId" stdset="0"><number>2023</number></property>
+       <property name="text"><string>&amp;Text to Insert</string></property>
+       <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+      </widget>
+     </item>
+     <item>
+      <widget class="QGroupBox" name="colTextGrpStatic">
+       <property name="nppId" stdset="0"><number>2028</number></property>
+       <property name="title"><string/></property>
+       <layout class="QVBoxLayout" name="layout3">
+        <item>
+         <widget class="QLineEdit" name="colTextEdit">
+          <property name="nppId" stdset="0"><number>2034</number></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <widget class="QRadioButton" name="colNumRadio">
+       <property name="nppId" stdset="0"><number>2033</number></property>
+       <property name="text"><string>&amp;Number to Insert</string></property>
+       <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+      </widget>
+     </item>
+     <item>
+      <widget class="QGroupBox" name="colNumGrpStatic">
+       <property name="nppId" stdset="0"><number>2029</number></property>
+       <property name="title"><string/></property>
+       <layout class="QVBoxLayout" name="layout4">
+        <item>
+         <widget class="QGroupBox" name="colFormatGrpStatic">
+          <property name="nppId" stdset="0"><number>2032</number></property>
+          <property name="title"><string>Format</string></property>
+          <layout class="QGridLayout" name="layout5">
+           <item row="0" column="0">
+            <widget class="QRadioButton" name="colDecRadio">
+             <property name="nppId" stdset="0"><number>2024</number></property>
+             <property name="text"><string>&amp;Dec</string></property>
+             <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <layout class="QHBoxLayout" name="layout6">
+             <item>
+              <widget class="QRadioButton" name="colHexRadio">
+               <property name="nppId" stdset="0"><number>2026</number></property>
+               <property name="text"><string>&amp;Hex</string></property>
+               <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="colHexucCombo">
+               <property name="nppId" stdset="0"><number>2040</number></property>
+               <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item row="1" column="0">
+            <widget class="QRadioButton" name="colOctRadio">
+             <property name="nppId" stdset="0"><number>2025</number></property>
+             <property name="text"><string>&amp;Oct</string></property>
+             <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QRadioButton" name="colBinRadio">
+             <property name="nppId" stdset="0"><number>2027</number></property>
+             <property name="text"><string>&amp;Bin</string></property>
+             <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <layout class="QGridLayout" name="layout7">
+          <item row="0" column="0">
+           <widget class="QLabel" name="colInitnumStatic">
+            <property name="nppId" stdset="0"><number>2030</number></property>
+            <property name="text"><string>&amp;Initial number:</string></property>
+            <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+            <property name="buddy"><cstring>colInitnumEdit</cstring></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLineEdit" name="colInitnumEdit">
+            <property name="nppId" stdset="0"><number>2021</number></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="colIncrnumStatic">
+            <property name="nppId" stdset="0"><number>2031</number></property>
+            <property name="text"><string>Increase b&amp;y:</string></property>
+            <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+            <property name="buddy"><cstring>colIncreasenumEdit</cstring></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLineEdit" name="colIncreasenumEdit">
+            <property name="nppId" stdset="0"><number>2022</number></property>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="colRepeatnumStatic">
+            <property name="nppId" stdset="0"><number>2036</number></property>
+            <property name="text"><string>&amp;Repeat:</string></property>
+            <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+            <property name="buddy"><cstring>colRepeatnumEdit</cstring></property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QLineEdit" name="colRepeatnumEdit">
+            <property name="nppId" stdset="0"><number>2037</number></property>
+           </widget>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="colLeadingStatic">
+            <property name="nppId" stdset="0"><number>2038</number></property>
+            <property name="text"><string>&amp;Leading:</string></property>
+            <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+            <property name="buddy"><cstring>colLeadingCombo</cstring></property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QComboBox" name="colLeadingCombo">
+            <property name="nppId" stdset="0"><number>2039</number></property>
+            <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <spacer name="spacer8">
+       <property name="orientation"><enum>Qt::Vertical</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QVBoxLayout" name="layout9">
+     <item>
+      <widget class="QPushButton" name="ok">
+       <property name="nppId" stdset="0"><number>1</number></property>
+       <property name="text"><string>OK</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+       <property name="default"><bool>true</bool></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancel">
+       <property name="nppId" stdset="0"><number>2</number></property>
+       <property name="text"><string>Cancel</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="spacer10">
+       <property name="orientation"><enum>Qt::Vertical</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+  <buttongroup name="radioGroup2"/>
+ </buttongroups>
+</ui>

@@ -17,17 +17,92 @@
 
 #include "documentMap.h"
 
-#include <commctrl.h>
+#include <QDialog>
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QWheelEvent>
 
 #include "NppConstants.h"
 #include "ScintillaEditView.h"
-
-
-#define DOCUMENTMAP_SCROLL        (WM_USER + 4) // DM_SETDEFID uses WM_USER + 1
-#define DOCUMENTMAP_MOUSECLICKED  (WM_USER + 5) // DM_REPOSITION uses WM_USER + 2
+#include "menuCmdID.h"
 
 static constexpr bool moveDown = true;
 static constexpr bool moveUp = false;
+
+namespace
+{
+	QColor colorOf(COLORREF colour, int alpha)
+	{
+		return QColor(GetRValue(colour), GetGValue(colour), GetBValue(colour), alpha);
+	}
+
+	class ViewZoneWidget : public QWidget
+	{
+	public:
+		ViewZoneWidget(ViewZoneDlg* zone, DocumentMap* map, QWidget* parent) : QWidget(parent), _zone(zone), _map(map)
+		{
+			setFocusPolicy(Qt::ClickFocus);
+		}
+
+	protected:
+		void paintEvent(QPaintEvent*) override
+		{
+			constexpr int transparency = 50; // 0 <= transparency < 256
+			QPainter painter(this);
+			painter.fillRect(rect(), colorOf(ViewZoneDlg::colour(ViewZoneDlg::ViewZoneColorIndex::frost), transparency));
+			painter.fillRect(0, _zone->higherY(), width(), _zone->getViewerHeight(), colorOf(ViewZoneDlg::colour(ViewZoneDlg::ViewZoneColorIndex::focus), transparency));
+		}
+
+		void mousePressEvent(QMouseEvent* event) override
+		{
+			_map->onMouseAt(event->position().toPoint().y());
+		}
+
+		void mouseMoveEvent(QMouseEvent* event) override
+		{
+			if (event->buttons() & Qt::LeftButton)
+				_map->onMouseAt(event->position().toPoint().y());
+		}
+
+		void wheelEvent(QWheelEvent* event) override
+		{
+			_map->onWheel(event->angleDelta().y());
+		}
+
+		void keyPressEvent(QKeyEvent* event) override
+		{
+			switch (event->key())
+			{
+				case Qt::Key_Up: _map->scrollMap(moveUp, perLine); break;
+				case Qt::Key_Down: _map->scrollMap(moveDown, perLine); break;
+				case Qt::Key_PageUp: _map->scrollMap(moveUp, perPage); break;
+				case Qt::Key_PageDown: _map->scrollMap(moveDown, perPage); break;
+				default: QWidget::keyPressEvent(event); break;
+			}
+		}
+
+	private:
+		ViewZoneDlg* _zone;
+		DocumentMap* _map;
+	};
+
+	class MapResizeEvents : public QObject
+	{
+	public:
+		MapResizeEvents(DocumentMap* map, QObject* parent) : QObject(parent), _map(map) {}
+
+		bool eventFilter(QObject* watched, QEvent* event) override
+		{
+			if (event->type() == QEvent::Resize)
+				_map->onResized();
+			return QObject::eventFilter(watched, event);
+		}
+
+	private:
+		DocumentMap* _map;
+	};
+}
 
 void DocumentMap::reloadMap()
 {
@@ -109,7 +184,7 @@ void DocumentMap::initWrapMap()
 	{
 		RECT rect{};
 		getClientRect(rect);
-		::MoveWindow(_pMapView->getHSelf(), 0, 0, rect.right - rect.left, rect.bottom-rect.top, TRUE);
+		_pMapView->getHSelf()->setGeometry(0, 0, rect.right - rect.left, rect.bottom-rect.top);
 		_pMapView->wrap(false);
 		_pMapView->redraw(true);
 
@@ -184,7 +259,7 @@ void DocumentMap::wrapMap(const ScintillaEditView *editView)
 		// compute doc map width: dzw/ezw = 1/zoomRatio
 		double docMapWidth = editZoneWidth / zr;
 
-		::MoveWindow(_pMapView->getHSelf(), 0, 0, int(docMapWidth), rect.bottom-rect.top, TRUE);
+		_pMapView->getHSelf()->setGeometry(0, 0, int(docMapWidth), rect.bottom-rect.top);
 		_pMapView->wrap(true);
 
 		// sync wrapping indent mode
@@ -295,11 +370,11 @@ void DocumentMap::scrollMapWith(const MapPosition & mapPos)
 
 void DocumentMap::doMove()
 {
-	RECT rc;
-	::GetClientRect (_hwndScintilla, & rc);
-	bool isChild = (::GetWindowLongPtr (_vzDlg.getHSelf(), GWL_STYLE) & WS_CHILD) != 0;
-	::MapWindowPoints (_hwndScintilla, isChild ? _pMapView->getHParent() : HWND_DESKTOP, reinterpret_cast<POINT*>(& rc), 2);
-	::MoveWindow(_vzDlg.getHSelf(), rc.left, rc.top, (rc.right - rc.left), (rc.bottom - rc.top), TRUE);
+	if (_hwndScintilla && _vzDlg.getHSelf())
+	{
+		_vzDlg.getHSelf()->setGeometry(_hwndScintilla->geometry());
+		_vzDlg.getHSelf()->raise();
+	}
 }
 
 void DocumentMap::fold(size_t line, bool foldOrNot)
@@ -329,132 +404,94 @@ void DocumentMap::redraw(bool) const
 	DockingDlgInterface::redraw(true);
 }
 
-intptr_t CALLBACK DocumentMap::run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam)
+void DocumentMap::create(DockedWidgetData* data, bool isRTL)
 {
-    switch (message)
-    {
-        case WM_INITDIALOG :
-        {
-			_hwndScintilla = reinterpret_cast<HWND>(::SendMessage(_hParent, NPPM_CREATESCINTILLAHANDLE, 0, reinterpret_cast<LPARAM>(_hSelf)));
-			_pMapView = reinterpret_cast<ScintillaEditView *>(::SendMessage(_hParent, NPPM_INTERNAL_GETSCINTEDTVIEW, 0, reinterpret_cast<LPARAM>(_hwndScintilla)));
-			_pMapView->execute(SCI_SETZOOM, static_cast<WPARAM>(-10), 0);
-			_pMapView->execute(SCI_SETVSCROLLBAR, FALSE, 0);
-			_pMapView->execute(SCI_SETHSCROLLBAR, FALSE, 0);
-			_pMapView->execute(SCI_SETMODEVENTMASK, MODEVENTMASK_OFF); // Turn off the modification event
+	DockingDlgInterface::create(data, isRTL);
+	data->pszAddInfo = id4dockingCont.c_str();
 
-			_pMapView->showIndentGuideLine(false);
-			_pMapView->display();
-			
+	_hwndScintilla = reinterpret_cast<HWND>(::SendMessage(_hParent, NPPM_CREATESCINTILLAHANDLE, 0, reinterpret_cast<LPARAM>(_hSelf)));
+	_pMapView = reinterpret_cast<ScintillaEditView *>(::SendMessage(_hParent, NPPM_INTERNAL_GETSCINTEDTVIEW, 0, reinterpret_cast<LPARAM>(_hwndScintilla)));
+	_pMapView->execute(SCI_SETZOOM, static_cast<WPARAM>(-10), 0);
+	_pMapView->execute(SCI_SETVSCROLLBAR, FALSE, 0);
+	_pMapView->execute(SCI_SETHSCROLLBAR, FALSE, 0);
+	_pMapView->execute(SCI_SETMODEVENTMASK, MODEVENTMASK_OFF); // Turn off the modification event
+
+	_pMapView->showIndentGuideLine(false);
+	_pMapView->display();
+
+	reloadMap();
+
+	_vzDlg.init(_hInst, _hSelf, this);
+	_vzDlg.display();
+
+	setSyntaxHiliting();
+
+	_pMapView->showMargin(0, false);
+	_pMapView->showMargin(1, false);
+	_pMapView->showMargin(2, false);
+	_pMapView->showMargin(3, false);
+
+	_hSelf->installEventFilter(new MapResizeEvents(this, _hSelf));
+	onResized();
+}
+
+void DocumentMap::onResized()
+{
+	if (_pMapView && _vzDlg.getHSelf())
+	{
+		if (!_pMapView->isWrap())
+			_pMapView->getHSelf()->setGeometry(_hSelf->rect());
+
+		doMove();
+	}
+}
+
+void DocumentMap::onMouseAt(int y)
+{
+	const int currentCenterPosY = _vzDlg.getCurrentCenterPosY();
+	const intptr_t pixelPerLine = _pMapView->execute(SCI_TEXTHEIGHT, 0);
+	const intptr_t jumpDistance = y - currentCenterPosY;
+	const intptr_t nbLine2jump = jumpDistance/pixelPerLine;
+	(*_ppEditView)->execute(SCI_LINESCROLL, 0, nbLine2jump);
+
+	scrollMap();
+}
+
+void DocumentMap::onWheel(int delta)
+{
+	constexpr int linesPerNotch = 3;
+	(*_ppEditView)->execute(SCI_LINESCROLL, 0, -delta * linesPerNotch / 120);
+
+	scrollMap();
+}
+
+void DocumentMap::onDockingNotify(const NMHDR& notification)
+{
+	switch (notification.code)
+	{
+		case DMN_CLOSE:
+			::SendMessage(_hParent, WM_COMMAND, IDM_VIEW_DOC_MAP, 0);
+			return;
+
+		case DMN_SWITCHIN:
+			_vzDlg.display();
 			reloadMap();
-
-			_vzDlg.init(::GetModuleHandle(NULL), _hSelf);
-			_vzDlg.doDialog();
-			NppParameters::setTransparent(_vzDlg.getHSelf(), 50); // 0 <= transparancy < 256
-			BringWindowToTop (_vzDlg.getHSelf());
-
 			setSyntaxHiliting();
-			
-			_pMapView->showMargin(0, false);
-			_pMapView->showMargin(1, false);
-			_pMapView->showMargin(2, false);
-			_pMapView->showMargin(3, false);
+			return;
 
-			NppDarkMode::setBorder(_hwndScintilla);
+		case DMN_SWITCHOFF:
+			_vzDlg.display(false);
+			return;
 
-            return TRUE;
-        }
-
-        case WM_SIZE:
-        {
-			if (_pMapView)
-			{
-				int width = LOWORD(lParam);
-				int height = HIWORD(lParam);
-
-				if (_vzDlg.isCreated())
-				{
-					if (!_pMapView->isWrap())
-						::MoveWindow(_pMapView->getHSelf(), 0, 0, width, height, TRUE);
-					
-					doMove();
-				}
-			}
-            break;
-        }
-
-		case WM_NOTIFY:
-		{
-			switch (reinterpret_cast<LPNMHDR>(lParam)->code)
-			{
-				case DMN_CLOSE:
-				{
-					::SendMessage(_hParent, WM_COMMAND, IDM_VIEW_DOC_MAP, 0);
-					return TRUE;
-				}
-
-				case DMN_SWITCHIN:
-				{
-					_vzDlg.display();
-					reloadMap();
-					setSyntaxHiliting();
-					return TRUE;
-				}
-
-				case DMN_SWITCHOFF:
-				{
-					_vzDlg.display(false);
-					return TRUE;
-				}
-
-				case DMN_FLOATDROPPED:
-				{
-					doMove();
-					scrollMap();
-					return TRUE;
-				}
-
-				case NM_DBLCLK:
-				{
-					return TRUE;
-				}
-
-				default:
-					break;
-			}
-		}
-		return TRUE;
-
-		case DOCUMENTMAP_SCROLL:
-		{
-			bool dir = (wParam != 0);
-			moveMode mode = (lParam == 0)?perLine:perPage;
-			scrollMap(dir, mode);
-		}
-		return TRUE;
-
-		case DOCUMENTMAP_MOUSECLICKED:
-		{
-			int newPosY = HIWORD(lParam);
-			int currentCenterPosY = _vzDlg.getCurrentCenterPosY();
-			intptr_t pixelPerLine = _pMapView->execute(SCI_TEXTHEIGHT, 0);
-			intptr_t jumpDistance = newPosY - currentCenterPosY;
-			intptr_t nbLine2jump = jumpDistance/pixelPerLine;
-			(*_ppEditView)->execute(SCI_LINESCROLL, 0, nbLine2jump);
-
+		case DMN_FLOATDROPPED:
+			doMove();
 			scrollMap();
-		}
-		return TRUE;
-
-		case DOCUMENTMAP_MOUSEWHEEL:
-		{
-			::SendMessage((*_ppEditView)->getHSelf(), DOCUMENTMAP_MOUSEWHEEL, wParam, lParam);
-			return TRUE;
-		}
+			return;
 
 		default:
-			break;
+			DockingDlgInterface::onDockingNotify(notification);
+			return;
 	}
-	return DockingDlgInterface::run_dlgProc(message, wParam, lParam);
 }
 
 COLORREF ViewZoneDlg::_focus = RGB(0xFF, 0x80, 0x00);
@@ -481,146 +518,13 @@ void ViewZoneDlg::setColour(COLORREF colour2Set, ViewZoneColorIndex i)
 	}
 }
 
-void ViewZoneDlg::drawPreviewZone(DRAWITEMSTRUCT *pdis)
+COLORREF ViewZoneDlg::colour(ViewZoneColorIndex i)
 {
-	RECT rc = pdis->rcItem;
-
-	HBRUSH hbrushFg = CreateSolidBrush(ViewZoneDlg::_focus);
-	HBRUSH hbrushBg = CreateSolidBrush(ViewZoneDlg::_frost);
-	FillRect(pdis->hDC, &rc, hbrushBg);
-
-	rc.top = _higherY;
-	rc.bottom = _lowerY;
-	FillRect(pdis->hDC, &rc, hbrushFg);
-	
-	DeleteObject(hbrushFg);
-	DeleteObject(hbrushBg);
+	return (i == ViewZoneColorIndex::focus) ? _focus : _frost;
 }
 
-void ViewZoneDlg::doDialog()
+void ViewZoneDlg::init(HINSTANCE hInst, HWND parent, DocumentMap* map)
 {
-	if (!isCreated())
-	{
-		bool win10 = (NppParameters::getInstance()).getWinVersion() >= WV_WIN10;
-		create(win10 ? IDD_VIEWZONE : IDD_VIEWZONE_CLASSIC);
-	}
-	display();
-}
-
-intptr_t CALLBACK ViewZoneDlg::run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam)
-{
-	switch (message)
-	{
-		case WM_INITDIALOG:
-		{
-			_viewZoneCanvas = ::GetDlgItem(_hSelf, IDC_VIEWZONECANVAS);
-			if (_viewZoneCanvas != nullptr)
-			{
-				::SetWindowSubclass(_viewZoneCanvas, ViewZoneDlg::CanvasProc, static_cast<UINT_PTR>(SubclassID::first), 0);
-				return TRUE;
-			}
-			break;
-		}
-
-		case WM_LBUTTONDOWN:
-		{
-			::SendMessage(_hParent, DOCUMENTMAP_MOUSECLICKED, wParam, lParam);
-			break;
-		}
-
-		case WM_MOUSEMOVE:
-		{
-			if (wParam & MK_LBUTTON)
-				::SendMessage(_hParent, DOCUMENTMAP_MOUSECLICKED, wParam, lParam);
-			break;
-		}
-
-		case WM_DRAWITEM:
-		{
-			drawPreviewZone(reinterpret_cast<DRAWITEMSTRUCT*>(lParam));
-			return TRUE;
-		}
-
-		case WM_SIZE:
-        {
-			if (NULL != _viewZoneCanvas)
-			{
-				int width = LOWORD(lParam);
-				int height = HIWORD(lParam);
-				::MoveWindow(_viewZoneCanvas, 0, 0, width , height, TRUE);
-			}
-            break;
-        }
-
-		case WM_MOUSEWHEEL :
-		{
-			//Have to perform the scroll first, because the first/last line do not get updated until after the scroll has been parsed
-			::SendMessage(_hParent, DOCUMENTMAP_MOUSEWHEEL, wParam, lParam);
-			return TRUE;
-		}
-
-		case WM_DESTROY :
-		{
-			return TRUE;
-		}
-	}
-	return FALSE;
-}
-
-LRESULT CALLBACK ViewZoneDlg::CanvasProc(
-	HWND hWnd,
-	UINT uMsg,
-	WPARAM wParam,
-	LPARAM lParam,
-	UINT_PTR uIdSubclass,
-	[[maybe_unused]] DWORD_PTR /*dwRefData*/
-)
-{
-	switch (uMsg)
-	{
-		case WM_NCDESTROY:
-		{
-			::RemoveWindowSubclass(hWnd, ViewZoneDlg::CanvasProc, uIdSubclass);
-			break;
-		}
-
-		case WM_KEYDOWN:
-		{
-			HWND hParent = ::GetParent(::GetParent(hWnd));
-			switch (wParam)
-			{
-				case VK_UP:
-				{
-					::SendMessage(hParent, DOCUMENTMAP_SCROLL, static_cast<WPARAM>(moveUp), 0);
-					break;
-				}
-
-				case VK_DOWN:
-				{
-					::SendMessage(hParent, DOCUMENTMAP_SCROLL, static_cast<WPARAM>(moveDown), 0);
-					break;
-				}
-
-				case VK_PRIOR:
-				{
-					::SendMessage(hParent, DOCUMENTMAP_SCROLL, static_cast<WPARAM>(moveUp), 1);
-					break;
-				}
-
-				case VK_NEXT:
-				{
-					::SendMessage(hParent, DOCUMENTMAP_SCROLL, static_cast<WPARAM>(moveDown), 1);
-					break;
-				}
-
-				default:
-					break;
-			}
-			break;
-		}
-
-		 default:
-			break;
-	}
-	return ::DefSubclassProc(hWnd, uMsg, wParam, lParam);
+	Window::init(hInst, parent);
+	_hSelf = new ViewZoneWidget(this, map, parent);
 }

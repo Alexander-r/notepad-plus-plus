@@ -17,48 +17,41 @@
 
 #pragma once
 
-#include <windows.h>
+#include <QRect>
 
-#include <cstring>
 #include <vector>
 
-#include "ContextMenu.h"
-#include "SizeableDlg.h"
-#include "WinMgr.h"
+#include "Common.h"
+#include "NppMessages.h"
+#include "StaticDialog.h"
 
 class DocTabView;
 class Buffer;
+class QTableWidget;
 
-typedef enum {
+enum WinDlgNotifyType {
 	WDT_ACTIVATE = 1,
 	WDT_SAVE = 2,
 	WDT_CLOSE = 3,
 	WDT_SORT = 4,
-} WinDlgNotifyType;
-
+};
 
 struct NMWINDLG : public NMHDR {
-
 	BOOL processed = FALSE;
 	WinDlgNotifyType type = WDT_ACTIVATE;
 	UINT curSel = 0;
 	UINT nItems = 0;
-	UINT *Items = 0;
-
-	// ctor: initialize to zeroes
-	NMWINDLG() { memset(this,0,sizeof(NMWINDLG)); }
+	UINT *Items = nullptr;
 };
 
-extern const UINT WDN_NOTIFY;
+inline constexpr UINT WDN_NOTIFY = WM_USER + 7900;
 
-
-class WindowsDlg : public SizeableDlg
+class WindowsDlg : public StaticDialog
 {
-	typedef SizeableDlg MyBaseClass;
-
 public :
-	WindowsDlg();
+	WindowsDlg() = default;
 	int doDialog();
+	using StaticDialog::init;
 	virtual void init(HINSTANCE hInst, HWND parent, DocTabView *pTab);
 	void doSortToTabs();
 	void doSort();
@@ -75,30 +68,9 @@ public :
 	void sortDateTimeDSC();
 	void doRefresh();
 
-public:
-	// for message hook
-	static HHOOK _hMsgHook;
-	static HWND _hThisDlg;
-
-	static LRESULT CALLBACK getMsgProc(int code, WPARAM wParam, LPARAM lParam);
-	void initMessageHook() {
-		_hMsgHook = SetWindowsHookEx(WH_GETMESSAGE, getMsgProc, nullptr, GetCurrentThreadId());
-	}
-	void removeMessageHook() {
-		if (_hMsgHook) {
-			UnhookWindowsHookEx(_hMsgHook);
-			_hMsgHook = nullptr;
-		}
-	}
-
 protected :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-	BOOL onInitDialog() override;
-	void onSize(UINT nType, int cx, int cy) override;
-	LRESULT onWinMgr(WPARAM wp, LPARAM lp) override;
-	void destroy() override;
+	void onCancel() override;
 	void updateColumnNames() const;
-	void fitColumnsToSize() const;
 	void resetSelection();
 	void doSave();
 	void doClose();
@@ -107,22 +79,27 @@ protected :
 	void doColumnSort();
 	void doCount();
 	void refreshMap();
+	void refreshList() const;
 	void putItemsToClipboard(bool isFullPath);
+	void showListMenu(const QPoint& position);
+	void onColumnClicked(int column);
+	void onSortTabs();
+	void onCharTyped(wchar_t ch);
 	Buffer* getBuffer(int index) const;
+	std::wstring cellText(int row, int column) const;
 
-	HWND _hList = nullptr;
-	static RECT _lastKnownLocation;
-	SIZE _szMinButton = SIZEZERO;
-	SIZE _szMinListCtrl = SIZEZERO;
+	// The selected rows of the list, from the top
+	std::vector<int> selectedRows() const;
+	void setRowSelected(int row, bool isSelected, bool isFocused = false) const;
+	void finish(int result);
+
+	QTableWidget* _hList = nullptr;
+	static QRect _lastKnownLocation;
 	DocTabView* _pTab = nullptr;
 	std::vector<int> _idxMap;
 	int _currentColumn = -1;
 	int _lastSort = -1;
 	bool _reverseSort = false;
-	ContextMenu _listMenu;
-
-private:
-	void init(HINSTANCE hInst, HWND parent) override;
 };
 
 class WindowsMenu
@@ -130,11 +107,12 @@ class WindowsMenu
 public:
 	WindowsMenu() {}
 	~WindowsMenu() {}
-	void init(HMENU hMainMenu);
+	void init(HMENU hMainMenu, HWND commandTarget);
 	void initPopupMenu(HMENU hMenu, DocTabView *pTab);
 
 private:
 	HMENU _hMenu = nullptr;
 	HMENU _hMenuList = nullptr;
+	HWND _commandTarget = nullptr;
 	UINT _limitPrev = 0;
 };

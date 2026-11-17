@@ -427,9 +427,23 @@ void SurfaceImpl::RectangleFrame(PRectangle rc, Stroke stroke) {
 	GetPainter()->drawRect(rect);
 }
 
+// Notepad++ Qt port: at a fractional display scale, like 125%, the edges of
+// rectangles fall inside device pixels. Antialiased, two rectangles that meet
+// there only partly cover the pixel, and what was behind them shows through as
+// a seam, like a light line between lines of text on a dark background.
+// Without antialiasing a pixel goes to the rectangle that holds its centre, so
+// rectangles that meet tile exactly.
+static void FillAligned(QPainter *painter, const QRectF &rect, const QBrush &brush)
+{
+	const bool antialiasing = painter->testRenderHint(QPainter::Antialiasing);
+	painter->setRenderHint(QPainter::Antialiasing, false);
+	painter->fillRect(rect, brush);
+	painter->setRenderHint(QPainter::Antialiasing, antialiasing);
+}
+
 void SurfaceImpl::FillRectangle(PRectangle rc, Fill fill)
 {
-	GetPainter()->fillRect(QRectFFromPRect(rc), QColorFromColourRGBA(fill.colour));
+	FillAligned(GetPainter(), QRectFFromPRect(rc), QColorFromColourRGBA(fill.colour));
 }
 
 void SurfaceImpl::FillRectangleAligned(PRectangle rc, Fill fill)
@@ -465,7 +479,7 @@ void SurfaceImpl::AlphaRectangle(PRectangle rc, XYPOSITION cornerSize, FillStrok
 			qreal radius = cornerSize+1;
 			GetPainter()->drawRoundedRect(rect, radius, radius);
 		} else {
-			GetPainter()->fillRect(rect, brushFill);
+			FillAligned(GetPainter(), rect, brushFill);
 		}
 	} else {
 		QColor qOutline = QColorFromColourRGBA(fillStroke.stroke.colour);
@@ -956,10 +970,12 @@ void Window::SetPositionRelative(PRectangle rc, const Window *relativeTo)
 
 PRectangle Window::GetClientPosition() const
 {
-	// The client position is the window position
+	// Notepad++ Qt port: the client area starts at 0,0 as on Windows. The window's position in its parent, which is
+	// 1,1 for a viewport inside the frame of a style like Fusion, made the editor leave its top row and the first
+	// column of its text unpainted.
 	const qreal scale = ScaleToMultiply(wid);
 	const PRectangle rc = GetPosition();
-	return rc * scale;
+	return PRectangle(0, 0, rc.Width(), rc.Height()) * scale;
 }
 
 void Window::Show(bool show)

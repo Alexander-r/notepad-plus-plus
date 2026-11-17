@@ -17,20 +17,29 @@
 
 #pragma once
 
-#include <windows.h>
-
-#include <shlwapi.h>
+#include <QDialog>
+#include <QFileInfo>
+#include <QString>
 
 #include <array>
 #include <cassert>
 #include <string>
 
+#include <QAbstractButton>
+#include <QIcon>
+
+#include <vector>
+
+#include "NppDarkMode.h"
+#include "NppResources.h"
 #include "Docking.h"
 #include "Notepad_plus_msgs.h"
 #include "NppDarkMode.h"
 #include "StaticDialog.h"
 #include "dockingResource.h"
+#include "resource.h"
 
+// A panel shown in a dock widget. Subclasses set up their form on createPanelWidget().
 class DockingDlgInterface : public StaticDialog
 {
 public:
@@ -39,17 +48,14 @@ public:
 
 	void init(HINSTANCE hInst, HWND parent) override {
 		StaticDialog::init(hInst, parent);
-		wchar_t temp[MAX_PATH];
-		::GetModuleFileName(hInst, temp, MAX_PATH);
-		_moduleName = ::PathFindFileName(temp);
+		_moduleName = L"notepad++";
 	}
 
 	virtual void create(DockedWidgetData* data, bool isRTL = false) {
 		assert(data != nullptr);
-		StaticDialog::create(_dlgID, isRTL, false, 9, StaticDialog::getSystemFontFaceName());
-		wchar_t temp[MAX_PATH];
-		::GetWindowText(_hSelf, temp, MAX_PATH);
-		_pluginName = temp;
+		createPanelWidget(isRTL);
+
+		_pluginName = _hSelf->windowTitle().toStdWString();
 
 		// user information
 		data->hClient = _hSelf;
@@ -69,6 +75,12 @@ public:
 
 	virtual void updateDockingDlg() {
 		::SendMessage(_hParent, NPPM_DMMUPDATEDISPINFO, 0, reinterpret_cast<LPARAM>(_hSelf));
+	}
+
+	// Takes the icons again after the icon set or dark mode changed
+	virtual void refreshIcons() {
+		for (const ThemedButton& themed : _themedButtons)
+			applyIcon(themed);
 	}
 
 	virtual void setBackgroundColor(COLORREF) {}
@@ -94,19 +106,6 @@ public:
 		return _iconIDs;
 	}
 
-	static void setFontForChild(HWND hChild, HFONT hFont) noexcept {
-		if (hChild != nullptr)
-		{
-			::SendMessage(hChild, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), MAKELPARAM(TRUE, 0));
-		}
-	}
-
-	HFONT setFontForChild(HWND hChild) const noexcept {
-		const auto hFont = reinterpret_cast<HFONT>(::SendMessage(_hSelf, WM_GETFONT, 0, 0));
-		setFontForChild(hChild, hFont);
-		return hFont;
-	}
-
 protected :
 	int	_dlgID = -1;
 	int _iDockedPos = 0;
@@ -116,65 +115,56 @@ protected :
 	bool _isFloating = true;
 	bool _isClosed = false;
 
-	using StaticDialog::create;
-
-	virtual void onDpiChanged() {}
-
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override {
-		switch (message)
+	// Creates the panel's widget and starts delivering the docking manager's notifications to onDockingNotify().
+	QDialog* createPanelWidget(bool isRTL = false) {
+		QDialog* panel = createDialogWidget(isRTL);
+		panel->setWindowFlags(Qt::Widget);
+		panel->setFont(QFont()); // panels keep the system font, not the Dialog Font of the preferences, as on Windows
+		nppRegisterMessageTarget(panel, [this](UINT message, WPARAM wParam, LPARAM lParam) -> LRESULT
 		{
-			case WM_ERASEBKGND:
-			{
-				if (!NppDarkMode::isEnabled())
-				{
-					break;
-				}
+			return onPanelMessage(message, wParam, lParam);
+		});
+		return panel;
+	}
 
-				RECT rc{};
-				getClientRect(rc);
-				::FillRect(reinterpret_cast<HDC>(wParam), &rc, NppDarkMode::getDlgBackgroundBrush());
-				return TRUE;
-			}
+	// Messages sent to the panel, such as the commands of its popup menus and the notifications of a Scintilla in it
+	virtual LRESULT onPanelMessage(UINT message, [[maybe_unused]] WPARAM wParam, LPARAM lParam) {
+		if (message == WM_NOTIFY)
+			onDockingNotify(*reinterpret_cast<const NMHDR*>(lParam));
+		return 0;
+	}
 
-			case WM_DPICHANGED:
-			{
-				_dpiManager.setDpiWP(wParam);
-				onDpiChanged();
-				return TRUE;
-			}
+	// A button of the panel whose icon follows dark mode
+	struct ThemedButton
+	{
+		QAbstractButton* _button = nullptr;
+		int _lightIcon = 0;
+		int _darkIcon = 0;
+	};
+	std::vector<ThemedButton> _themedButtons;
 
-			case WM_NOTIFY:
-			{
-				auto* pnmh = reinterpret_cast<LPNMHDR>(lParam);
+	void applyIcon(const ThemedButton& themed) const {
+		if (const QIcon* icon = nppLoadIcon(NppDarkMode::usesDarkWidgets() ? themed._darkIcon : themed._lightIcon))
+			themed._button->setIcon(*icon);
+	}
 
-				if (pnmh->hwndFrom == _hParent)
-				{
-					switch (LOWORD(pnmh->code))
-					{
-						case DMN_CLOSE:
-						{
-							break;
-						}
-						case DMN_FLOAT:
-						{
-							_isFloating = true;
-							break;
-						}
-						case DMN_DOCK:
-						{
-							_iDockedPos = HIWORD(pnmh->code);
-							_isFloating = false;
-							break;
-						}
-						default:
-							break;
-					}
-				}
+	void addThemedButton(QAbstractButton* button, int lightIcon, int darkIcon) {
+		_themedButtons.push_back({ button, lightIcon, darkIcon });
+		applyIcon(_themedButtons.back());
+	}
+
+	virtual void onDockingNotify(const NMHDR& notification) {
+		switch (LOWORD(notification.code))
+		{
+			case DMN_FLOAT:
+				_isFloating = true;
 				break;
-			}
+			case DMN_DOCK:
+				_iDockedPos = HIWORD(notification.code);
+				_isFloating = false;
+				break;
 			default:
 				break;
 		}
-		return FALSE;
 	}
 };

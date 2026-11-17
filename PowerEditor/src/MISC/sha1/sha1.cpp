@@ -9,6 +9,7 @@
 // If compiling with MFC, you might want to add #include "StdAfx.h"
 
 //#define _CRT_SECURE_NO_WARNINGS
+#include "NppPlatform.h"
 #include "sha1.h"
 
 #define SHA1_MAX_FILE_BUFFER (32 * 20 * 820)

@@ -17,56 +17,101 @@
 
 #include "Common.h"
 
-#include <windows.h>
-
-#include <commctrl.h>
-#include <excpt.h>
-#include <filesystem>
-#include <shellapi.h>
-#include <shlobj.h>
-#include <shlwapi.h>
+#include <QApplication>
+#include <QClipboard>
+#include <QColor>
+#include <QDateTime>
+#include <QDesktopServices>
+#include <QDir>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QGuiApplication>
+#include <QLineEdit>
+#include <QStandardPaths>
+#include <QLocale>
+#include <QMessageBox>
+#include <QProcess>
+#include <QProcessEnvironment>
+#include <QRegularExpression>
+#include <QScreen>
+#include <QStorageInfo>
+#include <QTextCodec>
+#include <QToolTip>
+#include <QUrl>
+#include <QWidget>
 
 #include <algorithm>
 #include <cassert>
 #include <cerrno>
+#include <chrono>
+#include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cwchar>
 #include <exception>
+#include <filesystem>
 #include <iterator>
 #include <locale>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <unordered_map>
 #include <vector>
 #include <array>
 
-#include "Buffer.h"
-#include "CustomFileDialog.h"
+#ifndef _WIN32
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
 #include "FileInterface.h"
 #include "NppConstants.h"
-#include "NppDarkMode.h"
-#include "Parameters.h"
+#include "NppElevation.h"
 #include "Utf8.h"
-#include "dpiManagerV2.h"
+#include "WindowsCodePages.h"
 #include "sha-256.h"
 
 using namespace std;
 
+namespace
+{
+	QString toQ(const wstring& s) { return QString::fromStdWString(s); }
+	QString toQ(const wchar_t* s) { return s ? QString::fromWCharArray(s) : QString(); }
+	wstring toW(const QString& s) { return s.toStdWString(); }
+
+	void showMessage(const wstring& text, const wstring& title, QMessageBox::Icon icon)
+	{
+		QMessageBox box(icon, toQ(title), toQ(text), QMessageBox::Ok);
+		box.exec();
+	}
+}
+
+#ifndef _WIN32
+FILE* _wfopen(const wchar_t* path, const wchar_t* mode)
+{
+	const std::string narrowPath = QString::fromWCharArray(path).toUtf8().toStdString();
+	const std::string narrowMode = QString::fromWCharArray(mode).toStdString();
+	return std::fopen(narrowPath.c_str(), narrowMode.c_str());
+}
+#endif
+
 void printInt(int int2print)
 {
-	wchar_t str[32];
-	wsprintf(str, L"%d", int2print);
-	::MessageBox(NULL, str, L"", MB_OK);
+	showMessage(to_wstring(int2print), L"", QMessageBox::NoIcon);
 }
 
 
 void printStr(const wchar_t *str2print)
 {
-	::MessageBox(NULL, str2print, L"", MB_OK);
+	showMessage(str2print, L"", QMessageBox::NoIcon);
 }
 
 wstring commafyInt(size_t n)
@@ -114,8 +159,8 @@ std::string getFileContent(const wchar_t* file2read, bool* pbFailed)
 		if (pbFailed)
 			*pbFailed = true;
 		std::string().swap(wholeFileContent); // to immediately release all the allocated memory
-		::MessageBoxW(NULL, L"std::bad_alloc exception caught!\n\nProbably not enough contiguous memory to complete the operation.",
-			L"Notepad++ - getFileContent", MB_OK | MB_ICONWARNING | MB_APPLMODAL);
+		showMessage(L"std::bad_alloc exception caught!\n\nProbably not enough contiguous memory to complete the operation.",
+			L"Notepad++ - getFileContent", QMessageBox::Warning);
 	}
 	catch (...)
 	{
@@ -128,43 +173,9 @@ std::string getFileContent(const wchar_t* file2read, bool* pbFailed)
 	return wholeFileContent;
 }
 
-static char getDriveLetter()
-{
-	char drive = '\0';
-	wchar_t current[MAX_PATH];
-
-	::GetCurrentDirectory(MAX_PATH, current);
-	int driveNbr = ::PathGetDriveNumber(current);
-	if (driveNbr != -1)
-		drive = 'A' + static_cast<char>(driveNbr);
-
-	return drive;
-}
-
-
 wstring relativeFilePathToFullFilePath(const wchar_t *relativeFilePath)
 {
-	wstring fullFilePathName;
-	BOOL isRelative = ::PathIsRelative(relativeFilePath);
-
-	if (isRelative)
-	{
-		wchar_t fullFileName[MAX_PATH];
-		::GetFullPathName(relativeFilePath, MAX_PATH, fullFileName, NULL);
-		fullFilePathName += fullFileName;
-	}
-	else
-	{
-		if ((relativeFilePath[0] == '\\' && relativeFilePath[1] != '\\') || relativeFilePath[0] == '/')
-		{
-			fullFilePathName += getDriveLetter();
-			fullFilePathName += ':';
-		}
-
-		fullFilePathName += relativeFilePath;
-	}
-
-	return fullFilePathName;
+	return toW(QDir::cleanPath(QDir::current().absoluteFilePath(toQ(relativeFilePath))));
 }
 
 
@@ -186,91 +197,42 @@ DWORD writeFileContentEx(const wchar_t* file2write, const char* content2write, s
 	return file.getLastErrorCode();
 }
 
-
 void writeLog(const wchar_t* logFileName, const char* log2write)
 {
-	const DWORD accessParam{ GENERIC_READ | GENERIC_WRITE };
-	const DWORD shareParam{ FILE_SHARE_READ | FILE_SHARE_WRITE };
-	const DWORD dispParam{ OPEN_ALWAYS }; // Open existing file for writing without destroying it or create new
-	const DWORD attribParam{ FILE_ATTRIBUTE_NORMAL };
-	HANDLE hFile = ::CreateFileW(logFileName, accessParam, shareParam, NULL, dispParam, attribParam, NULL);
-
-	if (hFile != INVALID_HANDLE_VALUE)
+	QFile file(toQ(logFileName));
+	if (file.open(QIODevice::WriteOnly | QIODevice::Append))
 	{
-		LARGE_INTEGER offset{};
-		offset.QuadPart = 0;
-		::SetFilePointerEx(hFile, offset, NULL, FILE_END);
-
-		SYSTEMTIME currentTime = {};
-		::GetLocalTime(&currentTime);
-		wstring dateTimeStrW = getDateTimeStrFrom(L"yyyy-MM-dd HH:mm:ss", currentTime);
-		string log2writeStr = wstring2string(dateTimeStrW, CP_UTF8);
-		log2writeStr += "  ";
-		log2writeStr += log2write;
-		log2writeStr += "\n";
-
-		DWORD bytes_written = 0;
-		::WriteFile(hFile, log2writeStr.c_str(), static_cast<DWORD>(log2writeStr.length()), &bytes_written, NULL);
-
-		::FlushFileBuffers(hFile);
-		::CloseHandle(hFile);
+		const QByteArray line = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")).toUtf8() + "  " + log2write + "\n";
+		file.write(line);
+		file.flush();
 	}
 }
 
 void writeLog(const wchar_t* logFileName, const wchar_t* log2write)
 {
-	string log2WriteA = wstring2string(log2write, CP_ACP);
-	return writeLog(logFileName, log2WriteA.c_str());
+	writeLog(logFileName, toQ(log2write).toUtf8().constData());
 }
 
-wstring folderBrowser(HWND parent, const wstring & title, int outputCtrlID, const wchar_t *defaultStr)
+// outputCtrl is the QLineEdit to read the start directory from and write the result to, as the Win32
+// version did through its control ID. It may be null.
+wstring folderBrowser(HWND parent, const wstring & title, QLineEdit* outputCtrl, const wchar_t *defaultStr)
 {
-	wstring folderName;
-	CustomFileDialog dlg(parent);
-	dlg.setTitle(title.c_str());
+	QString directory;
+	if (outputCtrl)
+		directory = outputCtrl->text();
+	if (directory.isEmpty() && defaultStr)
+		directory = toQ(defaultStr);
 
-	// Get an initial directory from the edit control or from argument provided
-	wchar_t directory[MAX_PATH] = {};
-	if (outputCtrlID != 0)
-		::GetDlgItemText(parent, outputCtrlID, directory, _countof(directory));
-	directory[_countof(directory) - 1] = '\0';
-	if (!directory[0] && defaultStr)
-		dlg.setFolder(defaultStr);
-	else if (directory[0])
-		dlg.setFolder(directory);
-
-	folderName = dlg.pickFolder();
-	if (!folderName.empty())
-	{
-		// Send the result back to the edit control
-		if (outputCtrlID != 0)
-			::SetDlgItemText(parent, outputCtrlID, folderName.c_str());
-	}
-	return folderName;
+	const QString folderName = QFileDialog::getExistingDirectory(parent, toQ(title), directory);
+	if (!folderName.isEmpty() && outputCtrl)
+		outputCtrl->setText(QDir::toNativeSeparators(folderName));
+	return toW(QDir::toNativeSeparators(folderName));
 }
 
 
 wstring getFolderName(HWND parent, const wchar_t *defaultDir)
 {
-	return folderBrowser(parent, L"Select a folder", 0, defaultDir);
-}
-
-
-void ClientRectToScreenRect(HWND hWnd, RECT* rect)
-{
-	POINT		pt{};
-
-	pt.x		 = rect->left;
-	pt.y		 = rect->top;
-	::ClientToScreen( hWnd, &pt );
-	rect->left   = pt.x;
-	rect->top    = pt.y;
-
-	pt.x		 = rect->right;
-	pt.y		 = rect->bottom;
-	::ClientToScreen( hWnd, &pt );
-	rect->right  = pt.x;
-	rect->bottom = pt.y;
+	return folderBrowser(parent, L"Select a folder", nullptr, defaultDir);
 }
 
 
@@ -296,32 +258,23 @@ std::vector<wstring> tokenizeString(const wstring & tokenString, const char deli
 	return tokens;
 }
 
-
-void ScreenRectToClientRect(HWND hWnd, RECT* rect)
+void ColorRGBToHLS(COLORREF rgb, WORD* hue, WORD* luminance, WORD* saturation)
 {
-	POINT		pt{};
-
-	pt.x		 = rect->left;
-	pt.y		 = rect->top;
-	::ScreenToClient( hWnd, &pt );
-	rect->left   = pt.x;
-	rect->top    = pt.y;
-
-	pt.x		 = rect->right;
-	pt.y		 = rect->bottom;
-	::ScreenToClient( hWnd, &pt );
-	rect->right  = pt.x;
-	rect->bottom = pt.y;
+	float h = 0;
+	float s = 0;
+	float l = 0;
+	QColor(GetRValue(rgb), GetGValue(rgb), GetBValue(rgb)).getHslF(&h, &s, &l);
+	*hue = static_cast<WORD>(qRound(std::max(h, 0.0f) * 240));
+	*luminance = static_cast<WORD>(qRound(l * 240));
+	*saturation = static_cast<WORD>(qRound(s * 240));
 }
 
-
-int filter(unsigned int code, struct _EXCEPTION_POINTERS *)
+COLORREF ColorHLSToRGB(WORD hue, WORD luminance, WORD saturation)
 {
-    if (code == EXCEPTION_ACCESS_VIOLATION)
-        return EXCEPTION_EXECUTE_HANDLER;
-    return EXCEPTION_CONTINUE_SEARCH;
+	const auto unit = [](int value) { return std::clamp(value, 0, 240) / 240.0f; };
+	const QColor color = QColor::fromHslF(std::fmod(static_cast<float>(hue) / 240.0f, 1.0f), unit(saturation), unit(luminance));
+	return RGB(color.red(), color.green(), color.blue());
 }
-
 
 bool isInList(const wchar_t* token, const wchar_t* list)
 {
@@ -394,6 +347,194 @@ wstring purgeMenuItemString(const wchar_t * menuItemStr, bool keepAmpersand)
 	return cleanedName;
 }
 
+// ---- Code page conversion. Qt's codecs stand in for MultiByteToWideChar and WideCharToMultiByte.
+// wchar_t is UTF-32 here, but lengths are always in wchar_t units, so callers are unaffected.
+namespace
+{
+	// A single-byte code page with Windows' table (see WindowsCodePages.h), as Qt's differ in places and lack some. The bytes
+	// Windows calls undefined have private-use characters, which convert back to the same bytes, so that saving keeps them.
+	class WindowsSingleByteCodec final : public QTextCodec
+	{
+	public:
+		explicit WindowsSingleByteCodec(const WindowsCodePage& table) : _table(table)
+		{
+			for (int i = 0; i < 128; ++i)
+				_bytes.emplace(table.high[i], static_cast<char>(0x80 + i));
+		}
+
+		QByteArray name() const override
+		{
+			return "npp-windows-" + QByteArray::number(_table.codePage);
+		}
+
+		int mibEnum() const override
+		{
+			return -static_cast<int>(_table.codePage);
+		}
+
+	protected:
+		QString convertToUnicode(const char* in, int length, ConverterState*) const override
+		{
+			QString out(length, Qt::Uninitialized);
+			QChar* dest = out.data();
+			for (int i = 0; i < length; ++i)
+			{
+				const auto byte = static_cast<unsigned char>(in[i]);
+				dest[i] = (byte < 0x80) ? QChar(byte) : QChar(_table.high[byte - 0x80]);
+			}
+			return out;
+		}
+
+		// As WideCharToMultiByte with its default character: what the code page lacks becomes '?'
+		QByteArray convertFromUnicode(const QChar* in, int length, ConverterState* state) const override
+		{
+			QByteArray out;
+			out.reserve(length);
+			for (int i = 0; i < length; ++i)
+			{
+				const char16_t c = in[i].unicode();
+				if (c < 0x80)
+				{
+					out += static_cast<char>(c);
+					continue;
+				}
+
+				const auto found = _bytes.find(c);
+				if (found != _bytes.end())
+				{
+					out += found->second;
+					continue;
+				}
+
+				out += '?';
+				if (state)
+					++state->invalidChars;
+				if (QChar::isHighSurrogate(c) && i + 1 < length && in[i + 1].isLowSurrogate())
+					++i; // one character
+			}
+			return out;
+		}
+
+	private:
+		const WindowsCodePage& _table;
+		std::unordered_map<char16_t, char> _bytes;
+	};
+
+	QTextCodec* windowsCodecFor(UINT codepage)
+	{
+		// Qt takes ownership of the codecs made, which live as long as the application
+		static std::map<UINT, QTextCodec*> codecs;
+		const auto found = codecs.find(codepage);
+		if (found != codecs.end())
+			return found->second;
+
+		for (const WindowsCodePage& table : windowsCodePages)
+		{
+			if (table.codePage == codepage)
+				return codecs[codepage] = new WindowsSingleByteCodec(table);
+		}
+		return codecs[codepage] = nullptr;
+	}
+
+	QTextCodec* codecFor(UINT codepage)
+	{
+		if (codepage == CP_ACP)
+			return QTextCodec::codecForLocale();
+		if (codepage == CP_UTF8)
+			return QTextCodec::codecForMib(106);
+		if (QTextCodec* windows = windowsCodecFor(codepage))
+			return windows;
+
+		// The Windows code pages EncodingMapper can produce, by the names Qt's codecs know them under.
+		const char* name = nullptr;
+		switch (codepage)
+		{
+			case 437: name = "IBM437"; break;
+			case 720: name = "IBM720"; break;
+			case 737: name = "IBM737"; break;
+			case 775: name = "IBM775"; break;
+			case 850: name = "IBM850"; break;
+			case 852: name = "IBM852"; break;
+			case 855: name = "IBM855"; break;
+			case 857: name = "IBM857"; break;
+			case 858: name = "IBM00858"; break;
+			case 860: name = "IBM860"; break;
+			case 861: name = "IBM861"; break;
+			case 862: name = "IBM862"; break;
+			case 863: name = "IBM863"; break;
+			case 865: name = "IBM865"; break;
+			case 866: name = "IBM866"; break;
+			case 869: name = "IBM869"; break;
+			case 874: name = "windows-874"; break;
+			case 932: name = "Shift_JIS"; break;
+			case 936: name = "GBK"; break;
+			case 949: name = "windows-949"; break;
+			case 950: name = "Big5"; break;
+			case 1200: name = "UTF-16LE"; break;
+			case 1201: name = "UTF-16BE"; break;
+			case 1250: name = "windows-1250"; break;
+			case 1251: name = "windows-1251"; break;
+			case 1252: name = "windows-1252"; break;
+			case 1253: name = "windows-1253"; break;
+			case 1254: name = "windows-1254"; break;
+			case 1255: name = "windows-1255"; break;
+			case 1256: name = "windows-1256"; break;
+			case 1257: name = "windows-1257"; break;
+			case 1258: name = "windows-1258"; break;
+			case 1361: name = "windows-1361"; break;
+			case 10000: name = "macintosh"; break;
+			case 20127: name = "US-ASCII"; break;
+			case 20866: name = "KOI8-R"; break;
+			case 21866: name = "KOI8-U"; break;
+			case 28591: name = "ISO-8859-1"; break;
+			case 28592: name = "ISO-8859-2"; break;
+			case 28593: name = "ISO-8859-3"; break;
+			case 28594: name = "ISO-8859-4"; break;
+			case 28595: name = "ISO-8859-5"; break;
+			case 28596: name = "ISO-8859-6"; break;
+			case 28597: name = "ISO-8859-7"; break;
+			case 28598: name = "ISO-8859-8"; break;
+			case 28599: name = "ISO-8859-9"; break;
+			case 28601: name = "ISO-8859-11"; break;
+			case 28603: name = "ISO-8859-13"; break;
+			case 28604: name = "ISO-8859-14"; break;
+			case 28605: name = "ISO-8859-15"; break;
+			case 28606: name = "ISO-8859-16"; break;
+			case 50220: name = "ISO-2022-JP"; break;
+			case 51932: name = "EUC-JP"; break;
+			case 51949: name = "EUC-KR"; break;
+			case 54936: name = "GB18030"; break;
+			default: break;
+		}
+		QTextCodec* codec = name ? QTextCodec::codecForName(name) : nullptr;
+		return codec ? codec : QTextCodec::codecForLocale();
+	}
+
+	QString decode(UINT codepage, const char* text, int len)
+	{
+		const int n = (len < 0) ? static_cast<int>(std::strlen(text)) : len;
+		return codecFor(codepage)->toUnicode(text, n);
+	}
+
+	// True when the bytes convert without replacement characters (MB_ERR_INVALID_CHARS).
+	bool decodesCleanly(UINT codepage, const char* text, int len, QString& out)
+	{
+		QTextCodec::ConverterState state;
+		out = codecFor(codepage)->toUnicode(text, len, &state);
+		return state.invalidChars == 0 && state.remainingChars == 0;
+	}
+
+	QByteArray encodeText(UINT codepage, const wchar_t* text, int len)
+	{
+		const QString s = (len < 0) ? QString::fromWCharArray(text) : QString::fromWCharArray(text, len);
+		return codecFor(codepage)->fromUnicode(s);
+	}
+
+	int wideLength(const QString& s)
+	{
+		return static_cast<int>(s.toStdWString().size());
+	}
+}
 
 const wchar_t* WcharMbcsConvertor::char2wchar(const char* mbcs2Convert, size_t codepage, int lenMbcs, int* pLenWc, int* pBytesNotProcessed)
 {
@@ -408,58 +549,44 @@ const wchar_t* WcharMbcsConvertor::char2wchar(const char* mbcs2Convert, size_t c
 		return _wideCharStr;
 	}
 
-	UINT cp = static_cast<UINT>(codepage);
+	const UINT cp = static_cast<UINT>(codepage);
 	int bytesNotProcessed = 0;
-	int lenWc = 0;
+	QString decoded;
 
-	// If length not specified, simply convert without checking
 	if (lenMbcs == -1)
 	{
-		lenWc = MultiByteToWideChar(cp, 0, mbcs2Convert, lenMbcs, NULL, 0);
+		// If length not specified, simply convert without checking
+		decoded = decode(cp, mbcs2Convert, -1);
 	}
-	// Otherwise, test if we are cutting a multi-byte character at end of buffer
-	else if (cp == CP_UTF8) // For UTF-8, we know how to test it
+	else if (cp == CP_UTF8) // For UTF-8, we know how to test if a multi-byte character is cut at the end
 	{
-		int indexOfLastChar = Utf8::characterStart(mbcs2Convert, lenMbcs - 1); // get index of last character
+		const int indexOfLastChar = Utf8::characterStart(mbcs2Convert, lenMbcs - 1); // get index of last character
 		if (indexOfLastChar != 0 && !Utf8::isValid(mbcs2Convert + indexOfLastChar, lenMbcs - indexOfLastChar)) // if it is not valid we do not process it right now (unless its the only character in string, to ensure that we always progress, e.g. that bytesNotProcessed < lenMbcs)
-		{
 			bytesNotProcessed = lenMbcs - indexOfLastChar;
-		}
-		lenWc = MultiByteToWideChar(cp, 0, mbcs2Convert, lenMbcs - bytesNotProcessed, NULL, 0);
+		decoded = decode(cp, mbcs2Convert, lenMbcs - bytesNotProcessed);
 	}
-	else // For other encodings, ask system if there are any invalid characters; note that it will not correctly know if last character is cut when there are invalid characters inside the text
+	else // For other encodings, check for invalid characters; a cut last character is one of them
 	{
-		lenWc = MultiByteToWideChar(cp, MB_ERR_INVALID_CHARS, mbcs2Convert, lenMbcs, NULL, 0);
-		if (lenWc == 0 && GetLastError() == ERROR_NO_UNICODE_TRANSLATION)
+		if (!decodesCleanly(cp, mbcs2Convert, lenMbcs, decoded))
 		{
-			// Test without last byte
-			if (lenMbcs > 1) lenWc = MultiByteToWideChar(cp, MB_ERR_INVALID_CHARS, mbcs2Convert, lenMbcs - 1, NULL, 0);
-			if (lenWc == 0) // don't have to check that the error is still ERROR_NO_UNICODE_TRANSLATION, since only the length parameter changed
-			{
-				// TODO: should warn user about incorrect loading due to invalid characters
-				// We still load the file, but the system will either strip or replace invalid characters (including the last character, if cut in half)
-				lenWc = MultiByteToWideChar(cp, 0, mbcs2Convert, lenMbcs, NULL, 0);
-			}
-			else
+			QString withoutLastByte;
+			if (lenMbcs > 1 && decodesCleanly(cp, mbcs2Convert, lenMbcs - 1, withoutLastByte))
 			{
 				// We found a valid text by removing one byte.
 				bytesNotProcessed = 1;
+				decoded = withoutLastByte;
 			}
-		}
-		else if (lenWc == 0)
-		{
-			lenWc = MultiByteToWideChar(cp, 0, mbcs2Convert, lenMbcs, NULL, 0);
+			// else: still load the file, invalid characters have been replaced
 		}
 	}
 
+	const std::wstring wide = decoded.toStdWString();
+	const int lenWc = static_cast<int>(wide.size());
 	if (lenWc > 0)
 	{
 		_wideCharStr.sizeTo(lenWc);
-		MultiByteToWideChar(cp, 0, mbcs2Convert, lenMbcs - bytesNotProcessed, _wideCharStr, lenWc);
-		if (lenMbcs == -1)
-			_wideCharStr[lenWc - 1] = '\0';
-		else
-			_wideCharStr[lenWc] = '\0';
+		std::wmemcpy(_wideCharStr, wide.data(), wide.size());
+		_wideCharStr[lenWc] = L'\0';
 	}
 	else
 		_wideCharStr.empty();
@@ -488,23 +615,21 @@ const wchar_t* WcharMbcsConvertor::char2wchar(const char* mbcs2Convert, size_t c
 		return _wideCharStr;
 	}
 
-	UINT cp = static_cast<UINT>(codepage);
-	int len = MultiByteToWideChar(cp, 0, mbcs2Convert, mbcsLen ? mbcsLen : -1, NULL, 0);
+	const UINT cp = static_cast<UINT>(codepage);
+	const intptr_t bytes = (mbcsLen > 0) ? mbcsLen : static_cast<intptr_t>(std::strlen(mbcs2Convert));
+	const std::wstring wide = decode(cp, mbcs2Convert, static_cast<int>(bytes)).toStdWString();
+	const int len = static_cast<int>(wide.size());
 
 	if (len > 0)
 	{
 		_wideCharStr.sizeTo(len);
-		len = MultiByteToWideChar(cp, 0, mbcs2Convert, mbcsLen ? mbcsLen : -1, _wideCharStr, len);
-		if (mbcsLen == -1) // added
-			_wideCharStr[len - 1] = '\0';
-		else
-			_wideCharStr[len] = '\0';
+		std::wmemcpy(_wideCharStr, wide.data(), wide.size());
+		_wideCharStr[len] = L'\0';
 
-		const intptr_t mbcsLen2 = mbcsLen ? mbcsLen : static_cast<intptr_t>(std::strlen(mbcs2Convert));
-		if (*mstart < mbcsLen2 && *mend <= mbcsLen2)
+		if (*mstart < bytes && *mend <= bytes)
 		{
-			*mstart = MultiByteToWideChar(cp, 0, mbcs2Convert, static_cast<int>(*mstart), _wideCharStr, 0);
-			*mend = MultiByteToWideChar(cp, 0, mbcs2Convert, static_cast<int>(*mend), _wideCharStr, 0);
+			*mstart = wideLength(decode(cp, mbcs2Convert, static_cast<int>(*mstart)));
+			*mend = wideLength(decode(cp, mbcs2Convert, static_cast<int>(*mend)));
 			if (*mstart >= len || *mend > len)
 			{
 				*mstart = 0;
@@ -533,16 +658,13 @@ const char* WcharMbcsConvertor::wchar2char(const wchar_t* wcharStr2Convert, size
 		return _multiByteStr;
 	}
 
-	UINT cp = static_cast<UINT>(codepage);
-	int lenMbcs = WideCharToMultiByte(cp, 0, wcharStr2Convert, lenWc, NULL, 0, NULL, NULL);
+	const QByteArray bytes = encodeText(static_cast<UINT>(codepage), wcharStr2Convert, lenWc);
+	const int lenMbcs = static_cast<int>(bytes.size());
 	if (lenMbcs > 0)
 	{
 		_multiByteStr.sizeTo(lenMbcs);
-		WideCharToMultiByte(cp, 0, wcharStr2Convert, lenWc, _multiByteStr, lenMbcs, NULL, NULL);
-		if (lenWc == -1)
-			_multiByteStr[lenMbcs - 1] = '\0';
-		else
-			_multiByteStr[lenMbcs] = '\0';
+		std::memcpy(_multiByteStr, bytes.constData(), bytes.size());
+		_multiByteStr[lenMbcs] = '\0';
 	}
 	else
 		_multiByteStr.empty();
@@ -566,24 +688,21 @@ const char* WcharMbcsConvertor::wchar2char(const wchar_t* wcharStr2Convert, size
 		return _multiByteStr;
 	}
 
-	UINT cp = static_cast<UINT>(codepage);
-
-	int len = WideCharToMultiByte(cp, 0, wcharStr2Convert, wcharLenIn ? wcharLenIn : -1, NULL, 0, NULL, NULL);
+	const UINT cp = static_cast<UINT>(codepage);
+	const intptr_t wcharLen = (wcharLenIn > 0) ? wcharLenIn : static_cast<intptr_t>(std::wcslen(wcharStr2Convert));
+	const QByteArray bytes = encodeText(cp, wcharStr2Convert, static_cast<int>(wcharLen));
+	const int len = static_cast<int>(bytes.size());
 
 	if (len > 0)
 	{
 		_multiByteStr.sizeTo(len);
-		len = WideCharToMultiByte(cp, 0, wcharStr2Convert, wcharLenIn ? wcharLenIn : -1, _multiByteStr, len, NULL, NULL);
-		if (wcharLenIn == -1)
-			_multiByteStr[len - 1] = '\0';
-		else
-			_multiByteStr[len] = '\0';
+		std::memcpy(_multiByteStr, bytes.constData(), bytes.size());
+		_multiByteStr[len] = '\0';
 
-		const intptr_t wcharLenIn2 = wcharLenIn ? wcharLenIn : static_cast<intptr_t>(std::wcslen(wcharStr2Convert));
-		if (*mstart < wcharLenIn2 && *mend < wcharLenIn2)
+		if (*mstart < wcharLen && *mend < wcharLen)
 		{
-			*mstart = ::WideCharToMultiByte(cp, 0, wcharStr2Convert, static_cast<int>(*mstart), nullptr, 0, nullptr, nullptr);
-			*mend = ::WideCharToMultiByte(cp, 0, wcharStr2Convert, static_cast<int>(*mend), nullptr, 0, nullptr, nullptr);
+			*mstart = encodeText(cp, wcharStr2Convert, static_cast<int>(*mstart)).size();
+			*mend = encodeText(cp, wcharStr2Convert, static_cast<int>(*mend)).size();
 			if (*mstart >= len || *mend > len)
 			{
 				*mstart = 0;
@@ -606,30 +725,12 @@ const char* WcharMbcsConvertor::wchar2char(const wchar_t* wcharStr2Convert, size
 
 std::wstring string2wstring(const std::string& rString, UINT codepage)
 {
-	// includes null terminator
-	const int len = ::MultiByteToWideChar(codepage, 0, rString.c_str(), -1, nullptr, 0);
-	if (len > 0)
-	{
-		auto str = std::wstring(len, L'\0');
-		::MultiByteToWideChar(codepage, 0, rString.c_str(), -1, str.data(), len);
-		str.resize(static_cast<size_t>(len) - 1); // remove extra null terminator
-		return str;
-	}
-	return L"";
+	return decode(codepage, rString.c_str(), -1).toStdWString();
 }
 
 std::string wstring2string(const std::wstring& rwString, UINT codepage)
 {
-	// includes null terminator
-	const int len = ::WideCharToMultiByte(codepage, 0, rwString.c_str(), -1, nullptr, 0, nullptr, nullptr);
-	if (len > 0)
-	{
-		auto str = std::string(len, '\0');
-		::WideCharToMultiByte(codepage, 0, rwString.c_str(), -1, str.data(), len, nullptr, nullptr);
-		str.resize(static_cast<size_t>(len) - 1); // remove extra null terminator
-		return str;
-	}
-	return "";
+	return encodeText(codepage, rwString.c_str(), -1).toStdString();
 }
 
 
@@ -646,6 +747,35 @@ wstring convertFileName(T beg, T end)
 	}
 
 	return strTmp;
+}
+
+namespace
+{
+	size_t fileNameOffset(const wstring& path)
+	{
+		const size_t pos = path.find_last_of(nppPathSepStr);
+		return (pos == wstring::npos) ? 0 : pos + 1;
+	}
+}
+
+wstring compactPath(const wstring& path, size_t maxLen)
+{
+	if (path.size() <= maxLen)
+		return path;
+
+	static const wstring ellipsis = L"...";
+	if (maxLen <= ellipsis.size())
+		return ellipsis.substr(0, maxLen);
+
+	const size_t nameOffset = fileNameOffset(path);
+	if (nameOffset == 0) // no directory part: cut the end, as PathCompactPathEx does
+		return path.substr(0, maxLen - ellipsis.size()) + ellipsis;
+
+	const wstring name = path.substr(nameOffset);
+	if (name.size() + ellipsis.size() + 1 >= maxLen)
+		return ellipsis + nppPathSepStr + name.substr(0, maxLen > ellipsis.size() + 1 ? maxLen - ellipsis.size() - 1 : 0);
+
+	return path.substr(0, maxLen - name.size() - ellipsis.size() - 1) + ellipsis + nppPathSepStr + name;
 }
 
 // Build Recent File menu entries from given
@@ -680,10 +810,8 @@ wstring BuildMenuFileName(int filenameLen, unsigned int pos, const wstring &file
 
 	if (filenameLen > 0)
 	{
-		std::vector<wchar_t> vt(filenameLen + 1);
-		// W removed from PathCompactPathExW due to compiler errors for ANSI version.
-		PathCompactPathEx(&vt[0], filename.c_str(), filenameLen + 1, 0);
-		strTemp.append(convertFileName(vt.begin(), vt.begin() + lstrlen(&vt[0])));
+		const wstring compacted = compactPath(filename, static_cast<size_t>(filenameLen));
+		strTemp.append(convertFileName(compacted.begin(), compacted.end()));
 	}
 	else
 	{
@@ -691,7 +819,7 @@ wstring BuildMenuFileName(int filenameLen, unsigned int pos, const wstring &file
 		wstring::const_iterator it = filename.begin();
 
 		if (filenameLen == 0)
-			it += PathFindFileName(filename.c_str()) - filename.c_str();
+			it += fileNameOffset(filename);
 
 		// MAX_PATH is still here to keep old trimming behaviour.
 		if (filename.end() - it < MAX_PATH)
@@ -709,26 +837,32 @@ wstring BuildMenuFileName(int filenameLen, unsigned int pos, const wstring &file
 	return strTemp;
 }
 
-
 wstring pathRemoveFileSpec(wstring& path)
 {
-    wstring::size_type lastBackslash = path.find_last_of(L'\\');
-    if (lastBackslash == wstring::npos)
-    {
-        if (path.size() >= 2 && path[1] == L':')  // "C:foo.bar" becomes "C:"
-            path.erase(2);
-        else
-            path.erase();
-    }
-    else
-    {
-        if (lastBackslash == 2 && path[1] == L':' && path.size() >= 3)  // "C:\foo.exe" becomes "C:\"
-            path.erase(3);
-        else if (lastBackslash == 0 && path.size() > 1) // "\foo.exe" becomes "\"
-            path.erase(1);
-        else
-            path.erase(lastBackslash);
-    }
+	const wstring::size_type lastSep = path.find_last_of(nppPathSep);
+	if (lastSep == wstring::npos)
+	{
+#ifdef _WIN32
+		if (path.size() >= 2 && path[1] == L':')  // "C:foo.bar" becomes "C:"
+		{
+			path.erase(2);
+			return path;
+		}
+#endif
+		path.erase();
+	}
+	else
+	{
+#ifdef _WIN32
+		if (lastSep == 2 && path[1] == L':' && path.size() >= 3)  // "C:\\foo.exe" becomes "C:\\"
+			path.erase(3);
+		else
+#endif
+		if (lastSep == 0 && path.size() > 1) // "/foo.exe" becomes "/"
+			path.erase(1);
+		else
+			path.erase(lastSep);
+	}
 	return path;
 }
 
@@ -737,7 +871,7 @@ wstring pathAppend(wstring& strDest, const wstring& str2append)
 {
 	if (strDest.empty() && str2append.empty()) // "" + ""
 	{
-		strDest = L"\\";
+		strDest = nppPathSepStr;
 		return strDest;
 	}
 
@@ -747,64 +881,25 @@ wstring pathAppend(wstring& strDest, const wstring& str2append)
 		return strDest;
 	}
 
-	if (strDest[strDest.length() - 1] == '\\' && (!str2append.empty() && str2append[0] == '\\')) // toto\ + \titi
+	if (strDest[strDest.length() - 1] == nppPathSep && (!str2append.empty() && str2append[0] == nppPathSep)) // toto/ + /titi
 	{
 		strDest.erase(strDest.length() - 1, 1);
 		strDest += str2append;
 		return strDest;
 	}
 
-	if ((strDest[strDest.length() - 1] == '\\' && (!str2append.empty() && str2append[0] != '\\')) // toto\ + titi
-		|| (strDest[strDest.length() - 1] != '\\' && (!str2append.empty() && str2append[0] == '\\'))) // toto + \titi
+	if ((strDest[strDest.length() - 1] == nppPathSep && (!str2append.empty() && str2append[0] != nppPathSep)) // toto/ + titi
+		|| (strDest[strDest.length() - 1] != nppPathSep && (!str2append.empty() && str2append[0] == nppPathSep))) // toto + /titi
 	{
 		strDest += str2append;
 		return strDest;
 	}
 
 	// toto + titi
-	strDest += L"\\";
+	strDest += nppPathSepStr;
 	strDest += str2append;
 
 	return strDest;
-}
-
-
-COLORREF getCtrlBgColor(HWND hWnd)
-{
-	COLORREF crRet = CLR_INVALID;
-	if (hWnd && IsWindow(hWnd))
-	{
-		RECT rc;
-		if (GetClientRect(hWnd, &rc))
-		{
-			HDC hDC = GetDC(hWnd);
-			if (hDC)
-			{
-				HDC hdcMem = CreateCompatibleDC(hDC);
-				if (hdcMem)
-				{
-					HBITMAP hBmp = CreateCompatibleBitmap(hDC,
-					rc.right, rc.bottom);
-					if (hBmp)
-					{
-						HGDIOBJ hOld = SelectObject(hdcMem, hBmp);
-						if (hOld)
-						{
-							if (SendMessage(hWnd, WM_ERASEBKGND, reinterpret_cast<WPARAM>(hdcMem), 0))
-							{
-								crRet = GetPixel(hdcMem, 2, 2); // 0, 0 is usually on the border
-							}
-							SelectObject(hdcMem, hOld);
-						}
-						DeleteObject(hBmp);
-					}
-					DeleteDC(hdcMem);
-				}
-				ReleaseDC(hWnd, hDC);
-			}
-		}
-	}
-	return crRet;
 }
 
 
@@ -912,24 +1007,24 @@ wstring stringTakeWhileAdmissable(const wstring& input, const wstring& admissabl
 	}
 }
 
-
 double stodLocale(const wstring& str, [[maybe_unused]] _locale_t loc, size_t* idx)
 {
-	// Copied from the std::stod implementation but uses _wcstod_l instead of wcstod.
-	const wchar_t* ptr = str.c_str();
-	errno = 0;
-	wchar_t* eptr;
-#ifdef __MINGW32__
-	double ans = ::wcstod(ptr, &eptr);
-#else
-	double ans = ::_wcstod_l(ptr, &eptr, loc);
-#endif
-	if (ptr == eptr)
+	// The callers pass the classic locale, which is what the stream is imbued with here.
+	std::wistringstream stream(str);
+	stream.imbue(std::locale::classic());
+	double ans = 0;
+	stream >> ans;
+	if (stream.fail())
+	{
+		if (ans != 0)
+			throw std::out_of_range("stod argument out of range");
 		throw std::invalid_argument("invalid stod argument");
-	if (errno == ERANGE)
-		throw std::out_of_range("stod argument out of range");
+	}
 	if (idx != NULL)
-		*idx = static_cast<size_t>(eptr - ptr);
+	{
+		const auto pos = stream.tellg();
+		*idx = (pos < 0) ? str.size() : static_cast<size_t>(pos);
+	}
 	return ans;
 }
 
@@ -948,75 +1043,20 @@ const std::locale& getSysLocale()
 	return systemLocale;
 }
 
-bool str2Clipboard(const wstring &str2cpy, HWND hwnd)
+bool str2Clipboard(const wstring &str2cpy, [[maybe_unused]] HWND hwnd)
 {
-	size_t len2Allocate = (str2cpy.size() + 1) * sizeof(wchar_t);
-	HGLOBAL hglbCopy = ::GlobalAlloc(GMEM_MOVEABLE, len2Allocate);
-	if (hglbCopy == NULL)
-	{
+	QClipboard* clipboard = QGuiApplication::clipboard();
+	if (!clipboard)
 		return false;
-	}
-
-	if (!::OpenClipboard(hwnd))
-	{
-		::GlobalFree(hglbCopy);
-		return false;
-	}
-
-	if (!::EmptyClipboard())
-	{
-		::GlobalFree(hglbCopy);
-		::CloseClipboard();
-		return false;
-	}
-
-	// Lock the handle and copy the text to the buffer.
-	auto* pStr = static_cast<wchar_t*>(::GlobalLock(hglbCopy));
-	if (!pStr)
-	{
-		::GlobalFree(hglbCopy);
-		::CloseClipboard();
-		return false;
-	}
-
-	wcscpy_s(pStr, len2Allocate / sizeof(wchar_t), str2cpy.c_str());
-	::GlobalUnlock(hglbCopy);
-	// Place the handle on the clipboard.
-	unsigned int clipBoardFormat = CF_UNICODETEXT;
-	if (!::SetClipboardData(clipBoardFormat, hglbCopy))
-	{
-		::GlobalFree(hglbCopy);
-		::CloseClipboard();
-		return false;
-	}
-
-	if (!::CloseClipboard())
-	{
-		return false;
-	}
+	clipboard->setText(toQ(str2cpy));
 	return true;
 }
 
 std::wstring strFromClipboard()
 {
 	std::wstring clipboardText;
-	if (::OpenClipboard(NULL))
-	{
-		if (::IsClipboardFormatAvailable(CF_UNICODETEXT))
-		{
-			HANDLE hClipboardData = ::GetClipboardData(CF_UNICODETEXT);
-			if (hClipboardData)
-			{
-				wchar_t* pWc = static_cast<wchar_t*>(::GlobalLock(hClipboardData));
-				if (pWc)
-				{
-					clipboardText = pWc;
-					::GlobalUnlock(hClipboardData);
-				}
-			}
-		}
-		::CloseClipboard();
-	}
+	if (const QClipboard* clipboard = QGuiApplication::clipboard())
+		clipboardText = toW(clipboard->text());
 
 	// trim the EOL at the end of string if any
 	// 1: X, \r, \n  => don't change
@@ -1060,26 +1100,49 @@ std::wstring strFromClipboard()
 	return clipboardText;
 }
 
-bool buf2Clipboard(const std::vector<Buffer*>& buffers, bool isFullPath, HWND hwnd)
+
+namespace
 {
-	const wstring crlf = L"\r\n";
-	wstring selection;
-	for (auto&& buf : buffers)
+	// PathMatchSpec: '*' and '?' wildcards, case-insensitive even on case-sensitive file systems, so
+	// Find in Files filters behave as in the original. "*.*" matches every name, with or without a dot.
+	bool wildcardMatch(const wchar_t* name, const wchar_t* spec)
 	{
-		if (buf)
+		const wchar_t* star = nullptr;
+		const wchar_t* afterStar = nullptr;
+		while (*name)
 		{
-			const wchar_t* fileName = isFullPath ? buf->getFullPathName() : buf->getFileName();
-			if (fileName)
-				selection += fileName;
+			if (*spec == L'*')
+			{
+				star = spec++;
+				afterStar = name;
+			}
+			else if (*spec == L'?' || (*spec && std::towlower(*spec) == std::towlower(*name)))
+			{
+				++spec;
+				++name;
+			}
+			else if (star)
+			{
+				spec = star + 1;
+				name = ++afterStar;
+			}
+			else
+			{
+				return false;
+			}
 		}
-
-		if (!selection.empty() && !selection.ends_with(crlf))
-			selection += crlf;
+		while (*spec == L'*')
+			++spec;
+		// "*." and "*.*" also accept a name without a dot
+		if (*spec == L'.' && (spec[1] == L'\0' || (spec[1] == L'*' && spec[2] == L'\0')))
+			return true;
+		return *spec == L'\0';
 	}
+}
 
-	if (!selection.empty())
-		return str2Clipboard(selection, hwnd);
-	return false;
+bool pathMatchSpec(const wchar_t* fileName, const wchar_t* spec)
+{
+	return wildcardMatch(fileName, spec);
 }
 
 bool matchInList(const wchar_t *fileName, const std::vector<wstring> & patterns)
@@ -1089,13 +1152,13 @@ bool matchInList(const wchar_t *fileName, const std::vector<wstring> & patterns)
 	{
 		if (patterns[i].length() > 1 && patterns[i][0] == '!')
 		{
-			if (PathMatchSpec(fileName, patterns[i].c_str() + 1))
+			if (pathMatchSpec(fileName, patterns[i].c_str() + 1))
 				return false;
 
 			continue;
 		} 
 
-		if (PathMatchSpec(fileName, patterns[i].c_str()))
+		if (pathMatchSpec(fileName, patterns[i].c_str()))
 			is_matched = true;
 	}
 	return is_matched;
@@ -1103,19 +1166,21 @@ bool matchInList(const wchar_t *fileName, const std::vector<wstring> & patterns)
 
 bool matchInExcludeDirList(const wchar_t* dirName, const std::vector<wstring>& patterns, size_t level)
 {
+	// The original syntax is !\\dir and !+\\dir. Accept the forward slash as well on this platform.
+	const auto isSep = [](wchar_t c) { return c == L'\\' || c == L'/'; };
 	for (size_t i = 0, len = patterns.size(); i < len; ++i)
 	{
 		size_t patterLen = patterns[i].length();
 
-		if (patterLen > 3 && patterns[i][0] == '!' && patterns[i][1] == '+' && patterns[i][2] == '\\') // check for !+\folderPattern: for all levels - search this pattern recursively
+		if (patterLen > 3 && patterns[i][0] == '!' && patterns[i][1] == '+' && isSep(patterns[i][2])) // check for !+\\folderPattern: for all levels - search this pattern recursively
 		{
-			if (PathMatchSpec(dirName, patterns[i].c_str() + 3))
+			if (pathMatchSpec(dirName, patterns[i].c_str() + 3))
 				return true;
 		}
-		else if (patterLen > 2 && patterns[i][0] == '!' && patterns[i][1] == '\\') // check for !\folderPattern: exclusive pattern for only the 1st level
+		else if (patterLen > 2 && patterns[i][0] == '!' && isSep(patterns[i][1])) // check for !\\folderPattern: exclusive pattern for only the 1st level
 		{
 			if (level == 1)
-				if (PathMatchSpec(dirName, patterns[i].c_str() + 2))
+				if (pathMatchSpec(dirName, patterns[i].c_str() + 2))
 					return true;
 		}
 	}
@@ -1138,399 +1203,41 @@ bool allPatternsAreExclusion(const std::vector<wstring>& patterns)
 
 wstring GetLastErrorAsString(DWORD errorCode)
 {
-	wstring errorMsg(L"");
-	// Get the error message, if any.
 	// If both error codes (passed error n GetLastError) are 0, then return empty
 	if (errorCode == 0)
 		errorCode = GetLastError();
 	if (errorCode == 0)
-		return errorMsg; //No error message has been recorded
+		return L""; //No error message has been recorded
 
-	LPWSTR messageBuffer = nullptr;
-	DWORD isSuccessful = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-		nullptr, errorCode, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), reinterpret_cast<LPWSTR>(&messageBuffer), 0, nullptr);
-
-	if (isSuccessful)
-	{
-		errorMsg += messageBuffer;
-		LocalFree(messageBuffer);
-	}
-	else
-	{
-		errorMsg += L"(Error code: ";
-		errorMsg += std::to_wstring(errorCode);
-		errorMsg += L")\r\n";
-	}
-
-	return errorMsg;
-}
-
-static bool isHelpTipStaticTextCtrl(HWND hWnd)
-{
-	static constexpr int strLen = 8; // 8 is enough, WC_STATIC length is 7
-	auto className = std::wstring(strLen, L'\0');
-	className.resize(static_cast<size_t>(::GetClassNameW(hWnd, className.data(), strLen)));
-	if (className != WC_STATIC)
-	{
-		return false;
-	}
-
-	const int ctrlStrLen = ::GetWindowTextLengthW(hWnd);
-	if (ctrlStrLen == 0)
-	{
-		return false;
-	}
-
-	auto ctrlText = std::wstring(ctrlStrLen + 1, L'\0');
-	ctrlText.resize(static_cast<size_t>(::GetWindowTextW(hWnd, ctrlText.data(), ctrlStrLen + 1)));
-	if (ctrlText != L"(?)")
-	{
-		return false;
-	}
-	return true;
-}
-
-static LRESULT CALLBACK helpTipStaticTextCtrlParentClickProc(
-	HWND hwnd,
-	UINT Message,
-	WPARAM wParam,
-	LPARAM lParam,
-	UINT_PTR uIdSubclass,
-	DWORD_PTR dwRefData
-)
-{
-	auto hTip = reinterpret_cast<HWND>(dwRefData);
-
-	switch (Message)
-	{
-		case WM_NCDESTROY:
-		{
-			::RemoveWindowSubclass(hwnd, helpTipStaticTextCtrlParentClickProc, uIdSubclass);
-			break;
-		}
-
-		case WM_COMMAND:
-		{
-			if (HIWORD(wParam) == STN_CLICKED
-				&& lParam != 0
-				&& uIdSubclass == static_cast<UINT_PTR>(lParam))
-			{
-				::SendMessage(hTip, TTM_POPUP, 0, 0);
-			}
-			break;
-		}
-
-		default:
-			break;
-	}
-
-	return ::DefSubclassProc(hwnd, Message, wParam, lParam);
-}
-
-HWND createToolTip(int toolID, HWND hDlg, HINSTANCE hInst, wchar_t* pszText, bool isRTL)
-{
-	if (!toolID || !hDlg || !pszText)
-	{
-		return NULL;
-	}
-
-	// Get the window of the tool.
-	HWND hwndTool = GetDlgItem(hDlg, toolID);
-	if (!hwndTool)
-	{
-		return NULL;
-	}
-
-	// Create the tooltip. g_hInst is the global instance handle.
-	HWND hwndTip = CreateWindowEx(isRTL ? WS_EX_LAYOUTRTL : 0, TOOLTIPS_CLASS, NULL,
-		WS_POPUP | TTS_ALWAYSTIP | TTS_BALLOON,
-		CW_USEDEFAULT, CW_USEDEFAULT,
-		CW_USEDEFAULT, CW_USEDEFAULT,
-		hDlg, NULL,
-		hInst, NULL);
-
-	if (!hwndTip)
-	{
-		return NULL;
-	}
-
-	NppDarkMode::setDarkTooltips(hwndTip, NppDarkMode::ToolTipsType::tooltip);
-
-	// Associate the tooltip with the tool.
-	TOOLINFO toolInfo = {};
-	toolInfo.cbSize = sizeof(toolInfo);
-	toolInfo.hwnd = hDlg;
-	toolInfo.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
-	toolInfo.uId = reinterpret_cast<UINT_PTR>(hwndTool);
-	toolInfo.lpszText = pszText;
-	if (!SendMessage(hwndTip, TTM_ADDTOOL, 0, reinterpret_cast<LPARAM>(&toolInfo)))
-	{
-		DestroyWindow(hwndTip);
-		return NULL;
-	}
-
-	SendMessage(hwndTip, TTM_ACTIVATE, TRUE, 0);
-	SendMessage(hwndTip, TTM_SETMAXTIPWIDTH, 0, 200);
-	// Make tip stay 32 seconds (INT16_MAX - 1 is max allowed value)
-	::SendMessage(hwndTip, TTM_SETDELAYTIME, TTDT_AUTOPOP, MAKELPARAM(INT16_MAX - 1, 0));
-
-	if (isHelpTipStaticTextCtrl(hwndTool))
-	{
-		// Make tip for static text with "(?)" to appear almost immediately,
-		// instead of default 500 ms delay.
-		// "200" is used to avoid some "visual glitch" when moving mouse fast.
-		::SendMessage(hwndTip, TTM_SETDELAYTIME, TTDT_INITIAL, MAKELPARAM(200, 0));
-
-		// Subclass to make tooltip appear if user click on static text
-		if (::GetWindowSubclass(hDlg, helpTipStaticTextCtrlParentClickProc, toolInfo.uId, nullptr) == FALSE)
-		{
-			::SetWindowSubclass(hDlg, helpTipStaticTextCtrlParentClickProc, toolInfo.uId, reinterpret_cast<DWORD_PTR>(hwndTip));
-		}
-	}
-
-	return hwndTip;
-}
-
-HWND createToolTipRect(int toolID, HWND hWnd, HINSTANCE hInst, wchar_t* pszText, const RECT rc)
-{
-	if (!toolID || !hWnd || !pszText)
-	{
-		return NULL;
-	}
-
-	// Create the tooltip. g_hInst is the global instance handle.
-	HWND hwndTip = CreateWindowEx(0, TOOLTIPS_CLASS, NULL,
-		WS_POPUP | TTS_ALWAYSTIP | TTS_BALLOON,
-		CW_USEDEFAULT, CW_USEDEFAULT,
-		CW_USEDEFAULT, CW_USEDEFAULT,
-		hWnd, NULL,
-		hInst, NULL);
-
-	if (!hwndTip)
-	{
-		return NULL;
-	}
-
-	// Associate the tooltip with the tool.
-	TOOLINFO toolInfo = {};
-	toolInfo.cbSize = sizeof(toolInfo);
-	toolInfo.hwnd = hWnd;
-	toolInfo.uFlags = TTF_SUBCLASS;
-	toolInfo.uId = toolID;
-	toolInfo.lpszText = pszText;
-	toolInfo.rect = rc;
-	if (!SendMessage(hwndTip, TTM_ADDTOOL, 0, reinterpret_cast<LPARAM>(&toolInfo)))
-	{
-		DestroyWindow(hwndTip);
-		return NULL;
-	}
-
-	SendMessage(hwndTip, TTM_ACTIVATE, TRUE, 0);
-	SendMessage(hwndTip, TTM_SETMAXTIPWIDTH, 0, 200);
-	// Make tip stay 32 seconds and appear faster
-	::SendMessage(hwndTip, TTM_SETDELAYTIME, TTDT_AUTOPOP, MAKELPARAM(INT16_MAX - 1, 0));
-	::SendMessage(hwndTip, TTM_SETDELAYTIME, TTDT_INITIAL, MAKELPARAM(100, 0));
-
-	return hwndTip;
-}
-
-bool isCertificateValidated(const wstring & fullFilePath, const wstring & subjectName2check)
-{
-	bool isOK = false;
-	HCERTSTORE hStore = NULL;
-	HCRYPTMSG hMsg = NULL;
-	PCCERT_CONTEXT pCertContext = NULL;
-	BOOL result = FALSE;
-	DWORD dwEncoding = 0;
-	DWORD dwContentType = 0;
-	DWORD dwFormatType = 0;
-	PCMSG_SIGNER_INFO pSignerInfo = NULL;
-	DWORD dwSignerInfo = 0;
-	CERT_INFO CertInfo{};
-	LPWSTR szName = NULL;
-
-	try {
-		// Get message handle and store handle from the signed file.
-		result = CryptQueryObject(CERT_QUERY_OBJECT_FILE,
-			fullFilePath.c_str(),
-			CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
-			CERT_QUERY_FORMAT_FLAG_BINARY,
-			0,
-			&dwEncoding,
-			&dwContentType,
-			&dwFormatType,
-			&hStore,
-			&hMsg,
-			NULL);
-
-		if (!result)
-		{
-			wstring errorMessage = L"Check certificate of " + fullFilePath + L" : ";
-			errorMessage += GetLastErrorAsString(GetLastError());
-			throw errorMessage;
-		}
-
-		// Get signer information size.
-		result = CryptMsgGetParam(hMsg, CMSG_SIGNER_INFO_PARAM, 0, NULL, &dwSignerInfo);
-		if (!result)
-		{
-			wstring errorMessage = L"CryptMsgGetParam first call: ";
-			errorMessage += GetLastErrorAsString(GetLastError());
-			throw errorMessage;
-		}
-
-		// Allocate memory for signer information.
-		pSignerInfo = static_cast<PCMSG_SIGNER_INFO>(::LocalAlloc(LPTR, dwSignerInfo));
-		if (!pSignerInfo)
-		{
-			wstring errorMessage = L"CryptMsgGetParam memory allocation problem: ";
-			errorMessage += GetLastErrorAsString(GetLastError());
-			throw errorMessage;
-		}
-
-		// Get Signer Information.
-		result = ::CryptMsgGetParam(hMsg, CMSG_SIGNER_INFO_PARAM, 0, pSignerInfo, &dwSignerInfo);
-		if (!result)
-		{
-			wstring errorMessage = L"CryptMsgGetParam: ";
-			errorMessage += GetLastErrorAsString(GetLastError());
-			throw errorMessage;
-		}
-
-		// Search for the signer certificate in the temporary 
-		// certificate store.
-		CertInfo.Issuer = pSignerInfo->Issuer;
-		CertInfo.SerialNumber = pSignerInfo->SerialNumber;
-
-		pCertContext = ::CertFindCertificateInStore(hStore, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, 0, CERT_FIND_SUBJECT_CERT, &CertInfo, nullptr);
-		if (!pCertContext)
-		{
-			wstring errorMessage = L"Certificate context: ";
-			errorMessage += GetLastErrorAsString(GetLastError());
-			throw errorMessage;
-		}
-
-		DWORD dwData;
-
-		// Get Subject name size.
-		dwData = CertGetNameString(pCertContext, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, NULL, NULL, 0);
-		if (dwData <= 1)
-		{
-			throw wstring(L"Certificate checking error: getting data size problem.");
-		}
-
-		// Allocate memory for subject name.
-		szName = static_cast<LPWSTR>(::LocalAlloc(LPTR, dwData * sizeof(wchar_t)));
-		if (!szName)
-		{
-			throw wstring(L"Certificate checking error: memory allocation problem.");
-		}
-
-		// Get subject name.
-		if (CertGetNameString(pCertContext, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, NULL, szName, dwData) <= 1)
-		{
-			throw wstring(L"Cannot get certificate info.");
-		}
-
-		// check Subject name.
-		wstring subjectName = szName;
-		if (subjectName != subjectName2check)
-		{
-			throw wstring(L"Certificate checking error: the certificate is not matched.");
-		}
-
-		isOK = true;
-	}
-	catch (const wstring& s)
-	{
-		// display error message
-		MessageBox(NULL, s.c_str(), L"Certificate checking", MB_OK);
-	}
-	catch (...)
-	{
-		// Unknown error
-		wstring errorMessage = L"Unknown exception occurred. ";
-		errorMessage += GetLastErrorAsString(GetLastError());
-		MessageBox(NULL, errorMessage.c_str(), L"Certificate checking", MB_OK);
-	}
-
-	// Clean up.
-	if (pSignerInfo != NULL) LocalFree(pSignerInfo);
-	if (pCertContext != NULL) CertFreeCertificateContext(pCertContext);
-	if (hStore != NULL) CertCloseStore(hStore, 0);
-	if (hMsg != NULL) CryptMsgClose(hMsg);
-	if (szName != NULL) LocalFree(szName);
-
-	return isOK;
+	return toW(QString::fromLocal8Bit(std::strerror(static_cast<int>(errorCode))));
 }
 
 bool isAssoCommandExisting(LPCWSTR FullPathName)
 {
-	bool isAssoCmdExist = false;
-
-	bool isFileExisting = doesFileExist(FullPathName);
-
-	if (isFileExisting)
-	{
-		PWSTR ext = PathFindExtension(FullPathName);
-
-		HRESULT hres;
-		wchar_t buffer[MAX_PATH] = L"";
-		DWORD bufferLen = MAX_PATH;
-
-		// check if association exist
-		hres = AssocQueryString(ASSOCF_VERIFY|ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_COMMAND, ext, NULL, buffer, &bufferLen);
-
-		isAssoCmdExist = (hres == S_OK)                  // check if association exist and no error
-			&& (wcsstr(buffer, L"notepad++.exe")) == NULL;   // check association with notepad++
-
-	}
-	return isAssoCmdExist;
+	// Whether the desktop can open this file with another application: a file manager association always
+	// exists for an existing file on Linux, and it is handled by xdg-open.
+	return doesFileExist(FullPathName);
 }
 
 bool deleteFileOrFolder(const wstring& f2delete)
 {
-	auto len = f2delete.length();
-	auto actionFolder = std::make_unique<wchar_t[]>(len + 2);
-	::wcscpy_s(actionFolder.get(), len + 2, f2delete.c_str());
-	actionFolder[len] = 0;
-	actionFolder[len + 1] = 0;
-
-	SHFILEOPSTRUCT fileOpStruct{};
-	fileOpStruct.hwnd = nullptr;
-	fileOpStruct.pFrom = actionFolder.get();
-	fileOpStruct.pTo = nullptr;
-	fileOpStruct.wFunc = FO_DELETE;
-	fileOpStruct.fFlags = FOF_NOCONFIRMATION | FOF_SILENT | FOF_ALLOWUNDO;
-	fileOpStruct.fAnyOperationsAborted = false;
-	fileOpStruct.hNameMappings = nullptr;
-	fileOpStruct.lpszProgressTitle = nullptr;
-
-	int res = SHFileOperation(&fileOpStruct);
-
-	return (res == 0);
+	// To the trash, as the original sends it to the recycle bin (FOF_ALLOWUNDO).
+	return QFile::moveToTrash(toQ(f2delete));
 }
 
-// Get a vector of full file paths in a given folder. File extension type filter should be *.*, *.xml, *.dll... according to the type of file you want to get.  
+// Get a vector of full file paths in a given folder. File extension type filter should be *.*, *.xml, *.so... according to the type of file you want to get.  
 void getFilesInFolder(std::vector<wstring>& files, const wstring& extTypeFilter, const wstring& inFolder)
 {
-	std::wstring filterPath = inFolder;
-	pathAppend(filterPath, extTypeFilter);
-
-	WIN32_FIND_DATA foundData;
-	HANDLE hFindFile = ::FindFirstFile(filterPath.c_str(), &foundData);
-	if (hFindFile != INVALID_HANDLE_VALUE)
+	const QStringList names = QDir(toQ(inFolder)).entryList(QDir::Files | QDir::Hidden | QDir::System, QDir::Name);
+	for (const QString& name : names)
 	{
-		do
+		const wstring fileName = toW(name);
+		if (pathMatchSpec(fileName.c_str(), extTypeFilter.c_str()))
 		{
-			if (!(foundData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-			{
-				wstring foundFullPath = inFolder;
-				pathAppend(foundFullPath, foundData.cFileName);
-				files.push_back(foundFullPath);
-			}
-		} while (::FindNextFile(hFindFile, &foundData));
-		::FindClose(hFindFile);
+			wstring foundFullPath = inFolder;
+			pathAppend(foundFullPath, fileName);
+			files.push_back(foundFullPath);
+		}
 	}
 }
 
@@ -1571,194 +1278,81 @@ int nbDigitsFromNbLines(size_t nbLines)
 	return nbDigits;
 }
 
-namespace
-{
-	static constexpr wchar_t timeFmtEscapeChar = 0x1;
-	static constexpr wchar_t middayFormat[] = L"tt";
-
-	// Returns AM/PM string defined by the system locale for the specified time.
-	// This string may be empty or customized.
-	wstring getMiddayString(const wchar_t* localeName, const SYSTEMTIME& st)
-	{
-		std::wstring midday(MAX_PATH, L'\0');
-		const int ret = ::GetTimeFormatEx(localeName, 0, &st, middayFormat, midday.data(), static_cast<int>(midday.size()));
-		if (ret > 0)
-			midday.resize(static_cast<size_t>(ret) - 1); // Remove the null-terminator.
-		else
-			midday.clear();
-		return midday;
-	}
-
-	// Replaces conflicting time format specifiers by a special character.
-	bool escapeTimeFormat(wstring& format)
-	{
-		bool modified = false;
-		for (auto& ch : format)
-		{
-			if (ch == middayFormat[0])
-			{
-				ch = timeFmtEscapeChar;
-				modified = true;
-			}
-		}
-		return modified;
-	}
-
-	// Replaces special time format characters by actual AM/PM string.
-	void unescapeTimeFormat(wstring& format, const wstring& midday)
-	{
-		if (midday.empty())
-		{
-			auto it = std::remove(format.begin(), format.end(), timeFmtEscapeChar);
-			if (it != format.end())
-				format.erase(it, format.end());
-		}
-		else
-		{
-			size_t i = 0;
-			while ((i = format.find(timeFmtEscapeChar, i)) != wstring::npos)
-			{
-				if (i + 1 < format.size() && format[i + 1] == timeFmtEscapeChar)
-				{
-					// 'tt' => AM/PM
-					format.erase(i, std::size(middayFormat) - 1);
-					format.insert(i, midday);
-				}
-				else
-				{
-					// 't' => A/P
-					format[i] = midday[0];
-				}
-			}
-		}
-	}
-}
-
 wstring getDateTimeStrFrom(const wstring& dateTimeFormat, const SYSTEMTIME& st)
 {
-	const wchar_t* localeName = LOCALE_NAME_USER_DEFAULT;
-	const DWORD flags = 0;
+	const QDateTime dateTime(QDate(st.wYear, st.wMonth, st.wDay), QTime(st.wHour, st.wMinute, st.wSecond));
 
-	static constexpr int bufferSize = MAX_PATH;
-	wchar_t buffer[bufferSize] = {};
-	int ret = 0;
-
-
-	// 1. Escape 'tt' that means AM/PM or 't' that means A/P.
-	// This is needed to avoid conflict with 'M' date format that stands for month.
-	wstring newFormat = dateTimeFormat;
-	const bool hasMiddayFormat = escapeTimeFormat(newFormat);
-
-	// 2. Format the time (h/m/s/t/H).
-	ret = GetTimeFormatEx(localeName, flags, &st, newFormat.c_str(), buffer, bufferSize);
-	if (ret != 0)
+	// The specifiers of GetDateFormatEx and GetTimeFormatEx are the same as QDateTime's, except:
+	// tt is the AM/PM string and t its first letter, while g and gg are the era, which is dropped.
+	QString format;
+	const QString input = toQ(dateTimeFormat);
+	bool inQuote = false;
+	for (qsizetype i = 0; i < input.size(); ++i)
 	{
-		// 3. Format the date (d/y/g/M). 
-		// Now use the buffer as a format string to process the format specifiers not recognized by GetTimeFormatEx().
-		ret = GetDateFormatEx(localeName, flags, &st, buffer, buffer, bufferSize, nullptr);
-	}
-
-	if (ret != 0)
-	{
-		if (hasMiddayFormat)
+		const QChar c = input[i];
+		if (c == u'\'')
 		{
-			// 4. Now format only the AM/PM string.
-			const wstring midday = getMiddayString(localeName, st);
-			wstring result = buffer;
-			unescapeTimeFormat(result, midday);
-			return result;
+			inQuote = !inQuote;
+			format += c;
 		}
-		return buffer;
+		else if (!inQuote && c == u't')
+		{
+			if (i + 1 < input.size() && input[i + 1] == u't')
+			{
+				format += QStringLiteral("AP");
+				++i;
+			}
+			else
+			{
+				format += QStringLiteral("A");
+			}
+		}
+		else if (!inQuote && c == u'g')
+		{
+			// era: not supported by QDateTime
+		}
+		else
+		{
+			format += c;
+		}
 	}
-
-	return {};
-}
-
-// Don't forget to use DeleteObject(createdFont) before leaving the program
-HFONT createFont(const wchar_t* fontName, int fontSize, bool isBold, HWND hDestParent)
-{
-	auto dlgFontSize = static_cast<WORD>(fontSize);
-	if (dlgFontSize == 0)
-	{
-		dlgFontSize = NppParameters::getInstance().getDlgFontSize();
-	}
-
-	LOGFONT logFont{};
-	const int fontSizeScaled = DPIManagerV2::scaleFontForFactor(dlgFontSize);
-	logFont.lfHeight = DPIManagerV2::scaleFont(fontSizeScaled, hDestParent);
-	if (isBold)
-		logFont.lfWeight = FW_BOLD;
-
-	::wcsncpy_s(logFont.lfFaceName, fontName, size_t{ LF_FACESIZE - 1 });
-
-	return ::CreateFontIndirectW(&logFont);
+	return toW(QLocale::system().toString(dateTime, format));
 }
 
 bool removeReadOnlyFlagFromFileAttributes(const wchar_t* fileFullPath)
 {
-	DWORD dwFileAttribs = ::GetFileAttributes(fileFullPath);
-
-	if (dwFileAttribs == INVALID_FILE_ATTRIBUTES || (dwFileAttribs & FILE_ATTRIBUTE_DIRECTORY))
+	const QString path = toQ(fileFullPath);
+	if (!QFileInfo(path).isFile())
 		return false;
-
-	dwFileAttribs &= ~FILE_ATTRIBUTE_READONLY;
-	return (::SetFileAttributes(fileFullPath, dwFileAttribs) != FALSE);
+	return QFile::setPermissions(path, QFile::permissions(path) | QFile::WriteOwner | QFile::WriteUser);
 }
 
 // return false when failed, otherwise true and then the isChangedToReadOnly output will be set
 // accordingly to the changed file R/O-state
 bool toggleReadOnlyFlagFromFileAttributes(const wchar_t* fileFullPath, bool& isChangedToReadOnly)
 {
-	DWORD dwFileAttribs = ::GetFileAttributes(fileFullPath);
-	if (dwFileAttribs == INVALID_FILE_ATTRIBUTES || (dwFileAttribs & FILE_ATTRIBUTE_DIRECTORY))
+	const QString path = toQ(fileFullPath);
+	if (!QFileInfo(path).isFile())
 		return false;
 
-	if (dwFileAttribs & FILE_ATTRIBUTE_READONLY)
-		dwFileAttribs &= ~FILE_ATTRIBUTE_READONLY;
+	static constexpr QFile::Permissions writeBits = QFile::WriteOwner | QFile::WriteUser | QFile::WriteGroup | QFile::WriteOther;
+	QFile::Permissions permissions = QFile::permissions(path);
+	const bool wasWritable = (permissions & (QFile::WriteOwner | QFile::WriteUser)) != 0;
+	if (wasWritable)
+		permissions &= ~writeBits;
 	else
-		dwFileAttribs |= FILE_ATTRIBUTE_READONLY;
-	
-	if (::SetFileAttributes(fileFullPath, dwFileAttribs))
+		permissions |= QFile::WriteOwner | QFile::WriteUser;
+
+	if (QFile::setPermissions(path, permissions) || nppElevatedSetWritable(fileFullPath, !wasWritable) == NO_ERROR)
 	{
-		isChangedToReadOnly = (dwFileAttribs & FILE_ATTRIBUTE_READONLY) != 0;
+		isChangedToReadOnly = wasWritable;
 		return true;
 	}
-	else
-	{
-		if (::GetLastError() == ERROR_ACCESS_DENIED)
-		{
-			// try to set elevated
-			// (notepad++.exe #UAC-SETFILEATTRIBUTES# attrib_flags_number_str dest_file_path)
-			wstring strCmdLineParams = NPP_UAC_SETFILEATTRIBUTES_SIGN;
-			strCmdLineParams += L" \"" + to_wstring(dwFileAttribs) + L"\" \"";
-			strCmdLineParams += fileFullPath;
-			strCmdLineParams += L"\"";
-			DWORD dwNppUacOpError = invokeNppUacOp(strCmdLineParams);
-			if (dwNppUacOpError == NO_ERROR)
-			{
-				isChangedToReadOnly = (dwFileAttribs & FILE_ATTRIBUTE_READONLY) != 0;
-				return true;
-			}
-			else
-			{
-				::SetLastError(dwNppUacOpError); // set that as our current thread one for a possible reporting later
-			}
-		}
-		return false;
-	}
+	return false;
 }
 
-// "For file I/O, the "\\?\" prefix to a path string tells the Windows APIs to disable all string parsing
-// and to send the string that follows it straight to the file system..."
-// Ref: https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#win32-file-namespaces
 bool isWin32NamespacePrefixedFileName(const wstring& fileName)
 {
-	// TODO:
-	// ?! how to handle similar NT Object Manager path style prefix case \??\...
-	// (the \??\ prefix instructs the NT Object Manager to search in the caller's local device directory for an alias...)
-
-	// the following covers the \\?\... raw Win32-filenames or the \\?\UNC\... UNC equivalents
-	// and also its *nix like forward slash equivalents
 	return (fileName.starts_with(L"\\\\?\\") || fileName.starts_with(L"//?/"));
 }
 
@@ -1768,92 +1362,10 @@ bool isWin32NamespacePrefixedFileName(const wchar_t* szFileName)
 	return isWin32NamespacePrefixedFileName(fileName);
 }
 
+// Only length is a limit here. The reserved device names and characters of Win32 are legal in POSIX names.
 bool isUnsupportedFileName(const wstring& fileName)
 {
-	bool isUnsupported = true;
-
-	// until the Notepad++ (and its plugins) will not be prepared for filenames longer than the MAX_PATH,
-	// we have to limit also the maximum supported length below
-	if ((fileName.size() > 0) && (fileName.size() < MAX_PATH))
-	{
-		// possible raw filenames can contain space(s) or dot(s) at its end (e.g. "\\?\C:\file."), but the Notepad++ advanced
-		// Open/SaveAs IFileOpenDialog/IFileSaveDialog COM-interface based dialogs currently do not handle this well
-		// (but e.g. direct Notepad++ Ctrl+S works ok even with these filenames)
-		// 
-		// Exception for the standard filenames ending with the dot-char:
-		// - when someone tries to open e.g. the 'C:\file.', we will accept that as this is the way how to work with filenames
-		//   without an extension (some of the WINAPI calls used later trim that dot-char automatically ...)
-		if (!(fileName.ends_with(L'.') && isWin32NamespacePrefixedFileName(fileName)) && !fileName.ends_with(L' '))
-		{
-			bool invalidASCIIChar = false;
-
-			for (size_t pos = 0; pos < fileName.size(); ++pos)
-			{
-				wchar_t c = fileName.at(pos);
-				if (c <= 31)
-				{
-					invalidASCIIChar = true;
-				}
-				else
-				{
-					// as this could be also a complete filename with path and there could be also a globbing used,
-					// we tolerate here some other reserved Win32-filename chars: /, \, :, ?, *
-					switch (c)
-					{
-						case '<':
-						case '>':
-						case '"':
-						case '|':
-							invalidASCIIChar = true;
-							break;
-					}
-				}
-
-				if (invalidASCIIChar)
-					break;
-			}
-
-			if (!invalidASCIIChar)
-			{
-				// strip input string to a filename without a possible path and/or ending dot-char
-				wstring fileNameOnly;
-				if (fileName.ends_with(L'.'))
-					fileNameOnly = fileName.substr(0, fileName.rfind(L"."));
-				else
-					fileNameOnly = fileName;
-
-				size_t pos = fileNameOnly.find_last_of(L"\\");
-				if (pos == std::string::npos)
-					pos = fileNameOnly.find_last_of(L"/");
-				if (pos != std::string::npos)
-					fileNameOnly = fileNameOnly.substr(pos + 1);
-
-				static constexpr size_t maxReservedNameSize = 4;
-				if (fileNameOnly.length() > maxReservedNameSize)
-					return false;
-
-				// upperize because the std::find is case sensitive unlike the Windows OS filesystem
-				static const auto& loc = std::locale::classic();
-				std::transform(fileNameOnly.begin(), fileNameOnly.end(), fileNameOnly.begin(),
-					[](auto ch) { return std::toupper(ch, loc); });
-
-				const std::vector<std::wstring> reservedWin32NamespaceDeviceList {
-				L"CON", L"PRN", L"AUX", L"NUL",
-				L"COM1", L"COM2", L"COM3", L"COM4", L"COM5", L"COM6", L"COM7", L"COM8", L"COM9",
-				L"LPT1", L"LPT2", L"LPT3", L"LPT4", L"LPT5", L"LPT6", L"LPT7", L"LPT8", L"LPT9"
-				};
-
-				// last check is for all the old reserved Windows OS filenames
-				if (std::find(reservedWin32NamespaceDeviceList.begin(), reservedWin32NamespaceDeviceList.end(), fileNameOnly) == reservedWin32NamespaceDeviceList.end())
-				{
-					// ok, the current filename tested is not even on the blacklist
-					isUnsupported = false;
-				}
-			}
-		}
-	}
-
-	return isUnsupported;
+	return fileName.empty() || fileName.size() >= MAX_PATH;
 }
 
 bool isUnsupportedFileName(const wchar_t* szFileName)
@@ -1862,71 +1374,29 @@ bool isUnsupportedFileName(const wchar_t* szFileName)
 	return isUnsupportedFileName(fileName);
 }
 
-bool isUncPath(const std::wstring& path)
+// UNC paths do not exist on this platform
+bool isUncPath([[maybe_unused]] const std::wstring& path)
 {
-	// Extended-length UNC: \\?\UNC\server\share\... or //?/UNC/server/share/...
-	if (isWin32NamespacePrefixedFileName(path))
-	{
-		std::wstring rest = path.substr(4); // strip \\?\ or //?/
-		return (_wcsnicmp(rest.c_str(), L"UNC\\", 4) == 0) || (_wcsnicmp(rest.c_str(), L"UNC/", 4) == 0);
-	}
-
-	// Plain UNC: GetFullPathNameW (and CreateFileW/FindFirstFileW's internal normalization)
-	// treats ANY pair of leading path separators - \\, //, \/, or /\ - as the start of a UNC path, not just matching pairs.
-	// Match that behavior exactly rather than re-deriving it.
-	auto isPathSep = [](wchar_t c) { return c == L'\\' || c == L'/'; };
-	return path.size() >= 2 && isPathSep(path[0]) && isPathSep(path[1]);
+	return false;
 }
 
 bool isUncFileUrl(const std::wstring& url)
 {
-	// file://server/share/... -> leaks NTLM. file:///C:/... or file://localhost/... does not.
-	// Scheme match must be case-insensitive
+	// A file URL naming a remote host. Scheme match must be case-insensitive
 	if (url.size() < 7 || _wcsnicmp(url.c_str(), L"file://", 7) != 0)
 		return false;
 
-	size_t hostStart = 7; // after "file://"
+	const size_t hostStart = 7; // after "file://"
+	const size_t hostEnd = url.find_first_of(L"/\\", hostStart);
+	const std::wstring host = (hostEnd == std::wstring::npos) ? url.substr(hostStart) : url.substr(hostStart, hostEnd - hostStart);
 
-	// Use the first separator of EITHER kind: ShellExecuteW/URL resolution accept
-	// backslashes here too (e.g. file://server\share\file.txt)
-	size_t hostEnd = url.find_first_of(L"/\\", hostStart);
-	std::wstring host = (hostEnd == std::wstring::npos) ? url.substr(hostStart) : url.substr(hostStart, hostEnd - hostStart);
- 
-	if (host.empty())
-	{
-		// it could be file:////host/sample.txt or file:///C:/sample.txt, which are both valid UNC paths.
-		if (url.length() <= MAX_PATH)
-		{
-			wchar_t path[MAX_PATH]{};
-			DWORD pathLen = MAX_PATH;
-			return SUCCEEDED(::PathCreateFromUrlW(url.c_str(), path, &pathLen, 0)) && isUncPath(path);
-		}
-		else // very long path
-		{
-			if (_wcsnicmp(url.c_str(), L"file:////", 9) != 0) // not a UNC path, just a very long local file path
-			{
-				return false;
-			}
-			else
-			{
-				hostStart = 9; // after "file:////"
-				size_t hostEnd = url.find_first_of(L"/\\", hostStart);
-				host = (hostEnd == std::wstring::npos) ? url.substr(hostStart) : url.substr(hostStart, hostEnd - hostStart);
-			}
-		}
-	}
-
-	if (host == L".")
+	if (host.empty() || host == L".")
 		return false;
 
 	if (_wcsicmp(host.c_str(), L"localhost") == 0)
 		return false;
 
 	if (host == L"127.0.0.1" || host == L"::1" || host == L"[::1]")
-		return false;
-
-	// host like "C:" or "C|" (drive letter, sometimes seen w/o triple slash)
-	if (host.size() == 2 && iswalpha(host[0]) && (host[1] == L':' || host[1] == L'|'))
 		return false;
 
 	return true;
@@ -1986,31 +1456,9 @@ Version::Version(const wstring& versionStr)
 	}
 }
 
-
-void Version::setVersionFrom(const wstring& filePath)
+// Windows reads this from a PE file's version resource. Shared libraries have no equivalent.
+void Version::setVersionFrom([[maybe_unused]] const wstring& filePath)
 {
-	if (filePath.empty() || !doesFileExist(filePath.c_str()))
-		return;
-
-	DWORD uselessArg = 0; // this variable is for passing the ignored argument to the functions
-	DWORD bufferSize = ::GetFileVersionInfoSize(filePath.c_str(), &uselessArg);
-
-	if (bufferSize <= 0)
-		return;
-
-	auto buffer = std::make_unique<unsigned char[]>(bufferSize);
-	::GetFileVersionInfoW(filePath.c_str(), 0, bufferSize, buffer.get());
-
-	VS_FIXEDFILEINFO* lpFileInfo = nullptr;
-	UINT cbFileInfo = 0;
-	::VerQueryValueW(buffer.get(), L"\\", reinterpret_cast<LPVOID*>(&lpFileInfo), &cbFileInfo);
-	if (cbFileInfo)
-	{
-		_major = (lpFileInfo->dwFileVersionMS & 0xFFFF0000) >> 16;
-		_minor = lpFileInfo->dwFileVersionMS & 0x0000FFFF;
-		_patch = (lpFileInfo->dwFileVersionLS & 0xFFFF0000) >> 16;
-		_build = lpFileInfo->dwFileVersionLS & 0x0000FFFF;
-	}
 }
 
 wstring Version::toString() const
@@ -2119,122 +1567,129 @@ bool Version::isCompatibleTo(const Version& from, const Version& to) const
 static constexpr DWORD DEFAULT_MILLISEC = 3000;
 
 //----------------------------------------------------
+// A stat() or statvfs() on a stale network mount can block for a long time, which is why the original
+// runs these calls on a worker thread with a timeout. The worker cannot be killed safely, so it detaches
+// and owns its state through a shared_ptr, and it simply ends whenever the system call returns.
 
-struct GetDiskFreeSpaceParamResult
+namespace
 {
-	std::wstring _dirPath;
-	ULARGE_INTEGER _freeBytesForUser {};
-	BOOL _result = FALSE;
-	bool _isTimeoutReached = true;
+	FILETIME toFileTime(const QDateTime& time)
+	{
+		// 100 ns ticks since 1601-01-01, the same scale as on Windows
+		static constexpr std::uint64_t unixEpochAsFileTime = 116444736000000000ULL;
+		FILETIME result;
+		if (!time.isValid())
+			return result;
+		const std::uint64_t ticks = static_cast<std::uint64_t>(time.toMSecsSinceEpoch()) * 10000ULL + unixEpochAsFileTime;
+		result.dwLowDateTime = static_cast<DWORD>(ticks & 0xFFFFFFFFULL);
+		result.dwHighDateTime = static_cast<DWORD>(ticks >> 32);
+		return result;
+	}
 
-	explicit GetDiskFreeSpaceParamResult(const std::wstring& dirPath) noexcept : _dirPath(dirPath) {}
-};
+	template <typename Result, typename Work>
+	bool runWithTimeout(std::shared_ptr<Result> shared, DWORD milliSec2wait, Work work)
+	{
+		struct Sync
+		{
+			std::mutex mutex;
+			std::condition_variable done;
+			bool finished = false;
+		};
+		auto sync = std::make_shared<Sync>();
 
-static DWORD WINAPI getDiskFreeSpaceExWorker(void* data)
-{
-	GetDiskFreeSpaceParamResult* inAndOut = static_cast<GetDiskFreeSpaceParamResult*>(data);
-	inAndOut->_result = ::GetDiskFreeSpaceExW(inAndOut->_dirPath.c_str(), &(inAndOut->_freeBytesForUser), nullptr, nullptr);
-	inAndOut->_isTimeoutReached = false;
-	return ERROR_SUCCESS;
+		std::thread([shared, sync, work]()
+		{
+			work(*shared);
+			{
+				std::lock_guard<std::mutex> lock(sync->mutex);
+				sync->finished = true;
+			}
+			sync->done.notify_all();
+		}).detach();
+
+		std::unique_lock<std::mutex> lock(sync->mutex);
+		return sync->done.wait_for(lock, std::chrono::milliseconds(milliSec2wait == 0 ? DEFAULT_MILLISEC : milliSec2wait), [&sync]() { return sync->finished; });
+	}
 }
 
 BOOL getDiskFreeSpaceWithTimeout(const wchar_t* dirPath, ULARGE_INTEGER* freeBytesForUser, DWORD milliSec2wait, bool* isTimeoutReached)
 {
-	GetDiskFreeSpaceParamResult data(dirPath);
-
-	HANDLE hThread = ::CreateThread(NULL, 0, getDiskFreeSpaceExWorker, &data, 0, NULL);
-	if (!hThread)
+	struct Result
 	{
-		return FALSE;
-	}
+		std::uint64_t freeBytes = 0;
+		bool valid = false;
+	};
+	auto result = std::make_shared<Result>();
+	const QString path = toQ(dirPath);
 
-	// wait for our worker thread to complete or terminate it when the required timeout has elapsed
-	DWORD dwWaitStatus = ::WaitForSingleObject(hThread, milliSec2wait == 0 ? DEFAULT_MILLISEC : milliSec2wait);
-	switch (dwWaitStatus)
+	const bool completed = runWithTimeout(result, milliSec2wait, [path](Result& r)
 	{
-		case WAIT_OBJECT_0: // Ok, the state of our worker thread is signaled, so it finished itself in the timeout given		
-			// - nothing else to do here, except the thread handle closing later
-			break;
-
-		case WAIT_TIMEOUT: // the timeout interval elapsed, but the worker's state is still non-signaled
-		default: // any other dwWaitStatus is a BAD one here
-			// WAIT_FAILED or WAIT_ABANDONED
-			::TerminateThread(hThread, dwWaitStatus);
-			break;
-	}
-	CloseHandle(hThread);
-
-	*freeBytesForUser = data._freeBytesForUser;
+		const QStorageInfo storage(path);
+		r.valid = storage.isValid();
+		if (r.valid)
+			r.freeBytes = static_cast<std::uint64_t>(storage.bytesAvailable());
+	});
 
 	if (isTimeoutReached != nullptr)
-		*isTimeoutReached = data._isTimeoutReached;
+		*isTimeoutReached = !completed;
 
-	return data._result;
+	if (!completed || !result->valid)
+		return FALSE;
+
+	freeBytesForUser->QuadPart = result->freeBytes;
+	return TRUE;
 }
 
-
-//----------------------------------------------------
-
-struct GetAttrExParamResult
-{
-	wstring _filePath;
-	WIN32_FILE_ATTRIBUTE_DATA _attributes{};
-	BOOL _result = FALSE;
-	DWORD _error = NO_ERROR;
-	bool _isTimeoutReached = true;
-
-	explicit GetAttrExParamResult(const std::wstring& filePath) noexcept : _filePath(filePath) {
-		_attributes.dwFileAttributes = INVALID_FILE_ATTRIBUTES;
-	}
-};
-
-static DWORD WINAPI getFileAttributesExWorker(void* data)
-{
-	GetAttrExParamResult* inAndOut = static_cast<GetAttrExParamResult*>(data);
-	::SetLastError(NO_ERROR);
-	inAndOut->_result = ::GetFileAttributesExW(inAndOut->_filePath.c_str(), GetFileExInfoStandard, &(inAndOut->_attributes));
-	if (!(inAndOut->_result))
-		inAndOut->_error = ::GetLastError();
-	inAndOut->_isTimeoutReached = false;
-	return ERROR_SUCCESS;
-}
 
 BOOL getFileAttributesExWithTimeout(const wchar_t* filePath, WIN32_FILE_ATTRIBUTE_DATA* fileAttr,
 	DWORD milliSec2wait, bool* isTimeoutReached, DWORD* pdwWin32ApiError)
 {
-	GetAttrExParamResult data(filePath);
-
-	HANDLE hThread = ::CreateThread(NULL, 0, getFileAttributesExWorker, &data, 0, NULL);
-	if (!hThread)
+	struct Result
 	{
-		return FALSE;
-	}
+		WIN32_FILE_ATTRIBUTE_DATA attributes;
+		DWORD error = NO_ERROR;
+		bool found = false;
+	};
+	auto result = std::make_shared<Result>();
+	result->attributes.dwFileAttributes = INVALID_FILE_ATTRIBUTES;
+	const QString path = toQ(filePath);
 
-	// wait for our worker thread to complete or terminate it when the required timeout has elapsed
-	DWORD dwWaitStatus = ::WaitForSingleObject(hThread, milliSec2wait == 0 ? DEFAULT_MILLISEC : milliSec2wait);
-	switch (dwWaitStatus)
+	const bool completed = runWithTimeout(result, milliSec2wait, [path](Result& r)
 	{
-		case WAIT_OBJECT_0: // Ok, the state of our worker thread is signaled, so it finished itself in the timeout given		
-			// - nothing else to do here, except the thread handle closing later
-			break;
+		const QFileInfo info(path);
+		if (!info.exists())
+		{
+			r.error = ERROR_FILE_NOT_FOUND;
+			return;
+		}
 
-		case WAIT_TIMEOUT: // the timeout interval elapsed, but the worker's state is still non-signaled
-		default: // any other dwWaitStatus is a BAD one here
-			// WAIT_FAILED or WAIT_ABANDONED
-			::TerminateThread(hThread, dwWaitStatus);
-			break;
-	}
-	::CloseHandle(hThread);
+		DWORD attributes = info.isDir() ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
+		if (!info.isWritable())
+			attributes |= FILE_ATTRIBUTE_READONLY;
+		if (info.isHidden())
+			attributes |= FILE_ATTRIBUTE_HIDDEN;
 
-	*fileAttr = data._attributes;
+		r.attributes.dwFileAttributes = attributes;
+		r.attributes.ftCreationTime = toFileTime(info.birthTime());
+		r.attributes.ftLastAccessTime = toFileTime(info.lastRead());
+		r.attributes.ftLastWriteTime = toFileTime(info.lastModified());
+		const std::uint64_t size = static_cast<std::uint64_t>(info.size());
+		r.attributes.nFileSizeHigh = static_cast<DWORD>(size >> 32);
+		r.attributes.nFileSizeLow = static_cast<DWORD>(size & 0xFFFFFFFFULL);
+		r.found = true;
+	});
 
 	if (isTimeoutReached != nullptr)
-		*isTimeoutReached = data._isTimeoutReached;
+		*isTimeoutReached = !completed;
 
+	if (!completed)
+		return FALSE;
+
+	*fileAttr = result->attributes;
 	if (pdwWin32ApiError != nullptr)
-		*pdwWin32ApiError = data._error;
+		*pdwWin32ApiError = result->error;
 
-	return data._result;
+	return result->found ? TRUE : FALSE;
 }
 
 bool doesFileExist(const wchar_t* filePath, DWORD milliSec2wait, bool* isTimeoutReached)
@@ -2261,391 +1716,143 @@ bool doesPathExist(const wchar_t* path, DWORD milliSec2wait, bool* isTimeoutReac
 	return (attributes.dwFileAttributes != INVALID_FILE_ATTRIBUTES);
 }
 
-#if defined(__GNUC__) && __GNUC__ > 8
-#define WINAPI_LAMBDA_RETURN(return_t) -> return_t WINAPI
-#elif defined(__GNUC__)
-#define WINAPI_LAMBDA_RETURN(return_t) WINAPI -> return_t
-#else
-#define WINAPI_LAMBDA_RETURN(return_t) -> return_t
-#endif
-
 // check if the window rectangle intersects with any currently active monitor's working area
-// (this func handles also possible extended monitors mode aka the MS Virtual Screen)
 bool isWindowVisibleOnAnyMonitor(const RECT& rectWndIn)
 {
-	struct Param4InOut
-	{
-		const RECT& rectWndIn;
-		bool isWndVisibleOut = false;
-	};
-
-	// callback func to check for intersection with each existing monitor
-	auto callback = []([[maybe_unused]] HMONITOR hMon, [[maybe_unused]] HDC hdc, LPRECT lprcMon, LPARAM lpInOut) WINAPI_LAMBDA_RETURN(BOOL)
-	{
-		Param4InOut* paramInOut = reinterpret_cast<Param4InOut*>(lpInOut);
-		RECT rectIntersection{};
-		if (::IntersectRect(&rectIntersection, &(paramInOut->rectWndIn), lprcMon))
-		{
-			paramInOut->isWndVisibleOut = true; // the window is at least partially visible on this monitor
-			return FALSE; // ok, stop the enumeration
-		}
-		return TRUE; // continue enumeration as no intersection yet
-	};
-
-	// get scaled Virtual Screen size (scaled coordinates are saved by the Notepad++ into config.xml)
-	// - for unscaled, one has to 1st set the SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) & then use GetSystemMetricsForDpi with 96
-	// - for getting the VS RECT, we cannot use here the SystemParametersInfo with SPI_GETWORKAREA!
-	//   (while the SPI_SETWORKAREA is working with the VS coordinates the SPI_GETWORKAREA not...)
-	RECT rectVirtualScreen{ ::GetSystemMetrics(SM_XVIRTUALSCREEN), ::GetSystemMetrics(SM_YVIRTUALSCREEN),
-		::GetSystemMetrics(SM_CXVIRTUALSCREEN), ::GetSystemMetrics(SM_CYVIRTUALSCREEN) }; 
-
-	// 1) Before checking for intersections with individual monitors, we verify if the window's rectangle
-	//    is within the MS Virtual Screen area. If it is outside, this func exits with false early,
-	//    as the window in question cannot be visible on any individual monitor present.
-	RECT rectIntersection{};
-	if (!::IntersectRect(&rectIntersection, &rectWndIn, &rectVirtualScreen))
-	{
-		// the window in question is completely outside the overall Virtual Screen bounds
-		return false;
-	}
-
-	// 2) Using the EnumDisplayMonitors WINAPI to check each present monitor's visible area, we ensure that we are only looking
-	//    at monitors that are part of the Virtual Screen but not at Virtual Space coordinates where is NOT a monitor present.
-	Param4InOut param4InOut{ rectWndIn, false };
-	::EnumDisplayMonitors(NULL, &rectVirtualScreen, callback, reinterpret_cast<LPARAM>(&param4InOut));
-	return param4InOut.isWndVisibleOut;
+	const QRect window(QPoint(rectWndIn.left, rectWndIn.top), QPoint(rectWndIn.right - 1, rectWndIn.bottom - 1));
+	const auto screens = QGuiApplication::screens();
+	return std::any_of(screens.begin(), screens.end(), [&window](const QScreen* screen) { return screen->availableGeometry().intersects(window); });
 }
 
-#if defined(_MSC_VER)
-#pragma warning(disable:4996) // 'GetVersionExW': was declared deprecated
-#endif
-
-bool isCoreWindows()
+bool ControlInfoTip::init(HWND ctrl2attached, const wstring& tipStr, unsigned int remainTimeMillisecond)
 {
-	bool isCoreWindows = false;
-
-	// older Windows (Windows Server 2008 R2-) check 1st
-	OSVERSIONINFOEXW osviex{};
-	osviex.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEXW);
-	if (::GetVersionEx(reinterpret_cast<LPOSVERSIONINFOW>(&osviex)))
-	{
-		DWORD dwReturnedProductType = 0;
-		if (::GetProductInfo(osviex.dwMajorVersion, osviex.dwMinorVersion, osviex.wServicePackMajor, osviex.wServicePackMinor, &dwReturnedProductType))
-		{
-			switch (dwReturnedProductType)
-			{
-				case PRODUCT_STANDARD_SERVER_CORE:
-				case PRODUCT_STANDARD_A_SERVER_CORE:
-				case PRODUCT_STANDARD_SERVER_CORE_V:
-				case PRODUCT_STANDARD_SERVER_SOLUTIONS_CORE:
-				case PRODUCT_SMALLBUSINESS_SERVER_PREMIUM_CORE:
-				case PRODUCT_ENTERPRISE_SERVER_CORE:
-				case PRODUCT_ENTERPRISE_SERVER_CORE_V:
-				case PRODUCT_DATACENTER_SERVER_CORE:
-				case PRODUCT_DATACENTER_A_SERVER_CORE:
-				case PRODUCT_DATACENTER_SERVER_CORE_V:
-				case PRODUCT_STORAGE_STANDARD_SERVER_CORE:
-				case PRODUCT_STORAGE_WORKGROUP_SERVER_CORE:
-				case PRODUCT_STORAGE_ENTERPRISE_SERVER_CORE:
-				case PRODUCT_STORAGE_EXPRESS_SERVER_CORE:
-				case PRODUCT_WEB_SERVER_CORE:
-					isCoreWindows = true;
-			}
-		}
-	}
-
-	if (!isCoreWindows)
-	{
-		// in Core Server 2012+, the recommended way to determine is via the Registry
-		HKEY hKey = nullptr;
-		if (::RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
-			0, KEY_READ, &hKey) == ERROR_SUCCESS)
-		{
-			static constexpr size_t bufLen = 127;
-			wchar_t wszBuf[bufLen + 1]{}; // +1 ... to be always NULL-terminated string
-			DWORD dataSize = sizeof(wchar_t) * bufLen;
-			if (::RegQueryValueExW(hKey, L"InstallationType", nullptr, nullptr, reinterpret_cast<LPBYTE>(&wszBuf), &dataSize) == ERROR_SUCCESS)
-			{
-				if (lstrcmpiW(wszBuf, L"Server Core") == 0)
-					isCoreWindows = true;
-			}
-			::RegCloseKey(hKey);
-			hKey = nullptr;
-		}
-	}
-
-	return isCoreWindows;
-}
-
-bool ControlInfoTip::init(HINSTANCE hInst, HWND ctrl2attached, HWND ctrl2attachedParent, const wstring& tipStr, bool isRTL, unsigned int remainTimeMillisecond /* = 0 */, int maxWidth /* = 200 */)
-{
-	_hWndInfoTip = CreateWindowEx(isRTL ? WS_EX_LAYOUTRTL : 0, TOOLTIPS_CLASS, NULL,
-		WS_POPUP | TTS_ALWAYSTIP | TTS_BALLOON,
-		CW_USEDEFAULT, CW_USEDEFAULT,
-		CW_USEDEFAULT, CW_USEDEFAULT,
-		ctrl2attachedParent, NULL,
-		hInst, NULL);
-
-	if (!_hWndInfoTip)
-		return false;
-
-	_toolInfo.cbSize = sizeof(_toolInfo);
-	_toolInfo.hwnd = ctrl2attachedParent;
-	_toolInfo.uFlags = TTF_IDISHWND | TTF_TRACK;
-	_toolInfo.uId = reinterpret_cast<UINT_PTR>(ctrl2attached);
-	_toolInfo.lpszText = const_cast<PWSTR>(tipStr.data());
-
-	if (::SendMessage(_hWndInfoTip, TTM_ADDTOOL, 0, reinterpret_cast<LPARAM>(&_toolInfo)) == FALSE)
-	{
-		::DestroyWindow(_hWndInfoTip);
-		_hWndInfoTip = nullptr;
-		return false;
-	}
-
-	SendMessage(_hWndInfoTip, TTM_SETMAXTIPWIDTH, 0, maxWidth);
-	SendMessage(_hWndInfoTip, TTM_ACTIVATE, TRUE, 0);
-
-	if (remainTimeMillisecond)
-		SetTimer(ctrl2attachedParent, IDT_HIDE_TOOLTIP, remainTimeMillisecond, NULL);
-
-	return true;
+	_attached = ctrl2attached;
+	_tip = toQ(tipStr);
+	_remainTime = static_cast<int>(remainTimeMillisecond);
+	return _attached != nullptr;
 }
 
 void ControlInfoTip::show(showPosition pos) const
 {
-	if (!isValid())	return;
+	if (!isValid())
+		return;
 
-	RECT rcComboBox;
-	GetWindowRect(reinterpret_cast<HWND>(_toolInfo.uId), &rcComboBox);
-
-	int xPos = 0;
-
+	const int width = _attached->width();
+	int xPos = width / 2;
 	if (pos == beginning)
-		xPos = rcComboBox.left + 15;
-	else if (pos == middle)
-		xPos = rcComboBox.left + (rcComboBox.right - rcComboBox.left) / 2;
-	else // (pos == end)
-		xPos = rcComboBox.left + (rcComboBox.right - rcComboBox.left) - 15;
+		xPos = 15;
+	else if (pos == end)
+		xPos = width - 15;
 
-	int yPos = rcComboBox.top + 25;
-
-	SendMessage(_hWndInfoTip, TTM_TRACKPOSITION, 0, MAKELPARAM(xPos, yPos));
-	::SendMessage(_hWndInfoTip, TTM_TRACKACTIVATE, TRUE, reinterpret_cast<LPARAM>(&_toolInfo));
+	QToolTip::showText(_attached->mapToGlobal(QPoint(xPos, 25)), _tip, _attached, QRect(), _remainTime > 0 ? _remainTime : -1);
 }
 
 void ControlInfoTip::hide()
 {
-	if (_hWndInfoTip)
+	if (_attached)
 	{
-		::SendMessage(_hWndInfoTip, TTM_TRACKACTIVATE, FALSE, reinterpret_cast<LPARAM>(&_toolInfo));
-		DestroyWindow(_hWndInfoTip);
-		_hWndInfoTip = nullptr;
+		QToolTip::hideText();
+		_attached = nullptr;
 	}
 }
 
-#if defined(_MSC_VER)
-#pragma warning(default:4996)
-#endif
-
-DWORD invokeNppUacOp(const std::wstring& strCmdLineParams)
+FILETIME currentFileTime()
 {
-	if ((strCmdLineParams.length() == 0) || (strCmdLineParams.length() > (UINT16_MAX / sizeof(WCHAR))))
-	{
-		// no cmdline or it exceeds the current max WinOS 32767 WCHARs
-		return ERROR_INVALID_PARAMETER;
-	}
+	return toFileTime(QDateTime::currentDateTimeUtc());
+}
 
-	wchar_t wszNppFullPath[MAX_PATH]{};
-	::SetLastError(NO_ERROR);
-	if (!::GetModuleFileName(NULL, wszNppFullPath, MAX_PATH) || (::GetLastError() == ERROR_INSUFFICIENT_BUFFER))
-	{
-		return ::GetLastError();
-	}
-
-	SHELLEXECUTEINFOW sei{};
-	sei.cbSize = sizeof(SHELLEXECUTEINFOW);
-	sei.lpVerb = L"runas"; // UAC prompt
-	sei.nShow = SW_SHOWNORMAL;
-	sei.fMask = SEE_MASK_NOCLOSEPROCESS; // sei.hProcess member receives the launched process handle
-	sei.lpFile = wszNppFullPath;
-	sei.lpParameters = strCmdLineParams.c_str();
-	if (!::ShellExecuteExW(&sei))
-		return ::GetLastError();
-
-	// wait for the elevated Notepad++ process to finish
-	DWORD dwError = NO_ERROR;
-	if (sei.hProcess) // beware - do not check here for the INVALID_HANDLE_VALUE (valid GetCurrentProcess() pseudohandle)
-	{
-		::WaitForSingleObject(sei.hProcess, INFINITE);
-		::GetExitCodeProcess(sei.hProcess, &dwError);
-		::CloseHandle(sei.hProcess);
-	}
-
-	return dwError;
+wstring fileTimeToLocalString(const FILETIME& ft)
+{
+	static constexpr std::uint64_t unixEpochAsFileTime = 116444736000000000ULL;
+	const std::uint64_t ticks = fileTimeTicks(ft);
+	if (ticks < unixEpochAsFileTime)
+		return {};
+	const QDateTime dateTime = QDateTime::fromMSecsSinceEpoch(static_cast<qint64>((ticks - unixEpochAsFileTime) / 10000ULL));
+	return toW(QLocale::system().toString(dateTime, QLocale::ShortFormat));
 }
 
 bool fileTimeToYMD(const FILETIME& ft, int& yyyymmdd)
 {
-	SYSTEMTIME stUtc;
-	SYSTEMTIME stLocal;
-
-	if (!FileTimeToSystemTime(&ft, &stUtc))
+	static constexpr std::uint64_t unixEpochAsFileTime = 116444736000000000ULL;
+	const std::uint64_t ticks = (static_cast<std::uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+	if (ticks < unixEpochAsFileTime)
 		return false;
 
-	if (!SystemTimeToTzSpecificLocalTime(NULL, &stUtc, &stLocal))
-		return false;
-
-	yyyymmdd = (stLocal.wYear * 10000) + (stLocal.wMonth * 100) + stLocal.wDay;
-
+	const QDate date = QDateTime::fromMSecsSinceEpoch(static_cast<qint64>((ticks - unixEpochAsFileTime) / 10000ULL)).date();
+	yyyymmdd = (date.year() * 10000) + (date.month() * 100) + date.day();
 	return true;
 }
 
+// Expands %VAR% as the original does, plus the native $VAR and ${VAR} forms and a leading ~/.
 void expandEnv(wstring& path2Expand)
 {
-	wchar_t buffer[MAX_PATH] = { '\0' };
-	// This returns the resulting string length or 0 in case of error.
-	DWORD ret = ::ExpandEnvironmentStringsW(path2Expand.c_str(), buffer, static_cast<DWORD>(std::size(buffer)));
-	if (ret != 0)
+	QString text = toQ(path2Expand);
+	const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+
+	static const QRegularExpression pattern(QStringLiteral(R"(%([^%/\\\\]+)%|\$\{(\w+)\}|\$(\w+))"));
+	QString result;
+	qsizetype last = 0;
+	auto it = pattern.globalMatch(text);
+	while (it.hasNext())
 	{
-		if (ret == static_cast<DWORD>(lstrlen(buffer) + 1))
-		{
-			path2Expand = buffer;
-		}
-		else
-		{
-			// Buffer was too small, try with a bigger buffer of the required size.
-			std::vector<wchar_t> buffer2(ret, 0);
-			ret = ::ExpandEnvironmentStringsW(path2Expand.c_str(), buffer2.data(), static_cast<DWORD>(buffer2.size()));
-			assert(ret == static_cast<DWORD>(lstrlen(buffer2.data()) + 1));
-			path2Expand = buffer2.data();
-		}
+		const QRegularExpressionMatch match = it.next();
+		const QString name = !match.captured(1).isEmpty() ? match.captured(1) : (!match.captured(2).isEmpty() ? match.captured(2) : match.captured(3));
+		result += text.mid(last, match.capturedStart() - last);
+		// An unknown variable stays as written, as with ExpandEnvironmentStrings
+		result += env.contains(name) ? env.value(name) : match.captured(0);
+		last = match.capturedEnd();
 	}
+	result += text.mid(last);
+
+	if (result == u'~' || result.startsWith(QStringLiteral("~/")))
+		result.replace(0, 1, QDir::homePath());
+
+	path2Expand = toW(result);
+}
+
+bool openWithDesktop(const std::wstring& target)
+{
+	const QString text = toQ(target);
+	const QFileInfo info(text);
+	return QDesktopServices::openUrl(info.exists() ? QUrl::fromLocalFile(info.absoluteFilePath()) : QUrl(text));
+}
+
+std::wstring findTerminal()
+{
+	const QString chosen = qEnvironmentVariable("TERMINAL");
+	if (!chosen.isEmpty())
+		return toW(chosen);
+
+	static const char* const terminals[] = { "x-terminal-emulator", "konsole", "gnome-terminal", "kgx", "xfce4-terminal", "alacritty", "kitty", "foot", "lxterminal", "mate-terminal", "xterm" };
+	for (const char* terminal : terminals)
+	{
+		const QString path = QStandardPaths::findExecutable(QString::fromLatin1(terminal));
+		if (!path.isEmpty())
+			return toW(path);
+	}
+	return L"xterm";
 }
 
 HRESULT openInExplorerAndSelect(const wchar_t* path)
 {
-	if (!doesPathExist(path))
-		return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+	const QString target = toQ(path);
+	const QFileInfo info(target);
+	if (!info.exists())
+		return static_cast<HRESULT>(ERROR_FILE_NOT_FOUND);
 
-	ScopedCOMInit com;
-	if (!com.isInitialized())
-		return E_FAIL;
-
-	ITEMIDLIST* pidl = nullptr;
-	HRESULT hr = ::SHParseDisplayName(path, nullptr, &pidl, 0, nullptr);
-	if (SUCCEEDED(hr))
+	// org.freedesktop.FileManager1 selects the item in file managers that implement it, and the
+	// fallback opens the containing folder.
+	const QString uri = QUrl::fromLocalFile(info.absoluteFilePath()).toString();
+	const QStringList args
 	{
-		hr = ::SHOpenFolderAndSelectItems(pidl, 0, nullptr, 0);
-		::CoTaskMemFree(pidl);
-	}
-	return hr;
+		QStringLiteral("--session"), QStringLiteral("--dest=org.freedesktop.FileManager1"), QStringLiteral("--type=method_call"),
+		QStringLiteral("/org/freedesktop/FileManager1"), QStringLiteral("org.freedesktop.FileManager1.ShowItems"),
+		QStringLiteral("array:string:") + uri, QStringLiteral("string:")
+	};
+	if (QProcess::startDetached(QStringLiteral("dbus-send"), args))
+		return 0;
+
+	const QString folder = info.isDir() ? info.absoluteFilePath() : info.absolutePath();
+	return QDesktopServices::openUrl(QUrl::fromLocalFile(folder)) ? 0 : static_cast<HRESULT>(EIO);
 }
 
-bool needsElevation4Access(const std::wstring& path2check, bool bWriteAccess)
-{
-	namespace fs = std::filesystem;
-
-	WIN32_FILE_ATTRIBUTE_DATA attribs{};
-	attribs.dwFileAttributes = INVALID_FILE_ATTRIBUTES;
-	BOOL bGetAttribs = getFileAttributesExWithTimeout(path2check.c_str(), &attribs);
-	if (!bGetAttribs || (attribs.dwFileAttributes == INVALID_FILE_ATTRIBUTES))
-	{
-		// either the getFileAttributesExWithTimeout failed or the path2check (file or dir) does not exist
-		return false;
-	}
-
-	fs::path testFile;
-	bool fileExists = false;
-
-	if (attribs.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-	{
-		// path2check is an existing dir
-		fs::path targetDir(path2check);
-		bool foundDirFile = false;
-
-		try {
-			for (const auto& entry : fs::directory_iterator(targetDir))
-			{
-				if (entry.is_regular_file())
-				{
-					// found a file there to test on
-					testFile = entry.path();
-					fileExists = true;
-					foundDirFile = true;
-					break;
-				}
-			}
-		}
-		catch (const fs::filesystem_error& e)
-		{
-			if (e.code() == std::errc::permission_denied || e.code().value() == ERROR_ACCESS_DENIED)
-			{
-				if (!bWriteAccess)
-					return true; // lack the READ permissions here for sure, needs elevation
-
-				// for bWriteAccess == true, do nothing here (proceed directly to the tempfile write test below)
-			}
-			else
-			{
-				return false; // no meaning to continue checking (network drop, etc.)
-			}
-		}
-		catch (...)
-		{
-			return false; // no meaning to continue checking (std::bad_alloc & others)
-		}
-
-		// fallback for an empty dir
-		if (!foundDirFile)
-		{
-			if (!bWriteAccess)
-				return false; // no elevation required (no exception case, we only want to check READ access and can read it - it's empty)
-
-			// generate a pseudorandom tempfile to test WRITE access
-			std::wstring tempFileName = L"test-" + std::to_wstring(::GetTickCount64()) + L".tmp";
-			testFile = targetDir / tempFileName;
-			fileExists = false;
-		}
-	}
-	else
-	{
-		// path2check is an existing file
-		testFile = path2check;
-		fileExists = true;
-	}
-
-	// test the desired access rights
-	HANDLE hFile = ::CreateFileW(testFile.c_str(), bWriteAccess ? GENERIC_WRITE : GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-		nullptr, fileExists ? OPEN_EXISTING : CREATE_NEW, fileExists ? FILE_ATTRIBUTE_NORMAL : FILE_FLAG_DELETE_ON_CLOSE, nullptr);
-	if (hFile != INVALID_HANDLE_VALUE)
-	{
-		::CloseHandle(hFile);
-		return false; // can open, no elevation required
-	}
-
-	if (::GetLastError() == ERROR_ACCESS_DENIED)
-		return true; // elevation required
-
-	// an elevation will not help us here (HW R/O, file-in-use locks, complex restrictive ACLs, etc.)
-	return false;
-}
-
-bool nppCopyDataDigest(ULONG_PTR dwData, const void* data, DWORD cb, NppDigest& out)
-{
-	if (cb != 0 && data == nullptr)
-		return false;
-
-	// calc_sha_256 hashes one contiguous buffer, so build "tag | length | data" first
-	const uint64_t tag = dwData;
-	const uint32_t len = cb;
-
-	std::vector<uint8_t> buf(sizeof(tag) + sizeof(len) + cb);
-	memcpy(buf.data(), &tag, sizeof(tag));
-	memcpy(buf.data() + sizeof(tag), &len, sizeof(len));
-	if (cb != 0)
-		memcpy(buf.data() + sizeof(tag) + sizeof(len), data, cb);
-
-	calc_sha_256(out.data(), buf.data(), buf.size());
-
-	return true;
-}

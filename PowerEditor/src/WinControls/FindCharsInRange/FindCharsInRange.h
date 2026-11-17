@@ -17,14 +17,10 @@
 
 #pragma once
 
-#include <windows.h>
-
 #include <stdexcept>
 
 #include "ScintillaEditView.h"
 #include "StaticDialog.h"
-#include "Window.h"
-#include "dpiManagerV2.h"
 #include "findCharsInRange_rc.h"
 
 class FindCharsInRangeDlg : public StaticDialog
@@ -39,29 +35,12 @@ public :
 		_ppEditView = ppEditView;
 	}
 
-	void doDialog(bool isRTL = false) {
-		if (!isCreated())
-		{
-			const auto dpiContext = DPIManagerV2::setThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-			create(IDD_FINDCHARACTERS, isRTL);
-			DPIManagerV2::setThreadDpiAwarenessContext(dpiContext);
-		}
-		display();
-	}
-
-	void display(bool toShow = true) const override {
-		Window::display(toShow);
-		::SendMessageW(_hSelf, DM_REPOSITION, 0, 0);
-	}
-
-protected :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	void doDialog(bool isRTL = false);
 
 private :
+	void onFindNext();
+
 	ScintillaEditView **_ppEditView = nullptr;
-
-	using Window::init;
-
 	bool findCharInRange(unsigned char beginRange, unsigned char endRange, intptr_t startPos, bool direction, bool wrap);
 	bool getRangeFromUI(unsigned char & startRange, unsigned char & endRange);
 	void getDirectionFromUI(bool & whichDirection, bool & isWrap);

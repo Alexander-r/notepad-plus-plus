@@ -19,7 +19,7 @@
 
 #include "FunctionCallTip.h"
 
-#include <windows.h>
+#include "NppPlatform.h"
 
 #include <string>
 #include <vector>

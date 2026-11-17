@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>AboutboxDlg</class>
+ <widget class="QDialog" name="AboutboxDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>405</width><height>390</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <layout class="QHBoxLayout" name="layout2">
+     <item>
+      <widget class="QLabel" name="iNppaboutLogo">
+       <property name="nppId" stdset="0"><number>99</number></property>
+       <property name="text"><string/></property>
+       <property name="wordWrap"><bool>true</bool></property>
+      </widget>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="layout3">
+       <item>
+        <spacer name="spacer4">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="layout5">
+         <item>
+          <widget class="QLabel" name="label">
+           <property name="nppId" stdset="0"><number>-1</number></property>
+           <property name="text"><string/></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="versionBit">
+           <property name="nppId" stdset="0"><number>1707</number></property>
+           <property name="text"><string>bit</string></property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="spacer6">
+           <property name="orientation"><enum>Qt::Horizontal</enum></property>
+           <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+           <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLineEdit" name="buildDatetime">
+         <property name="nppId" stdset="0"><number>1706</number></property>
+         <property name="readOnly"><bool>true</bool></property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="layout7">
+         <item>
+          <widget class="QLabel" name="label2">
+           <property name="nppId" stdset="0"><number>-1</number></property>
+           <property name="text"><string>Home:</string></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="homeAddr">
+           <property name="nppId" stdset="0"><number>1702</number></property>
+           <property name="text"><string>https://notepad-plus-plus.org/</string></property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="spacer8">
+           <property name="orientation"><enum>Qt::Horizontal</enum></property>
+           <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+           <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <spacer name="spacer9">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox">
+     <property name="nppId" stdset="0"><number>-1</number></property>
+     <property name="title"><string>GNU General Public Licence</string></property>
+     <layout class="QVBoxLayout" name="layout10">
+      <item>
+       <widget class="QPlainTextEdit" name="licenceEdit">
+        <property name="nppId" stdset="0"><number>1701</number></property>
+        <property name="readOnly"><bool>true</bool></property>
+        <property name="tabChangesFocus"><bool>true</bool></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="layout11">
+     <item>
+      <spacer name="spacer12">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="ok">
+       <property name="nppId" stdset="0"><number>1</number></property>
+       <property name="text"><string>OK</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+       <property name="default"><bool>true</bool></property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="spacer13">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

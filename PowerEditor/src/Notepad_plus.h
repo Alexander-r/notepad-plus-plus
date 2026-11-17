@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include <windows.h>
+#include <QMainWindow>
+
 
 #include <atomic>
 #include <cstdlib>
@@ -42,6 +43,7 @@
 #include "FindReplaceDlg.h"
 #include "GoToLineDlg.h"
 #include "Notepad_plus_msgs.h"
+#include "NppMenu.h"
 #include "NppConstants.h"
 #include "Parameters.h"
 #include "PluginsManager.h"
@@ -63,7 +65,6 @@
 #include "localization.h"
 #include "md5Dlgs.h"
 #include "menuCmdID.h"
-#include "pluginsAdmin.h"
 #include "preferenceDlg.h"
 #include "shortcut.h"
 #include "trayIconControler.h"
@@ -116,15 +117,16 @@ struct VisibleGUIConf final
 
 	//Used by postit & fullscreen
 	bool _isMenuShown = true;
-	DWORD_PTR _preStyle = (WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN);
 
 	//used by postit
 	bool _isTabbarShown = true;
 	bool _isAlwaysOnTop = false;
 	bool _isStatusbarShown = true;
 
-	//used by fullscreen
-	WINDOWPLACEMENT _winPlace = {};
+	//Used by fullscreen and postit, to return to the former window
+	QByteArray _preGeometry;
+	Qt::WindowFlags _preFlags;
+	bool _isSavedPlacement = false;
 
 	//used by distractionFree
 	bool _was2ViewModeOn = false;
@@ -271,10 +273,6 @@ public:
 	std::vector<std::wstring> addNppPlugins(const wchar_t* extFilterName, const wchar_t* extFilter);
 	int getHtmlXmlEncoding(const wchar_t* fileName) const;
 
-	HACCEL getAccTable() const {
-		return _accelerator.getAccTable();
-	}
-
 	bool emergency(const std::wstring& emergencySavedDir);
 
 	Buffer* getCurrentBuffer() {
@@ -286,14 +284,11 @@ public:
 	void showQuoteFromIndex(int index) const;
 	void showQuote(const QuoteParams* quote) const;
 
-	std::wstring getPluginListVerStr() const {
-		return _pluginsAdminDlg.getPluginListVerStr();
-	}
-
 	void minimizeDialogs();
 	void restoreMinimizeDialogs();
 
 	void refreshDarkMode(bool resetStyle = false);
+	void refreshDarkModeControls(); // what is drawn on the controls, and not the editor's theme
 
 	void refreshInternalPanelIcons();
 
@@ -363,7 +358,6 @@ private:
 	WordStyleDlg _configStyleDlg;
 	PreferenceDlg _preference;
 	FindCharsInRangeDlg _findCharsInRangeDlg;
-	PluginsAdminDlg _pluginsAdminDlg;
 	DocumentPeeker _documentPeeker;
 
 	// a handle list of all the Notepad++ dialogs
@@ -373,14 +367,23 @@ private:
 
 	WindowsMenu _windowsMenu;
 	HMENU _mainMenuHandle = NULL;
+	QWidget* _centralArea = nullptr;
 
 	bool _sysMenuEntering = false;
+
+	// Whether the clipboard has text to paste, read again after each change of the clipboard: see checkClipboard()
+	bool _isClipboardTextKnown = false;
+	bool _hasClipboardText = false;
 
 	// make sure we don't recursively call doClose when closing the last file with -quitOnEmpty
 	bool _isAttemptingCloseOnQuit = false;
 
 	// For FullScreen/PostIt/DistractionFree features
 	VisibleGUIConf	_beforeSpecialView;
+	void placeRestoreButton(int widthsFromRight);
+	void placeRestoreButton();
+	void setMainWindowFlag(Qt::WindowType flag, bool isOn);
+	int _restoreButtonWidthsFromRight = 1;
 	void fullScreenToggle();
 	void postItToggle();
 	void distractionFreeToggle();
@@ -522,7 +525,10 @@ private:
 	void checkSyncState();
 	void syncZoom();
 	void setupColorSampleBitmapsOnMainMenuItems();
-	void dropFiles(HDROP hdrop);
+	void syncMenuBar();
+	void showMainWindow(bool isMaximized);
+	void syncCentralArea();
+	void dropFiles(const std::vector<std::wstring>& droppedPaths);
 	void checkModifiedDocument(bool bCheckOnlyCurrentBuffer);
 
     void getMainClientRect(RECT & rc) const;
@@ -541,12 +547,8 @@ private:
     void setLanguage(LangType langType);
 	LangType menuID2LangType(int cmdID);
 
-	BOOL processIncrFindAccel(MSG *msg) const;
-	BOOL processFindAccel(MSG *msg) const;
-	BOOL processTabSwitchAccel(MSG* msg) const;
-
 	void checkMenuItem(int itemID, bool willBeChecked) const {
-		::CheckMenuItem(_mainMenuHandle, itemID, MF_BYCOMMAND | (willBeChecked?MF_CHECKED:MF_UNCHECKED));
+		nppCheckMenuCommand(_mainMenuHandle, itemID, willBeChecked);
 	}
 
 	bool isConditionExprLine(intptr_t lineNumber);
@@ -683,9 +685,7 @@ private:
 		return (rand() % rangeMax);
 	}
 
-	static DWORD WINAPI backupDocument(void *params);
 
-	static DWORD WINAPI monitorFileOnChange(void * params);
 	struct MonitorInfo final {
 		MonitorInfo(Buffer *buf, HWND nppHandle) :
 			_buffer(buf), _nppHandle(nppHandle) {}
@@ -702,9 +702,6 @@ private:
 	void clearChangesHistory(int iView);
 	void changedHistoryGoTo(int idGoTo);
 
-	HMENU createMenuFromMenu(HMENU hSourceMenu, const std::vector<int>& commandIds);
-	BOOL notifyTBShowMenu(LPNMTOOLBARW lpnmtb, const char* menuPosId);
-	BOOL notifyTBShowMenu(LPNMTOOLBARW lpnmtb, const char* menuPosId, const std::vector<int>& cmdIDs);
 
 	int getIcoID(DockingDlgInterface* panel);
 	void loadPanelIcon(HINSTANCE hInst, DockingDlgInterface* panel, HICON* phIcon);

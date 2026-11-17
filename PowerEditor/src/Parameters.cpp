@@ -17,11 +17,18 @@
 
 #include "Parameters.h"
 
-#include <windows.h>
-
-#include <shlobj.h>
-#include <shlwapi.h>
-#include <strsafe.h>
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QFontDatabase>
+#include <QGuiApplication>
+#include <QMenu>
+#include <QScreen>
+#include <QSettings>
+#include <QStandardPaths>
+#include <QWidget>
 
 #include <algorithm>
 #include <array>
@@ -47,18 +54,16 @@
 #include <SciLexer.h>
 #include <Scintilla.h>
 
-#include "AboutDlg.h"
 #include "Common.h"
+#include "ConfigSettings.h"
 #include "ContextMenu.h"
-#include "Notepad_plus.h"
-#include "Notepad_plus_Window.h"
+#include "NppMenu.h"
+#include "UdlKeywordMappers.h"
 #include "Notepad_plus_msgs.h"
 #include "NppConstants.h"
 #include "NppDarkMode.h"
 #include "NppXml.h"
-#include "ScintillaEditView.h"
-#include "ToolBar.h"
-#include "UserDefineDialog.h"
+#include "LanguageNames.h"
 #include "hmac.h"
 #include "keys.h"
 #include "localization.h"
@@ -66,11 +71,41 @@
 #include "menuCmdID.h"
 #include "resource.h"
 #include "shortcut.h"
-#include "verifySignedfile.h"
 
 #ifdef _MSC_VER
 #pragma warning(disable : 4996) // for GetVersionEx()
 #endif
+
+namespace
+{
+	std::wstring fileNameOf(const std::wstring& path)
+	{
+		return QFileInfo(QString::fromStdWString(path)).fileName().toStdWString();
+	}
+
+	// Overwrites the destination, as CopyFile does.
+	bool copyFileReplacing(const std::wstring& source, const std::wstring& destination)
+	{
+		const QString dest = QString::fromStdWString(destination);
+		QFile::remove(dest);
+		return QFile::copy(QString::fromStdWString(source), dest);
+	}
+
+	bool copyFileIfMissing(const std::wstring& source, const std::wstring& destination)
+	{
+		return QFile::copy(QString::fromStdWString(source), QString::fromStdWString(destination));
+	}
+
+	void createDirectory(const std::wstring& path)
+	{
+		QDir().mkpath(QString::fromStdWString(path));
+	}
+
+	void deleteFile(const std::wstring& path)
+	{
+		QFile::remove(QString::fromStdWString(path));
+	}
+}
 
 static constexpr const wchar_t localConfFile[] = L"doLocalConf.xml";
 static constexpr const wchar_t notepadStyleFile[] = L"asNotepad.xml";
@@ -107,8 +142,8 @@ static constexpr WinMenuKeyDefinition winKeyDefs[]
 	//
 	{ VK_N,       IDM_FILE_NEW,                                 true,  false, false, nullptr },
 	{ VK_O,       IDM_FILE_OPEN,                                true,  false, false, nullptr },
-	{ VK_NULL,    IDM_FILE_OPEN_FOLDER,                         false, false, false, L"Open containing folder in Explorer" },
-	{ VK_NULL,    IDM_FILE_OPEN_CMD,                            false, false, false, L"Open containing folder in Command Prompt" },
+	{ VK_NULL,    IDM_FILE_OPEN_FOLDER,                         false, false, false, L"Open containing folder in File Manager" },
+	{ VK_NULL,    IDM_FILE_OPEN_CMD,                            false, false, false, L"Open containing folder in Terminal" },
 	{ VK_NULL,    IDM_FILE_OPEN_POWERSHELL,                     false, false, false, L"Open containing folder in PowerShell" },
 	{ VK_NULL,    IDM_FILE_OPEN_DEFAULT_VIEWER,                 false, false, false, nullptr },
 	{ VK_NULL,    IDM_FILE_OPENFOLDERASWORKSPACE,                false, false, false, nullptr },
@@ -653,7 +688,6 @@ static constexpr ScintillaKeyDefinition scintKeyDefs[]
 
 #define SESSION_BACKUP_EXT L".inCaseOfCorruption.bak"
 
-using PGNSI = void (WINAPI*)(LPSYSTEM_INFO);
 
 static int strVal(const char* str, int base)
 {
@@ -878,8 +912,7 @@ std::wstring LocalizationSwitcher::getXmlFilePathFromLangName(const wchar_t *lan
 
 bool LocalizationSwitcher::addLanguageFromXml(const std::wstring& xmlFullPath)
 {
-	const wchar_t * fn = ::PathFindFileNameW(xmlFullPath.c_str());
-	const std::wstring foundLang = getLangFromXmlFileName(fn);
+	const std::wstring foundLang = getLangFromXmlFileName(fileNameOf(xmlFullPath).c_str());
 	if (!foundLang.empty())
 	{
 		_localizationList.emplace_back(foundLang, xmlFullPath);
@@ -895,7 +928,7 @@ bool LocalizationSwitcher::switchToLang(const wchar_t *lang2switch) const
 	if (langPath.empty())
 		return false;
 
-	return ::CopyFileW(langPath.c_str(), _nativeLangPath.c_str(), FALSE) != FALSE;
+	return copyFileReplacing(langPath, _nativeLangPath);
 }
 
 
@@ -903,9 +936,7 @@ std::wstring ThemeSwitcher::getThemeFromXmlFileName(const wchar_t* xmlFullPath)
 {
 	if (!xmlFullPath || !xmlFullPath[0])
 		return L"";
-	std::wstring fn(::PathFindFileName(xmlFullPath));
-	::PathRemoveExtension(fn.data());
-	return fn;
+	return QFileInfo(QString::fromWCharArray(xmlFullPath)).completeBaseName().toStdWString();
 }
 
 int DynamicMenu::getTopLevelItemNumber() const
@@ -964,10 +995,16 @@ bool DynamicMenu::clearMenu() const
 {
 	if (!_hMenu) return false;
 
-	int nbTopItem = getTopLevelItemNumber();
+	const QList<QAction*> actions = _hMenu->actions();
+	const int nbTopItem = getTopLevelItemNumber();
 	for (int i = nbTopItem + 1; i >= 0 ; --i)
 	{
-		::DeleteMenu(_hMenu, _posBase + i, MF_BYPOSITION);
+		const qsizetype position = static_cast<qsizetype>(_posBase) + i;
+		if (position < actions.size())
+		{
+			_hMenu->removeAction(actions[position]);
+			actions[position]->deleteLater();
+		}
 	}
 
 	return true;
@@ -978,51 +1015,48 @@ bool DynamicMenu::createMenu() const
 	if (!_hMenu) return false;
 
 	bool lastIsSep = false;
-	HMENU hParentFolder = NULL;
+	HMENU hParentFolder = nullptr;
 	std::wstring currentParentFolderStr;
-	int j = 0;
 
-	size_t nb = _menuItems.size();
-	size_t i = 0;
-	for (; i < nb; ++i)
+	// Everything goes before the item at the base position, or at the end when there is none.
+	const QList<QAction*> existing = _hMenu->actions();
+	QAction* before = (static_cast<qsizetype>(_posBase) < existing.size()) ? existing[_posBase] : nullptr;
+	const HWND commandTarget = _hMenu->parentWidget() ? _hMenu->parentWidget()->window() : nullptr;
+
+	for (size_t i = 0, nb = _menuItems.size(); i < nb; ++i)
 	{
 		const MenuItemUnit& item = _menuItems[i];
 		if (item._parentFolderName.empty())
 		{
 			currentParentFolderStr.clear();
-			hParentFolder = NULL;
-			j = 0;
+			hParentFolder = nullptr;
 		}
-		else
+		else if (item._parentFolderName != currentParentFolderStr)
 		{
-			if (item._parentFolderName != currentParentFolderStr)
-			{
-				currentParentFolderStr = item._parentFolderName;
-				hParentFolder = ::CreateMenu();
-				j = 0;
-
-				::InsertMenu(_hMenu, static_cast<UINT>(_posBase + i), MF_BYPOSITION | MF_POPUP, reinterpret_cast<UINT_PTR>(hParentFolder), currentParentFolderStr.c_str());
-			}
+			currentParentFolderStr = item._parentFolderName;
+			hParentFolder = nppAddSubMenu(_hMenu, currentParentFolderStr, before);
 		}
 
-		unsigned int flag = MF_BYPOSITION | ((item._cmdID == 0) ? MF_SEPARATOR : 0);
 		if (hParentFolder)
 		{
-			::InsertMenu(hParentFolder, j++, flag, item._cmdID, item._itemName.c_str());
+			if (item._cmdID == 0)
+				nppAddMenuSeparator(hParentFolder);
+			else
+				nppAddMenuItem(hParentFolder, static_cast<int>(item._cmdID), item._itemName, commandTarget);
 			lastIsSep = false;
 		}
-		else if ((i == 0 || i == _menuItems.size() - 1) && item._cmdID == 0)
+		else if ((i == 0 || i == nb - 1) && item._cmdID == 0)
 		{
 			lastIsSep = true;
 		}
 		else if (item._cmdID != 0)
 		{
-			::InsertMenu(_hMenu, static_cast<UINT>(_posBase + i), flag, item._cmdID, item._itemName.c_str());
+			nppAddMenuItem(_hMenu, static_cast<int>(item._cmdID), item._itemName, commandTarget, before);
 			lastIsSep = false;
 		}
 		else if (!lastIsSep)
 		{
-			::InsertMenu(_hMenu, static_cast<UINT>(_posBase + i), flag, item._cmdID, item._itemName.c_str());
+			nppAddMenuSeparator(_hMenu, before);
 			lastIsSep = true;
 		}
 		else // last item is separator and current item is separator
@@ -1031,145 +1065,36 @@ bool DynamicMenu::createMenu() const
 		}
 	}
 
-	if (nb > 0)
+	if (!_menuItems.empty())
 	{
-		::InsertMenu(_hMenu, static_cast<UINT>(_posBase + i), MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
-		::InsertMenu(_hMenu, static_cast<UINT>(_posBase + i + 2), MF_BYCOMMAND, _lastCmd, _lastCmdLabel.c_str());
+		nppAddMenuSeparator(_hMenu, before);
+		nppAddMenuItem(_hMenu, _lastCmd, _lastCmdLabel, commandTarget, before);
 	}
 
 	return true;
 }
 
-winVer NppParameters::getWindowsVersion()
-{
-	OSVERSIONINFOEX osvi;
-	SYSTEM_INFO si;
-	PGNSI pGNSI;
-
-	ZeroMemory(&si, sizeof(SYSTEM_INFO));
-	ZeroMemory(&osvi, sizeof(OSVERSIONINFOEX));
-
-	osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
-	const BOOL bOsVersionInfoEx = ::GetVersionExW(reinterpret_cast<OSVERSIONINFO*>(&osvi));
-	if (!bOsVersionInfoEx)
-	{
-		osvi.dwOSVersionInfoSize = sizeof (OSVERSIONINFO);
-		if (!::GetVersionExW(reinterpret_cast<OSVERSIONINFO*>(&osvi)))
-			return WV_UNKNOWN;
-	}
-
-	pGNSI = reinterpret_cast<PGNSI>(::GetProcAddress(GetModuleHandle(L"kernel32.dll"), "GetNativeSystemInfo"));
-	if (pGNSI != nullptr)
-		pGNSI(&si);
-	else
-		GetSystemInfo(&si);
-
-	switch (si.wProcessorArchitecture)
-	{
-	case PROCESSOR_ARCHITECTURE_IA64:
-		_platForm = PF_IA64;
-		break;
-
-	case PROCESSOR_ARCHITECTURE_AMD64:
-		_platForm = PF_X64;
-		break;
-
-	case PROCESSOR_ARCHITECTURE_INTEL:
-		_platForm = PF_X86;
-		break;
-
-	case PROCESSOR_ARCHITECTURE_ARM64:
-		_platForm = PF_ARM64;
-		break;
-
-	default:
-		_platForm = PF_UNKNOWN;
-	}
-
-   switch (osvi.dwPlatformId)
-   {
-		case VER_PLATFORM_WIN32_NT:
-		{
-			if (osvi.dwMajorVersion == 10 && osvi.dwMinorVersion == 0 && osvi.dwBuildNumber >= 22000)
-				return WV_WIN11;
-
-			if (osvi.dwMajorVersion == 10 && osvi.dwMinorVersion == 0)
-				return WV_WIN10;
-
-			if (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 3)
-				return WV_WIN81;
-
-			if (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 2)
-				return WV_WIN8;
-
-			if (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 1)
-				return WV_WIN7;
-
-			if (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 0)
-				return WV_VISTA;
-
-			if (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion == 2)
-			{
-				if (osvi.wProductType == VER_NT_WORKSTATION && si.wProcessorArchitecture==PROCESSOR_ARCHITECTURE_AMD64)
-					return WV_XPX64;
-				return WV_S2003;
-			}
-
-			if (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion == 1)
-				return WV_XP;
-
-			if (osvi.dwMajorVersion == 5 && osvi.dwMinorVersion == 0)
-				return WV_W2K;
-
-			if (osvi.dwMajorVersion <= 4)
-				return WV_NT;
-			break;
-		}
-
-		// Test for the Windows Me/98/95.
-		case VER_PLATFORM_WIN32_WINDOWS:
-		{
-			if (osvi.dwMajorVersion == 4 && osvi.dwMinorVersion == 0)
-				return WV_95;
-
-			if (osvi.dwMajorVersion == 4 && osvi.dwMinorVersion == 10)
-				return WV_98;
-
-			if (osvi.dwMajorVersion == 4 && osvi.dwMinorVersion == 90)
-				return WV_ME;
-			break;
-		}
-
-		case VER_PLATFORM_WIN32s:
-			return WV_WIN32S;
-
-		default:
-			return WV_UNKNOWN;
-   }
-
-   return WV_UNKNOWN;
-}
 
 
 NppParameters::NppParameters()
 {
-	// Get windows version
-	_winVersion = getWindowsVersion();
-
 	// Get current system code page
-	_currentSystemCodepage = GetACP();
+	_currentSystemCodepage = 65001; // text is UTF-8 outside Windows
 
 	// Prepare for default path
-	wchar_t nppPath[MAX_PATH];
-	::GetModuleFileName(NULL, nppPath, MAX_PATH);
-
-	PathRemoveFileSpec(nppPath);
-	_nppPath = nppPath;
+	// The directory holding the data files: beside the executable, or in share/notepad++ once installed. The plugins
+	// are then in plugins beside the data, or in lib/notepad++/plugins. Both are found from the executable, so that an
+	// installation can move, as an AppImage does. The build gives the folders of its installation.
+	const QString exeDir = QCoreApplication::applicationDirPath();
+	const QString sharedDir = QDir(exeDir).absoluteFilePath(QStringLiteral(NPP_INSTALLED_DATA_DIR));
+	const bool useSharedDir = !QFileInfo::exists(QDir(exeDir).filePath(QStringLiteral("langs.model.xml"))) && QFileInfo::exists(sharedDir);
+	_nppPath = QDir::cleanPath(useSharedDir ? sharedDir : exeDir).toStdWString();
+	if (useSharedDir)
+		_installedPluginRootDir = QDir::cleanPath(QDir(exeDir).absoluteFilePath(QStringLiteral(NPP_INSTALLED_PLUGINS_DIR))).toStdWString();
+	_systemPluginRootDir = QDir::cleanPath(QStringLiteral(NPP_SYSTEM_PLUGINS_DIR)).toStdWString();
 
 	//Initialize current directory to startup directory
-	wchar_t curDir[MAX_PATH];
-	::GetCurrentDirectory(MAX_PATH, curDir);
-	_currentDirectory = curDir;
+	_currentDirectory = QDir::currentPath().toStdWString();
 
 	_appdataNppDir.clear();
 	std::wstring notepadStylePath(_nppPath);
@@ -1266,17 +1191,10 @@ bool NppParameters::reloadLang()
 	return loadOkay;
 }
 
-std::wstring NppParameters::getSpecialFolderLocation(int folderKind)
+std::wstring NppParameters::getUserConfigDirectory()
 {
-	wchar_t path[MAX_PATH];
-	const HRESULT specialLocationResult = SHGetFolderPath(nullptr, folderKind, nullptr, SHGFP_TYPE_CURRENT, path);
-
-	std::wstring result;
-	if (SUCCEEDED(specialLocationResult))
-	{
-		result = path;
-	}
-	return result;
+	const QString home = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation);
+	return QDir(home).filePath(QStringLiteral("notepad++")).toStdWString();
 }
 
 
@@ -1285,13 +1203,7 @@ std::wstring NppParameters::getSettingsFolder() const
 	if (_isLocal)
 		return _nppPath;
 
-	std::wstring settingsFolderPath = getSpecialFolderLocation(CSIDL_APPDATA);
-
-	if (settingsFolderPath.empty())
-		return _nppPath;
-
-	pathAppend(settingsFolderPath, L"Notepad++");
-	return settingsFolderPath;
+	return getUserConfigDirectory();
 }
 
 
@@ -1309,25 +1221,15 @@ bool NppParameters::load()
 	// Test if doLocalConf.xml exists
 	_isLocal = (doesFileExist(localConfPath.c_str()) == TRUE);
 
-	// Under vista and windows 7, the usage of doLocalConf.xml is not allowed
-	// if Notepad++ is installed in "program files" directory, because of UAC
-	if (_isLocal)
+	if (_installedPluginRootDir.empty())
 	{
-		// We check if OS is Vista or greater version
-		if (_winVersion >= WV_VISTA)
-		{
-			std::wstring progPath = getSpecialFolderLocation(CSIDL_PROGRAM_FILES);
-			wchar_t nppDirLocation[MAX_PATH];
-			wcscpy_s(nppDirLocation, _nppPath.c_str());
-			::PathRemoveFileSpec(nppDirLocation);
-
-			if  (progPath == nppDirLocation)
-				_isLocal = false;
-		}
+		_pluginRootDir = _nppPath;
+		pathAppend(_pluginRootDir, L"plugins");
 	}
-
-	_pluginRootDir = _nppPath;
-	pathAppend(_pluginRootDir, L"plugins");
+	else
+	{
+		_pluginRootDir = _installedPluginRootDir;
+	}
 
 	//
 	// the 3rd priority: general default configuration
@@ -1341,39 +1243,29 @@ bool NppParameters::load()
 	}
 	else
 	{
-		_userPath = getSpecialFolderLocation(CSIDL_APPDATA);
-
-		pathAppend(_userPath, L"Notepad++");
-		if (!doesDirectoryExist(_userPath.c_str()))
-			::CreateDirectory(_userPath.c_str(), NULL);
+		_userPath = getUserConfigDirectory();
+		createDirectory(_userPath);
 
 		_appdataNppDir = _userPluginConfDir = _userPath;
 
 		pathAppend(_userPluginConfDir, L"plugins");
-		if (!doesDirectoryExist(_userPluginConfDir.c_str()))
-			::CreateDirectory(_userPluginConfDir.c_str(), NULL);
+		createDirectory(_userPluginConfDir);
 
 		pathAppend(_userPluginConfDir, L"Config");
-		if (!doesDirectoryExist(_userPluginConfDir.c_str()))
-			::CreateDirectory(_userPluginConfDir.c_str(), NULL);
-
-		// For PluginAdmin to launch the wingup with UAC
-		setElevationRequired(true);
+		createDirectory(_userPluginConfDir);
 	}
 
 	_pluginConfDir = _pluginRootDir; // for plugin list home
 	pathAppend(_pluginConfDir, L"Config");
 
-	if (!doesDirectoryExist(nppPluginRootParent.c_str()))
-		::CreateDirectory(nppPluginRootParent.c_str(), NULL);
-	if (!doesDirectoryExist(_pluginRootDir.c_str()))
-		::CreateDirectory(_pluginRootDir.c_str(), NULL);
+	createDirectory(_isLocal ? nppPluginRootParent : _userPath);
+	createDirectory(_pluginRootDir);
 
 	_sessionPath = _userPath; // Session stores the absolute file path, it should never be on cloud
 
 	// Detection cloud settings
 	std::wstring cloudChoicePath{_userPath};
-	cloudChoicePath += L"\\cloud\\choice";
+	cloudChoicePath += L"/cloud/choice";
 
 	//
 	// the 2nd priority: Cloud Choice Path
@@ -1437,7 +1329,7 @@ bool NppParameters::load()
 	{
 		WIN32_FILE_ATTRIBUTE_DATA attributes{};
 		attributes.dwFileAttributes = INVALID_FILE_ATTRIBUTES;
-		if (GetFileAttributesEx(langs_xml_path.c_str(), GetFileExInfoStandard, &attributes) != 0)
+		if (getFileAttributesExWithTimeout(langs_xml_path.c_str(), &attributes))
 		{
 			if (attributes.nFileSizeLow == 0 && attributes.nFileSizeHigh == 0)
 			{
@@ -1461,7 +1353,7 @@ bool NppParameters::load()
 
 	if (doRecover)
 	{
-		::CopyFile(modelLangsPath.c_str(), langs_xml_path.c_str(), FALSE);
+		copyFileReplacing(modelLangsPath, langs_xml_path);
 	}
 
 	_pXmlDoc._path = langs_xml_path;
@@ -1492,20 +1384,26 @@ bool NppParameters::load()
 
 
 	//---------------------------//
-	// config.xml : for per-user //
+	// config.ini : for per-user //
 	//---------------------------//
-	std::wstring configPath(_userPath);
-	pathAppend(configPath, L"config.xml");
-
-	std::wstring srcConfigPath(_nppPath);
-	pathAppend(srcConfigPath, L"config.model.xml");
-
-	if (!doesFileExist(configPath.c_str()))
-		::CopyFile(srcConfigPath.c_str(), configPath.c_str(), FALSE);
-
-	_xmlUserDoc._path = configPath;
+	_xmlUserDoc._path = _userPath;
+	pathAppend(_xmlUserDoc._path, L"config.ini");
 	_xmlUserDoc._doc = new NppXml::NewDocument();
-	loadOkay = NppXml::loadFile(_xmlUserDoc._doc, _xmlUserDoc._path.c_str());
+	loadOkay = loadConfigFromSettings(_xmlUserDoc._doc, _xmlUserDoc._path);
+
+	if (!loadOkay)
+	{
+		// First run: start from a config.xml the user has placed here, or else from the model. It is kept
+		// as it was, and the settings go to config.ini from now on.
+		std::wstring importPath(_userPath);
+		pathAppend(importPath, L"config.xml");
+		if (!doesFileExist(importPath.c_str()))
+		{
+			importPath = _nppPath;
+			pathAppend(importPath, L"config.model.xml");
+		}
+		loadOkay = NppXml::loadFile(_xmlUserDoc._doc, importPath.c_str());
+	}
 
 	if (!loadOkay)
 	{
@@ -1527,7 +1425,7 @@ bool NppParameters::load()
 	{
 		std::wstring srcStylersPath(_nppPath);
 		pathAppend(srcStylersPath, L"stylers.model.xml");
-		::CopyFile(srcStylersPath.c_str(), _stylerPath.c_str(), TRUE);
+		copyFileIfMissing(srcStylersPath, _stylerPath);
 	}
 
 	if (_nppGUI._themeName.empty() || (!doesFileExist(_nppGUI._themeName.c_str())))
@@ -1570,6 +1468,25 @@ bool NppParameters::load()
 	_userDefineLangsFolderPath = _userDefineLangPath = _userPath;
 	pathAppend(_userDefineLangPath, L"userDefineLang.xml");
 	pathAppend(_userDefineLangsFolderPath, L"userDefineLangs");
+
+	// The Windows installer puts the user defined languages that come with Notepad++, for Markdown, in the user's
+	// folder. Here they are copied there from the program's data on the first run, when that folder is not there yet,
+	// so that a user can still delete them.
+	if (!doesDirectoryExist(_userDefineLangsFolderPath.c_str()))
+	{
+		std::wstring installedUdlFolder = _nppPath;
+		pathAppend(installedUdlFolder, L"userDefineLangs");
+		std::vector<std::wstring> installedUdlFiles;
+		getFilesInFolder(installedUdlFiles, L"*.xml", installedUdlFolder);
+		if (!installedUdlFiles.empty())
+			createDirectory(_userDefineLangsFolderPath);
+		for (const auto& installedUdlFile : installedUdlFiles)
+		{
+			std::wstring udlFile = _userDefineLangsFolderPath;
+			pathAppend(udlFile, PathFindFileName(installedUdlFile.c_str()));
+			copyFileIfMissing(installedUdlFile, udlFile);
+		}
+	}
 
 	std::vector<std::wstring> udlFiles;
 	getFilesInFolder(udlFiles, L"*.xml", _userDefineLangsFolderPath);
@@ -1636,7 +1553,7 @@ bool NppParameters::load()
 	{
 		// overwrite nativeLangPath variable
 		nativeLangPath = _nppPath;
-		pathAppend(nativeLangPath, L"localization\\");
+		pathAppend(nativeLangPath, L"localization");
 		pathAppend(nativeLangPath, _startWithLocFileName);
 	}
 	else // use %appdata% location, or (if absence then) npp installed location
@@ -1683,7 +1600,7 @@ bool NppParameters::load()
 		std::wstring srcShortcutsPath(_nppPath);
 		pathAppend(srcShortcutsPath, SHORTCUTSXML_MODEL_FILENAME);
 		if (doesFileExist(srcShortcutsPath.c_str()))
-			::CopyFile(srcShortcutsPath.c_str(), _shortcutsPath.c_str(), TRUE);
+			copyFileIfMissing(srcShortcutsPath, _shortcutsPath);
 		else
 			generateXmlFromScratch(_shortcutsPath.c_str(), SHORTCUT_XML_CONTENT);
 
@@ -1740,7 +1657,7 @@ bool NppParameters::load()
 		pathAppend(srcContextMenuPath, CONTEXTMENUXML_MODEL_FILENAME);
 
 		if (doesFileExist(srcContextMenuPath.c_str()))
-			::CopyFile(srcContextMenuPath.c_str(), _contextMenuPath.c_str(), TRUE);
+			copyFileIfMissing(srcContextMenuPath, _contextMenuPath);
 		else
 			generateXmlFromScratch(_contextMenuPath.c_str(), CONTEXTMENU_XML_CONTENT);
 	}
@@ -1852,14 +1769,12 @@ bool NppParameters::load()
 				if (doesFileExist(_sessionPath.c_str()))
 				{
 					// an invalid session.xml file exists
-					bFileSwapOk = ::ReplaceFile(_sessionPath.c_str(), sessionInCaseOfCorruption_bak.c_str(), nullptr,
-						REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS, 0, 0);
+					bFileSwapOk = copyFileReplacing(sessionInCaseOfCorruption_bak, _sessionPath);
 				}
 				else
 				{
 					// no session.xml file
-					bFileSwapOk = ::MoveFileEx(sessionInCaseOfCorruption_bak.c_str(), _sessionPath.c_str(),
-						MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH);
+					bFileSwapOk = QFile::rename(QString::fromStdWString(sessionInCaseOfCorruption_bak), QString::fromStdWString(_sessionPath));
 				}
 
 				if (bFileSwapOk)
@@ -1973,7 +1888,7 @@ void NppParameters::destroyInstance()
 void NppParameters::saveConfig_xml() const
 {
 	if (_xmlUserDoc._doc)
-		static_cast<void>(NppXml::saveFile(_xmlUserDoc._doc, _xmlUserDoc._path.c_str()));
+		static_cast<void>(saveConfigToSettings(_xmlUserDoc._doc, _xmlUserDoc._path));
 }
 
 
@@ -1985,21 +1900,33 @@ void NppParameters::setWorkSpaceFilePath(int i, const wchar_t* wsFile)
 }
 
 
+void NppParameters::normalizeDialogFont(WORD& size, std::wstring& name)
+{
+	// The defaults on Windows mean the system's font there, which is the default here too
+	if (name == WINDOWS_DLG_FONT)
+	{
+		name.clear();
+		if (size == 8)
+			size = 0;
+	}
+}
+
+bool NppParameters::isWindowOpacityAvailable()
+{
+	return !QGuiApplication::platformName().startsWith(QLatin1String("wayland"));
+}
+
 void NppParameters::removeTransparent(HWND hwnd)
 {
-	if (hwnd != nullptr)
-		::SetWindowLongPtr(hwnd, GWL_EXSTYLE, ::GetWindowLongPtr(hwnd, GWL_EXSTYLE) & ~WS_EX_LAYERED);
+	if (hwnd != nullptr && isWindowOpacityAvailable())
+		hwnd->setWindowOpacity(1.0);
 }
 
 
 void NppParameters::setTransparent(HWND hwnd, int percent)
 {
-	::SetWindowLongPtr(hwnd, GWL_EXSTYLE, ::GetWindowLongPtr(hwnd, GWL_EXSTYLE) | WS_EX_LAYERED);
-	if (percent > 255)
-		percent = 255;
-	else if (percent < 0)
-		percent = 0;
-	::SetLayeredWindowAttributes(hwnd, 0, static_cast<BYTE>(percent), LWA_ALPHA);
+	if (hwnd != nullptr && isWindowOpacityAvailable())
+		hwnd->setWindowOpacity(std::clamp(percent, 0, 255) / 255.0);
 }
 
 
@@ -2098,47 +2025,19 @@ void NppParameters::setCurLineHilitingColour(COLORREF colour2Set)
 
 
 
-static int CALLBACK EnumFontFamExProc(const LOGFONT* lpelfe, const TEXTMETRIC*, DWORD, LPARAM lParam)
-{
-	auto& strVect = *reinterpret_cast<std::vector<std::wstring>*>(lParam);
-	const auto vectSize = static_cast<int>(strVect.size());
-	const wchar_t* lfFaceName = (reinterpret_cast<const ENUMLOGFONTEX*>(lpelfe))->elfLogFont.lfFaceName;
-
-	//Search through all the fonts, EnumFontFamiliesEx never states anything about order
-	//Start at the end though, that's the most likely place to find a duplicate
-	for (int i = vectSize - 1; i >= 0; --i)
-	{
-		if (strVect[i] == lfFaceName)
-			return 1;	//we already have seen this typeface, ignore it
-	}
-
-	//We can add the font
-	//Add the face name and not the full name, we do not care about any styles
-	strVect.push_back(lfFaceName);
-	return 1; // I want to get all fonts
-}
-
-
-void NppParameters::setFontList(HWND hWnd)
+void NppParameters::setFontList(HWND)
 {
 	//---------------//
 	// Sys font list //
 	//---------------//
-	LOGFONT lf{};
 	_fontlist.clear();
-	_fontlist.reserve(64); // arbitrary
 	_fontlist.emplace_back(L"");
 
-	lf.lfCharSet = DEFAULT_CHARSET;
-	lf.lfFaceName[0]='\0';
-	lf.lfPitchAndFamily = 0;
-	HDC hDC = ::GetDC(hWnd);
-	if (hDC)
-	{
-		::EnumFontFamiliesEx(hDC, &lf, EnumFontFamExProc, reinterpret_cast<LPARAM>(&_fontlist), 0);
-		::ReleaseDC(hWnd, hDC);
-	}
-	_fontlist.push_back(DEFAULT_DLG_FONT);
+	const QStringList families = QFontDatabase::families();
+	_fontlist.reserve(static_cast<size_t>(families.size()) + 2);
+	for (const QString& family : families)
+		_fontlist.push_back(family.toStdWString());
+
 }
 
 bool NppParameters::isInFontList(const std::wstring& fontName2Search) const
@@ -2233,7 +2132,7 @@ bool NppParameters::updateFromModelXml(NppXml::Element& rootUser, ConfXml whichC
 
 	// read the actual timestamp from the model file; if there's a problem reading the attributes, just exit out (don't need to warn the user, since the main XML has already been loaded)
 	WIN32_FILE_ATTRIBUTE_DATA attributes{};
-	if (!::GetFileAttributesExW(modelXmlPath.c_str(), GetFileExInfoStandard, &attributes))
+	if (!getFileAttributesExWithTimeout(modelXmlPath.c_str(), &attributes))
 		return false;
 
 	int modifiedDate = 0;
@@ -3019,61 +2918,48 @@ bool NppParameters::reloadContextMenuFromXmlTree(HMENU mainMenuHandle, HMENU plu
 	return getContextMenuFromXmlTree(mainMenuHandle, pluginsMenu);
 }
 
+namespace
+{
+	std::wstring purgedActionText(const QAction* action)
+	{
+		return purgeMenuItemString(action->text().toStdWString().c_str());
+	}
+
+	bool sameMenuText(const std::wstring& name, const QAction* action)
+	{
+		return _wcsicmp(name.c_str(), purgedActionText(action).c_str()) == 0;
+	}
+
+	int findCmdIdInMenu(HMENU menu, const std::wstring& menuItemName)
+	{
+		const auto actions = menu->actions();
+		for (const QAction* action : actions)
+		{
+			if (action->menu())
+			{
+				const int found = findCmdIdInMenu(action->menu(), menuItemName);
+				if (found != -1)
+					return found;
+			}
+			else if (!action->isSeparator() && sameMenuText(menuItemName, action))
+			{
+				return action->data().toInt();
+			}
+		}
+		return -1;
+	}
+}
+
 int NppParameters::getCmdIdFromMenuEntryItemName(HMENU mainMenuHandle, const std::wstring& menuEntryName, const std::wstring& menuItemName)
 {
-	int nbMenuEntry = ::GetMenuItemCount(mainMenuHandle);
-	for (int i = 0; i < nbMenuEntry; ++i)
+	const auto entries = mainMenuHandle->actions();
+	for (const QAction* entry : entries)
 	{
-		wchar_t menuEntryString[menuItemStrLenMax];
-		::GetMenuString(mainMenuHandle, i, menuEntryString, menuItemStrLenMax, MF_BYPOSITION);
-		if (_wcsicmp(menuEntryName.c_str(), purgeMenuItemString(menuEntryString).c_str()) == 0)
+		if (entry->menu() && sameMenuText(menuEntryName, entry))
 		{
-			std::vector<std::pair<HMENU, int>> parentMenuPos;
-			HMENU topMenu = ::GetSubMenu(mainMenuHandle, i);
-			int maxTopMenuPos = ::GetMenuItemCount(topMenu);
-			HMENU currMenu = topMenu;
-			int currMaxMenuPos = maxTopMenuPos;
-
-			int currMenuPos = 0;
-			bool notFound = false;
-
-			do {
-				if (::GetSubMenu(currMenu, currMenuPos))
-				{
-					//  Go into sub menu
-					parentMenuPos.emplace_back(currMenu, currMenuPos);
-					currMenu = ::GetSubMenu(currMenu, currMenuPos);
-					currMenuPos = 0;
-					currMaxMenuPos = ::GetMenuItemCount(currMenu);
-				}
-				else
-				{
-					//  Check current menu position.
-					wchar_t cmdStr[menuItemStrLenMax];
-					::GetMenuString(currMenu, currMenuPos, cmdStr, menuItemStrLenMax, MF_BYPOSITION);
-					if (_wcsicmp(menuItemName.c_str(), purgeMenuItemString(cmdStr).c_str()) == 0)
-					{
-						return ::GetMenuItemID(currMenu, currMenuPos);
-					}
-
-					if ((currMenuPos >= currMaxMenuPos) && (parentMenuPos.size() > 0))
-					{
-						currMenu = parentMenuPos.back().first;
-						currMenuPos = parentMenuPos.back().second;
-						parentMenuPos.pop_back();
-						currMaxMenuPos = ::GetMenuItemCount(currMenu);
-					}
-
-					if ((currMenu == topMenu) && (currMenuPos >= maxTopMenuPos))
-					{
-						notFound = true;
-					}
-					else
-					{
-						++currMenuPos;
-					}
-				}
-			} while (!notFound);
+			const int found = findCmdIdInMenu(entry->menu(), menuItemName);
+			if (found != -1)
+				return found;
 		}
 	}
 	return -1;
@@ -3081,23 +2967,16 @@ int NppParameters::getCmdIdFromMenuEntryItemName(HMENU mainMenuHandle, const std
 
 int NppParameters::getPluginCmdIdFromMenuEntryItemName(HMENU pluginsMenu, const std::wstring& pluginName, const std::wstring& pluginCmdName)
 {
-	int nbPlugins = ::GetMenuItemCount(pluginsMenu);
-	for (int i = 0; i < nbPlugins; ++i)
+	const auto plugins = pluginsMenu->actions();
+	for (const QAction* plugin : plugins)
 	{
-		wchar_t menuItemString[menuItemStrLenMax];
-		::GetMenuString(pluginsMenu, i, menuItemString, menuItemStrLenMax, MF_BYPOSITION);
-		if (_wcsicmp(pluginName.c_str(), purgeMenuItemString(menuItemString).c_str()) == 0)
+		if (plugin->menu() && sameMenuText(pluginName, plugin))
 		{
-			HMENU pluginMenu = ::GetSubMenu(pluginsMenu, i);
-			int nbPluginCmd = ::GetMenuItemCount(pluginMenu);
-			for (int j = 0; j < nbPluginCmd; ++j)
+			const auto commands = plugin->menu()->actions();
+			for (const QAction* command : commands)
 			{
-				wchar_t pluginCmdStr[menuItemStrLenMax];
-				::GetMenuString(pluginMenu, j, pluginCmdStr, menuItemStrLenMax, MF_BYPOSITION);
-				if (_wcsicmp(pluginCmdName.c_str(), purgeMenuItemString(pluginCmdStr).c_str()) == 0)
-				{
-					return ::GetMenuItemID(pluginMenu, j);
-				}
+				if (!command->isSeparator() && sameMenuText(pluginCmdName, command))
+					return command->data().toInt();
 			}
 		}
 	}
@@ -3189,7 +3068,7 @@ void NppParameters::setWorkingDir(const wchar_t * newPath)
 	}
 	else
 	{
-		if (doesDirectoryExist(_nppGUI._defaultDirExp))
+		if (doesDirectoryExist(_nppGUI._defaultDirExp.c_str()))
 			_currentDirectory = _nppGUI._defaultDirExp;
 		else
 			_currentDirectory = _nppPath;
@@ -3442,12 +3321,6 @@ bool NppParameters::getSessionFromXmlTree(const NppXml::Document& pSessionDoc, S
 		NppXml::firstChildElement(sessionRoot, "subView")
 	};
 
-	HINSTANCE hInst = ::GetModuleHandle(nullptr);
-	HWND nppHwnd = ::FindWindow(Notepad_plus_Window::getClassName(), NULL);
-
-	bool isNppExit = false;
-	if (g_bNppExitFlag.load())
-		isNppExit = true; // NetworkPathWarning should not be shown at the Notepad++ exit
 
 	for (size_t k = 0; k < nbView; ++k)
 	{
@@ -3474,41 +3347,6 @@ bool NppParameters::getSessionFromXmlTree(const NppXml::Document& pSessionDoc, S
 				{
 					const std::wstring wstrFileName = string2wstring(fileName);
 
-					if (!isNppExit && detectNetworkPath && isUncPath(wstrFileName))
-					{
-						if (!isServerAllowed(fileName)) // is in the serverWhiteList.xml ?
-						{
-							if (_networkPathAlwaysAction == networkPathAlwaysAsk)
-							{
-								NetworkPathWarningBox networkPathWarningBox;
-								networkPathWarningBox.init(hInst, nppHwnd, wstrFileName);
-								networkPathWarningBox.doDialog(_pNativeLangSpeaker ? _pNativeLangSpeaker->isRTL() : false);
-								int buttonID = networkPathWarningBox.getClickedButtonId();
-								networkPathWarningBox.destroy();
-
-								if (buttonID == IDCANCEL || buttonID == IDNO) // Skip once or Always skip
-								{
-									// as the Skip or AlwaysSkip causes the current filename will not be in the Notepad++ session anymore,
-									// it is important to update also the current session.xml content on disk accordingly,
-									// otherwise any subsequent indirect Notepad++ app launching (e.g. via the NppShell context menu)
-									// causes this getSessionFromXmlTree will check old out-of-date session.xml content
-									bNeedsSessionXmlFileUpdateAfter = true;
-									NppXml::deleteChild(viewRoots[k], childNode);
-									continue;
-								}
-							}
-							else if (_networkPathAlwaysAction == networkPathAlwaysSkip)
-							{
-								bNeedsSessionXmlFileUpdateAfter = true;
-								NppXml::deleteChild(viewRoots[k], childNode);
-								continue;
-							}
-							else if (_networkPathAlwaysAction == networkPathAlwaysLoad)
-							{
-								// do nothing, continue to load the file
-							}
-						}
-					}
 
 					Position position{
 						._firstVisibleLine = static_cast<intptr_t>(NppXml::int64Attribute(childNode, "firstVisibleLine", 0)),
@@ -3540,80 +3378,15 @@ bool NppParameters::getSessionFromXmlTree(const NppXml::Document& pSessionDoc, S
 					const char* backupFilePath = NppXml::attribute(childNode, "backupFilePath");
 					const std::wstring wstrBackupFilePath = wmc.char2wchar(backupFilePath ? backupFilePath : "", CP_UTF8);
 
-					if (!isNppExit && detectNetworkPath && isUncPath(wstrBackupFilePath))
+
+					// The backup file must stay inside the backup directory, whatever session.xml says.
+					std::wstring normalizedBackupFilePath;
+					const QDir backupDir(QString::fromStdWString(NppParameters::getInstance().getUserPath()) + QStringLiteral("/backup"));
+					if (!wstrBackupFilePath.empty())
 					{
-						if (!isServerAllowed(backupFilePath)) // is in the serverWhiteList.xml ?
-						{
-							if (_networkPathAlwaysAction == networkPathAlwaysAsk)
-							{
-								NetworkPathWarningBox networkPathWarningBox;
-								networkPathWarningBox.init(hInst, nppHwnd, wstrBackupFilePath);
-								networkPathWarningBox.doDialog(_pNativeLangSpeaker ? _pNativeLangSpeaker->isRTL() : false);
-								int buttonID = networkPathWarningBox.getClickedButtonId();
-								networkPathWarningBox.destroy();
-
-								if (buttonID == IDCANCEL || buttonID == IDNO) // Skip once or Always skip
-								{
-									bNeedsSessionXmlFileUpdateAfter = true;
-									NppXml::deleteChild(viewRoots[k], childNode);
-									continue;
-								}
-							}
-							else if (_networkPathAlwaysAction == networkPathAlwaysSkip)
-							{
-								bNeedsSessionXmlFileUpdateAfter = true;
-								NppXml::deleteChild(viewRoots[k], childNode);
-								continue;
-							}
-							else if (_networkPathAlwaysAction == networkPathAlwaysLoad)
-							{
-								// do nothing, continue to load the file
-							}
-						}
-					}
-
-					wchar_t normalizedBackupFilePath[MAX_PATH]{};
-
-					if (!wstrBackupFilePath.empty() && (wstrBackupFilePath.length() < MAX_PATH))
-					{
-						std::wstring sanitizedPath = wstrBackupFilePath;
-						std::replace(sanitizedPath.begin(), sanitizedPath.end(), L'/', L'\\');
-
-						if (!::PathCanonicalize(normalizedBackupFilePath, sanitizedPath.c_str()))
-							normalizedBackupFilePath[0] = L'\0'; // treat failure as "no path" -> falls through to reconstruction below
-					}
-					else if (!wstrBackupFilePath.empty())
-					{
-						const wchar_t* fn = ::PathFindFileNameW(wstrBackupFilePath.c_str());
-						static_cast<void>(::StringCchCopyW(normalizedBackupFilePath, MAX_PATH, fn));
-					}
-
-					std::wstring currentBackupFilePath = NppParameters::getInstance().getUserPath() + L"\\backup\\";
-
-					wchar_t normalizedBackupDir[MAX_PATH]{};
-					if (::GetFullPathNameW(currentBackupFilePath.c_str(), MAX_PATH, normalizedBackupDir, NULL) == 0)
-						static_cast<void>(::StringCchCopyW(normalizedBackupDir, MAX_PATH, currentBackupFilePath.c_str()));
-
-					if (normalizedBackupFilePath[0])
-					{
-						const std::wstring backupFilePathW = normalizedBackupFilePath;
-						bool isConfined = false;
-						size_t normalizedBackupDirLen = wcslen(normalizedBackupDir);
-						if (backupFilePathW.size() >= normalizedBackupDirLen)
-						{
-							int res = ::CompareStringOrdinal(backupFilePathW.c_str(), static_cast<int>(normalizedBackupDirLen), normalizedBackupDir, static_cast<int>(normalizedBackupDirLen), TRUE);
-							isConfined = res == CSTR_EQUAL;
-						}
-
-						if (!isConfined)
-						{
-							// reconstruct backupFilePath
-							wchar_t* fn = ::PathFindFileNameW(normalizedBackupFilePath);
-
-							std::wstring safePath = normalizedBackupDir;
-							safePath += fn;
-							static_cast<void>(::StringCchCopyW(normalizedBackupFilePath, MAX_PATH, safePath.c_str()));
-						}
+						const QString canonical = QDir::cleanPath(QString::fromStdWString(wstrBackupFilePath));
+						const QString confined = canonical.startsWith(backupDir.absolutePath() + u'/') ? canonical : backupDir.filePath(QFileInfo(canonical).fileName());
+						normalizedBackupFilePath = confined.toStdWString();
 					}
 
 					FILETIME fileModifiedTimestamp {
@@ -3629,7 +3402,7 @@ bool NppParameters::getSessionFromXmlTree(const NppXml::Document& pSessionDoc, S
 
 					sessionFileInfo sfi(wstrFileName.c_str(), wstrLangName.c_str(), encoding,
 						isUserReadOnly, isPinned, isUntitleTabRenamed,
-						position, normalizedBackupFilePath, fileModifiedTimestamp, mapPosition);
+						position, normalizedBackupFilePath.c_str(), fileModifiedTimestamp, mapPosition);
 
 					sfi._individualTabColour = NppXml::intAttribute(childNode, "tabColourId", -1);
 					sfi._isRTL = getBoolAttribute(childNode, "RTL");
@@ -3686,37 +3459,6 @@ bool NppParameters::getSessionFromXmlTree(const NppXml::Document& pSessionDoc, S
 			{
 				std::wstring rootFolder = string2wstring(fileName);
 
-				if (!isNppExit && detectNetworkPath && isUncPath(rootFolder))
-				{
-					if (!isServerAllowed(fileName)) // is in the serverWhiteList.xml ?
-					{
-						if (_networkPathAlwaysAction == networkPathAlwaysAsk)
-						{
-							NetworkPathWarningBox networkPathWarningBox;
-							networkPathWarningBox.init(hInst, nppHwnd, rootFolder);
-							networkPathWarningBox.doDialog(_pNativeLangSpeaker ? _pNativeLangSpeaker->isRTL() : false);
-							int buttonID = networkPathWarningBox.getClickedButtonId();
-							networkPathWarningBox.destroy();
-
-							if (buttonID == IDCANCEL || buttonID == IDNO) // Skip once or Always skip
-							{
-								bNeedsSessionXmlFileUpdateAfter = true;
-								NppXml::deleteChild(fileBrowserRoot, childNode);
-								continue;
-							}
-						}
-						else if (_networkPathAlwaysAction == networkPathAlwaysSkip)
-						{
-							bNeedsSessionXmlFileUpdateAfter = true;
-							NppXml::deleteChild(fileBrowserRoot, childNode);
-							continue;
-						}
-						else if (_networkPathAlwaysAction == networkPathAlwaysLoad)
-						{
-							// do nothing, continue to load the file
-						}
-					}
-				}
 
 				std::wstring lowerRoot = stringToLower(rootFolder);
 				FileBrowserRootsInfo fileRootInfo(std::move(rootFolder));
@@ -4485,11 +4227,11 @@ LangType NppParameters::getLangFromExt(const wchar_t *ext)
 void NppParameters::setCloudChoice(const wchar_t* pathChoice) const
 {
 	std::wstring cloudChoicePath = getSettingsFolder();
-	cloudChoicePath += L"\\cloud\\";
+	cloudChoicePath += L"/cloud/";
 
 	if (!doesDirectoryExist(cloudChoicePath.c_str()))
 	{
-		::CreateDirectory(cloudChoicePath.c_str(), NULL);
+		createDirectory(cloudChoicePath);
 	}
 	cloudChoicePath += L"choice";
 
@@ -4503,10 +4245,10 @@ void NppParameters::removeCloudChoice() const
 {
 	std::wstring cloudChoicePath = getSettingsFolder();
 
-	cloudChoicePath += L"\\cloud\\choice";
+	cloudChoicePath += L"/cloud/choice";
 	if (doesFileExist(cloudChoicePath.c_str()))
 	{
-		::DeleteFile(cloudChoicePath.c_str());
+		deleteFile(cloudChoicePath);
 	}
 }
 
@@ -4542,12 +4284,12 @@ bool NppParameters::writeSettingsFilesOnCloudForThe1stTime(const std::wstring& c
 	if (cloudSettingsPath.empty())
 		return false;
 
-	// config.xml
+	// config.ini
 	std::wstring cloudConfigPath = cloudSettingsPath;
-	pathAppend(cloudConfigPath, L"config.xml");
+	pathAppend(cloudConfigPath, L"config.ini");
 	if (!doesFileExist(cloudConfigPath.c_str()) && _xmlUserDoc._doc)
 	{
-		isOK = NppXml::saveFile(_xmlUserDoc._doc, cloudConfigPath.c_str());
+		isOK = saveConfigToSettings(_xmlUserDoc._doc, cloudConfigPath);
 		if (!isOK)
 			return false;
 	}
@@ -4670,7 +4412,7 @@ void NppParameters::writeDefaultUDL()
 	{
 		if (doesFileExist(_userDefineLangPath.c_str()))
 		{
-			::DeleteFile(_userDefineLangPath.c_str());
+			deleteFile(_userDefineLangPath);
 		}
 	}
 	// else nothing to change, do nothing
@@ -4688,7 +4430,7 @@ void NppParameters::writeNonDefaultUDL()
 				const std::wstring& docFilePath = udl._path;
 				if (!docFilePath.empty() && doesFileExist(docFilePath.c_str()))
 				{
-					::DeleteFile(docFilePath.c_str());
+					deleteFile(docFilePath);
 				}
 			}
 			else
@@ -4850,7 +4592,7 @@ void NppParameters::writeSession(const Session& session, const wchar_t* fileName
 
 		// Make sure backup file is not read-only, if it exists
 		removeReadOnlyFlagFromFileAttributes(backupPathName.c_str());
-		doesBackupCopyExist = CopyFile(sessionPathName, backupPathName.c_str(), FALSE);
+		doesBackupCopyExist = copyFileReplacing(sessionPathName, backupPathName);
 		if (!doesBackupCopyExist && !isEndSessionCritical())
 		{
 			std::wstring errTitle = L"Session file backup error: ";
@@ -4996,7 +4738,9 @@ void NppParameters::writeSession(const Session& session, const wchar_t* fileName
 
 			std::wstring sessionPathNameFail2Load = sessionPathName;
 			sessionPathNameFail2Load += L".fail2Load";
-			ReplaceFile(sessionPathName, backupPathName.c_str(), sessionPathNameFail2Load.c_str(), REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS, 0, 0);
+			deleteFile(sessionPathNameFail2Load);
+			QFile::rename(QString::fromWCharArray(sessionPathName), QString::fromStdWString(sessionPathNameFail2Load));
+			copyFileReplacing(backupPathName, sessionPathName);
 		}
 	}
 	/*
@@ -5006,7 +4750,7 @@ void NppParameters::writeSession(const Session& session, const wchar_t* fileName
 	{
 		if (backupPathName[0]) // session backup file not useful, delete it
 		{
-			::DeleteFile(backupPathName);
+			deleteFile(backupPathName);
 		}
 	}
 	*/
@@ -5769,7 +5513,7 @@ LangType NppParameters::getLangIDFromStr(const wchar_t *langName)
 	int lang = static_cast<int>(L_TEXT);
 	for (; lang < static_cast<int>(L_EXTERNAL); ++lang)
 	{
-		const wchar_t* name = ScintillaEditView::_langNameInfoArray[lang]._langName;
+		const wchar_t* name = g_langNameInfoArray[lang]._langName;
 		if (std::wcscmp(name, langName) == 0) //found lang?
 		{
 			return static_cast<LangType>(lang);
@@ -6107,11 +5851,12 @@ void NppParameters::feedGUIParameters(const NppXml::Element& element)
 		{
 			_nppGUI._menuBarShow = getBoolChildTextNode(childNode, _nppGUI._menuBarShow, STR_BOOL_SHOWHIDE);
 		}
-		// <GUIConfig name="DialogFont" size="8" fontName="MS Shell Dlg" />
+		// <GUIConfig name="DialogFont" size="0" fontName="" />
 		else if (std::strcmp(nm, "DialogFont") == 0)
 		{
 			_nppGUI._fontDlgSize = static_cast<WORD>(NppXml::uintAttribute(childNode, "size", _nppGUI._fontDlgSize));
-			_nppGUI._fontDlgName = NppXml::attributeW(childNode, "fontName", "MS Shell Dlg");
+			_nppGUI._fontDlgName = NppXml::attributeW(childNode, "fontName", "");
+			normalizeDialogFont(_nppGUI._fontDlgSize, _nppGUI._fontDlgName);
 		}
 		// <GUIConfig name="TabBar" dragAndDrop="yes" drawTopBar="yes" drawInactiveTab="yes" reduce="yes" closeButton="yes"
 		// pinButton="yes" showOnlyPinnedButton="no" buttonsOninactiveTabs="no" doubleClick2Close="no"
@@ -6880,14 +6625,15 @@ void NppParameters::feedGUIParameters(const NppXml::Element& element)
 			const std::wstring path = string2wstring(NppXml::attribute(childNode, "defaultDirPath", ""));
 			if (!path.empty())
 			{
-				std::wcsncpy(_nppGUI._defaultDir, path.c_str(), MAX_PATH);
-				::ExpandEnvironmentStrings(_nppGUI._defaultDir, _nppGUI._defaultDirExp, MAX_PATH);
+				_nppGUI._defaultDir = path;
+				_nppGUI._defaultDirExp = path;
+				expandEnv(_nppGUI._defaultDirExp);
 			}
 
 			const std::wstring lastPath = string2wstring(NppXml::attribute(childNode, "lastUsedDirPath", ""));
 			if (!lastPath.empty())
 			{
-				std::wcsncpy(_nppGUI._lastUsedDir, lastPath.c_str(), MAX_PATH);
+				_nppGUI._lastUsedDir = lastPath;
 			}
 		}
 		// <GUIConfig name="titleBar" short="no" />
@@ -7116,13 +6862,13 @@ void NppParameters::feedGUIParameters(const NppXml::Element& element)
 				if (!xmlFileName.empty() && std::wcscmp(xmlFileName.c_str(), L"stylers.xml") != 0)
 				{
 					themePath = isLocalOnly ? _nppPath : _userPath;
-					pathAppend(themePath, L"themes\\");
+					pathAppend(themePath, L"themes");
 					pathAppend(themePath, xmlFileName);
 
 					if (!isLocalOnly && !doesFileExist(themePath.c_str()))
 					{
 						themePath = _nppPath;
-						pathAppend(themePath, L"themes\\");
+						pathAppend(themePath, L"themes");
 						pathAppend(themePath, xmlFileName);
 					}
 				}
@@ -7362,37 +7108,29 @@ void NppParameters::feedScintillaParam(const NppXml::Element& element)
 // </GUIConfig>
 void NppParameters::feedDockingManager(const NppXml::Element& element)
 {
-	SIZE maxMonitorSize{ ::GetSystemMetrics(SM_CXSCREEN), ::GetSystemMetrics(SM_CYSCREEN) }; // use primary monitor as the default
+	SIZE maxMonitorSize;
+	if (const QScreen* primary = QGuiApplication::primaryScreen())
+	{
+		maxMonitorSize.cx = primary->size().width();
+		maxMonitorSize.cy = primary->size().height();
+	}
 	SIZE nppSize = maxMonitorSize;
-	HWND hwndNpp = ::FindWindow(Notepad_plus_Window::getClassName(), NULL);
-	if (hwndNpp)
+	if (const HWND hwndNpp = nppMainWindow())
 	{
 		// this code-branch is currently reached only if the Notepad++ multi-instance mode is ON and it is not the 1st Notepad++ instance
-		// (the feedDockingManager() is called at the Notepad++ init via the wWinMain nppParameters.load()))
-
-		HMONITOR hCurMon = ::MonitorFromWindow(hwndNpp, MONITOR_DEFAULTTONEAREST);
-		if (hCurMon)
+		if (const QScreen* current = hwndNpp->screen())
 		{
-			MONITORINFO mi{};
-			mi.cbSize = sizeof(MONITORINFO);
-			if (::GetMonitorInfo(hCurMon, &mi))
-			{
-				maxMonitorSize.cx = mi.rcMonitor.right - mi.rcMonitor.left;
-				maxMonitorSize.cy = mi.rcMonitor.bottom - mi.rcMonitor.top;
-				nppSize = maxMonitorSize;
-			}
+			maxMonitorSize.cx = current->size().width();
+			maxMonitorSize.cy = current->size().height();
+			nppSize = maxMonitorSize;
 		}
 
-		RECT rcNpp{};
-		if (::GetClientRect(hwndNpp, &rcNpp))
+		// the client area could have zero size here, if the 1st instance is minimized
+		if ((hwndNpp->width() > _nppGUI._dockingData._minDockedPanelVisibility) && (hwndNpp->height() > _nppGUI._dockingData._minDockedPanelVisibility))
 		{
-			// rcNpp RECT could have zero size here! (if the 1st instance of Notepad++ is minimized to the task-bar (systray is ok))
-			if ((rcNpp.right > _nppGUI._dockingData._minDockedPanelVisibility) && (rcNpp.bottom > _nppGUI._dockingData._minDockedPanelVisibility))
-			{
-				// adjust according to the current Notepad++ client-wnd area
-				nppSize.cx = rcNpp.right;
-				nppSize.cy = rcNpp.bottom;
-			}
+			// adjust according to the current Notepad++ client-wnd area
+			nppSize.cx = hwndNpp->width();
+			nppSize.cy = hwndNpp->height();
 		}
 	}
 	else
@@ -8052,7 +7790,7 @@ void NppParameters::createXmlTreeFromGUIParams()
 		NppXml::createChildText(GUIConfigElement, _nppGUI._menuBarShow ? "show" : "hide");
 	}
 
-	// <GUIConfig name="DialogFont" size="8" fontName="MS Shell Dlg" />
+	// <GUIConfig name="DialogFont" size="0" fontName="" />
 	{
 		NppXml::Element GUIConfigElement = NppXml::createChildElement(newGUIRoot, "GUIConfig");
 		NppXml::setAttribute(GUIConfigElement, "name", "DialogFont");
@@ -9175,33 +8913,6 @@ void NppParameters::addScintillaModifiedIndex(int index)
 	}
 }
 
-#ifndef	_WIN64
-void NppParameters::safeWow64EnableWow64FsRedirection(BOOL Wow64FsEnableRedirection)
-{
-	HMODULE kernel = GetModuleHandle(L"kernel32");
-	if (kernel)
-	{
-		BOOL isWow64 = FALSE;
-		typedef BOOL (WINAPI *LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
-		LPFN_ISWOW64PROCESS IsWow64ProcessFunc = (LPFN_ISWOW64PROCESS) GetProcAddress(kernel,"IsWow64Process");
-
-		if (IsWow64ProcessFunc)
-		{
-			IsWow64ProcessFunc(GetCurrentProcess(),&isWow64);
-
-			if (isWow64)
-			{
-				typedef BOOL (WINAPI *LPFN_WOW64ENABLEWOW64FSREDIRECTION)(BOOL);
-				LPFN_WOW64ENABLEWOW64FSREDIRECTION Wow64EnableWow64FsRedirectionFunc = (LPFN_WOW64ENABLEWOW64FSREDIRECTION)GetProcAddress(kernel, "Wow64EnableWow64FsRedirection");
-				if (Wow64EnableWow64FsRedirectionFunc)
-				{
-					Wow64EnableWow64FsRedirectionFunc(Wow64FsEnableRedirection);
-				}
-			}
-		}
-	}
-}
-#endif
 
 void NppParameters::setUdlXmlDirtyFromIndex(size_t i)
 {
@@ -9515,7 +9226,7 @@ COLORREF NppParameters::getFindDlgStatusMsgColor(int colourIndex)
 
 LanguageNameInfo NppParameters::getLangNameInfoFromNameID(const std::wstring& langNameID)
 {
-	for (const auto& lnf : ScintillaEditView::_langNameInfoArray)
+	for (const auto& lnf : g_langNameInfoArray)
 	{
 		if (lnf._langName == langNameID)
 			return lnf;
@@ -9523,59 +9234,6 @@ LanguageNameInfo NppParameters::getLangNameInfoFromNameID(const std::wstring& la
 	return LanguageNameInfo{};
 }
 
-void NppParameters::buildGupParams(std::wstring& params)
-{
-	params = L"-v";
-	params += VERSION_INTERNAL_VALUE;
-	static constexpr int archType64 = NppParameters::archType();
-	if constexpr (archType64 == IMAGE_FILE_MACHINE_AMD64)
-	{
-		params += L" -px64";
-	}
-	else if constexpr (archType64 == IMAGE_FILE_MACHINE_ARM64)
-	{
-		params += L" -parm64";
-	}
-
-	params += L" -infoUrl=";
-	params += INFO_URL;
-
-	params += L" -forceDomain=";
-	params += FORCED_DOWNLOAD_DOMAIN;
-
-	SecurityGuard sgd;
-
-	//
-	// Verify integrity & authenticiy of server-returned XML (XMLDsig) 
-	//
-
-	params += L" -chkCert4InfoXML";
-
-	params += L" -chkCertKeyId4XML=";
-	params += sgd.signer_key_id();
-
-	//
-	// Verify integrity & authenticiy of the downloaded installer
-	//
-
-	params += L" -chkCertSig=yes";
-
-	params += L" -chkCertRevoc";
-	params += L" -chkCertTrustChain";
-
-	params += L" -chkCertName=";
-	params += sgd.signer_display_name();
-
-	params += L" -chkCertSubject=\"";
-	params += stringReplace(sgd.signer_subject(), L"\"", L"{QUOTE}");
-	params += L"\"";
-
-	params += L" -chkCertKeyId=";
-	params += sgd.signer_key_id();
-
-	params += L" -errLogPath=";
-	params += L"\"%LOCALAPPDATA%\\Notepad++\\log\\securityError.log\"";
-}
 
 void UserLangContainer::startAtTheme()
 {

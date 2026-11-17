@@ -17,9 +17,6 @@
 
 #pragma once
 
-#include <windows.h>
-
-#include <shlwapi.h>
 
 #include <algorithm>
 #include <array>
@@ -42,30 +39,26 @@
 #include <Scintilla.h>
 
 #include "Common.h"
+#include "NppKeys.h"
 #include "ContextMenu.h"
-#include "DockingCont.h"
+#include "Docking.h"
 #include "Notepad_plus_msgs.h"
 #include "NppConstants.h"
 #include "NppDarkMode.h"
 #include "NppXml.h"
-#include "ToolBar.h"
+#include "ToolBarTypes.h"
 #include "colors.h"
 #include "shortcut.h"
 
 #ifdef _WIN64
 
-#ifdef _M_ARM64
-#define ARCH_TYPE IMAGE_FILE_MACHINE_ARM64
-#else
-#define ARCH_TYPE IMAGE_FILE_MACHINE_AMD64
-#endif
 
 #else
 #define ARCH_TYPE IMAGE_FILE_MACHINE_I386
 
 #endif
 
-#define DEFAULT_DLG_FONT L"MS Shell Dlg"
+#define WINDOWS_DLG_FONT L"MS Shell Dlg" // what config.xml from Windows has for the system's dialog font
 
 class NativeLangSpeaker;
 
@@ -848,9 +841,9 @@ struct NppGUI final
 
 	OpenSaveDirSetting _openSaveDir = dir_followCurrent;
 
-	wchar_t _defaultDir[MAX_PATH]{};
-	wchar_t _defaultDirExp[MAX_PATH]{};	//expanded environment variables
-	wchar_t _lastUsedDir[MAX_PATH]{};
+	std::wstring _defaultDir;
+	std::wstring _defaultDirExp;	//expanded environment variables
+	std::wstring _lastUsedDir;
 	
 	std::wstring _themeName;
 	MultiInstSetting _multiInstSetting = monoInst;
@@ -894,8 +887,8 @@ struct NppGUI final
 
 	bool _isFawSymlinkAllowed = false; // allow to open symlink files in FaW (Folder as Workspace) panel.
 
-	WORD _fontDlgSize = 8;
-	std::wstring _fontDlgName = DEFAULT_DLG_FONT;
+	WORD _fontDlgSize = 0; // 0 is the size of the system's font
+	std::wstring _fontDlgName; // empty is the system's font
 };
 
 
@@ -1440,7 +1433,7 @@ public:
 	}
 
 	[[nodiscard]] WORD getDlgFontSize() const noexcept {
-		return std::clamp<WORD>(_nppGUI._fontDlgSize, 8U, 24U);
+		return (_nppGUI._fontDlgSize == 0) ? WORD{0} : std::clamp<WORD>(_nppGUI._fontDlgSize, 8U, 24U);
 	}
 
 	[[nodiscard]] const std::wstring& getDlgFontName() const noexcept {
@@ -1591,8 +1584,13 @@ public:
 	NppXml::Document getCustomizedToolButtons() const { return _pXmlToolButtonsConfDoc; }
 
 	bool isTransparentAvailable() const {
-		return (_winVersion >= WV_VISTA);
+		return true;
 	}
+
+	static void normalizeDialogFont(WORD& size, std::wstring& name);
+
+	// A Wayland compositor gives clients no way to make their window translucent
+	static bool isWindowOpacityAvailable();
 
 	// 0 <= percent < 256
 	// if (percent == 255) then opacq
@@ -1645,6 +1643,9 @@ public:
 	const std::wstring& getContextMenuPath() const { return _contextMenuPath; }
 	const wchar_t* getAppDataNppDir() const { return _appdataNppDir.c_str(); }
 	const wchar_t* getPluginRootDir() const { return _pluginRootDir.c_str(); }
+	// Where the system's packages put plugins for every user, apart from Notepad++. Empty when the build has none.
+	const std::wstring& getSystemPluginRootDir() const { return _systemPluginRootDir; }
+	void setSystemPluginRootDir(const std::wstring& dir) { _systemPluginRootDir = dir; }
 	const wchar_t* getPluginConfDir() const { return _pluginConfDir.c_str(); }
 	const wchar_t* getUserPluginConfDir() const { return _userPluginConfDir.c_str(); }
 	const wchar_t* getWorkingDir() const { return _currentDirectory.c_str(); }
@@ -1708,21 +1709,10 @@ public:
 
 	int currentSystemCodepage() const { return _currentSystemCodepage; }
 	bool isCurrentSystemCodepageUTF8() const { return _currentSystemCodepage == 65001; }
-	int defaultCodepage() const { // return all the codepage except UTF8 (65001)
-		if (isCurrentSystemCodepageUTF8())
-		{
-			int localCodepage = 0;
-			// Get the system default codepage, which is the codepage before "Beta: Use Unicode UTF-8 for worldwide language support" option being checked
-			GetLocaleInfoEx(LOCALE_NAME_SYSTEM_DEFAULT, LOCALE_IDEFAULTANSICODEPAGE | LOCALE_RETURN_NUMBER, reinterpret_cast<LPTSTR>(&localCodepage), 2);
-			return localCodepage;
-		}
-		return _currentSystemCodepage;
-	}
 
 	FindHistory& getFindHistory() { return _findHistory; }
 	bool _isFindReplacing = false; // an on the fly variable for find/replace functions
 #ifndef	_WIN64
-	void safeWow64EnableWow64FsRedirection(BOOL Wow64FsEnableRedirection);
 #endif
 
 	LocalizationSwitcher & getLocalizationSwitcher() { return _localizationSwitcher; }
@@ -1749,7 +1739,6 @@ public:
 	void setCloudChoice(const wchar_t* pathChoice) const;
 	void removeCloudChoice() const;
 	bool isCloudPathChanged() const;
-	static constexpr int archType() { return ARCH_TYPE; }
 	COLORREF getCurrentDefaultBgColor() const {	return _currentDefaultBgColor; }
 
 	COLORREF getCurrentDefaultFgColor() const { return _currentDefaultFgColor; }
@@ -1772,7 +1761,8 @@ public:
 
 	const std::wstring& getTitleBarAdd() const { return _titleBarAdditional; }
 
-	std::wstring static getSpecialFolderLocation(int folderKind);
+	// The per-user configuration directory, such as ~/.config/notepad++
+	static std::wstring getUserConfigDirectory();
 
 	void setUdlXmlDirtyFromIndex(size_t i);
 	void setUdlXmlDirtyFromXmlDoc(const NppXml::Document& xmlDoc);
@@ -1791,7 +1781,6 @@ public:
 	}
 	UINT getNbTabCompactLabelLen() const { return _nppGUI._tabCompactLabelLen; }
 
-	static void buildGupParams(std::wstring& params);
 
 private:
 	NppParameters();
@@ -1916,6 +1905,8 @@ private:
 	std::wstring _stylerPath;
 	std::wstring _appdataNppDir; // sentinel of the absence of "doLocalConf.xml" : (_appdataNppDir == L""))?"doLocalConf.xml present":"doLocalConf.xml absent"
 	std::wstring _pluginRootDir; // plugins root where all the plugins are installed
+	std::wstring _installedPluginRootDir; // lib/notepad++/plugins of an installation, empty when running beside the data
+	std::wstring _systemPluginRootDir; // plugins of the system's packages
 	std::wstring _pluginConfDir; // plugins config dir where the plugin list is installed
 	std::wstring _userPluginConfDir; // plugins config dir for per user where the plugin parameters are saved / loaded
 	std::wstring _currentDirectory;
@@ -1945,7 +1936,6 @@ private:
 	std::wstring _wingupFullPath;
 	std::wstring _wingupParams;
 	std::wstring _wingupDir;
-	bool _isElevationRequired = false;
 	bool _isAdminMode = false;
 
 	bool _isRegForOSAppRestartDisabled = false;
@@ -1976,11 +1966,9 @@ public:
 	const std::wstring& getWingupFullPath() const { return _wingupFullPath; }
 	const std::wstring& getWingupParams() const { return _wingupParams; }
 	const std::wstring& getWingupDir() const { return _wingupDir; }
-	bool shouldDoUAC() const { return _isElevationRequired; }
 	void setWingupFullPath(const std::wstring& val2set) { _wingupFullPath = val2set; }
 	void setWingupParams(const std::wstring& val2set) { _wingupParams = val2set; }
 	void setWingupDir(const std::wstring& val2set) { _wingupDir = val2set; }
-	void setElevationRequired(bool val2set) { _isElevationRequired = val2set; }
 
 	bool doNppLogNetworkDriveIssue() const { return _doNppLogNetworkDriveIssue; }
 	bool isNppAutoUpdateDisabled() const { return _isNppAutoUpdateDisabled; }
@@ -2072,7 +2060,6 @@ private:
 	void initScintillaKeys();	//these functions have to be called first before any modifications are loaded
 	static int getCmdIdFromMenuEntryItemName(HMENU mainMenuHandle, const std::wstring& menuEntryName, const std::wstring& menuItemName); // return -1 if not found
 	static int getPluginCmdIdFromMenuEntryItemName(HMENU pluginsMenu, const std::wstring& pluginName, const std::wstring& pluginCmdName); // return -1 if not found
-	winVer getWindowsVersion();
 
 	static void generateXmlFromScratch(const wchar_t* filePathToWrite, const char* content2write) {
 		writeFileContent(filePathToWrite, content2write);

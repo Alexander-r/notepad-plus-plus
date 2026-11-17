@@ -17,9 +17,10 @@
 
 #include "AutoCompletion.h"
 
-#include <windows.h>
+#include <QDir>
+#include <QFileInfo>
+#include <QString>
 
-#include <shlwapi.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -533,22 +534,22 @@ void AutoCompletion::getWordArray(std::vector<std::string>& wordArray, const cha
 
 static std::wstring addTrailingSlash(const std::wstring& path)
 {
-	if (path.length() >=1 && path[path.length() - 1] == '\\')
+	if (path.length() >=1 && path[path.length() - 1] == nppPathSep)
 		return path;
 	else
-		return path + L"\\";
+		return path + nppPathSepStr;
 }
 
 static std::wstring removeTrailingSlash(const std::wstring& path)
 {
-	if (path.length() >= 1 && path[path.length() - 1] == '\\')
+	if (path.length() >= 2 && path[path.length() - 1] == nppPathSep)
 		return path.substr(0, path.length() - 1);
 	else
 		return path;
 }
 
 
-static bool isAllowedBeforeDriveLetter(wchar_t c)
+static bool isAllowedBeforePath(wchar_t c)
 {
 	return c == L'\'' || c == L'"' || c == L'(' || std::isspace(c, getSysLocale());
 }
@@ -556,21 +557,26 @@ static bool isAllowedBeforeDriveLetter(wchar_t c)
 static bool getRawPath(const std::wstring& input, std::wstring &rawPath_out)
 {
 	// Try to find a path in the given input.
-	// Algorithm: look for a colon. The colon must be preceded by an alphabetic character.
-	// The alphabetic character must, in turn, be preceded by nothing, or by whitespace, or by
-	// a quotation mark.
-	size_t lastOccurrence = input.rfind(L":");
-	if (lastOccurrence == std::string::npos) // No match.
-		return false;
-	else if (lastOccurrence == 0)
-		return false;
-	else if (!std::isalpha(input[lastOccurrence - 1], getSysLocale()))
-		return false;
-	else if (lastOccurrence >= 2 && !isAllowedBeforeDriveLetter(input[lastOccurrence - 2]))
-		return false;
+	// Algorithm: look for the last slash, or ~/ for the home folder, that is preceded by nothing, by whitespace, or by
+	// a quotation mark or bracket. That is where the path starts, so that it may have spaces in it further on.
+	for (size_t i = input.length(); i-- > 0; )
+	{
+		const bool isStart = (input[i] == nppPathSep) || (input[i] == L'~' && i + 1 < input.length() && input[i + 1] == nppPathSep);
+		if (isStart && (i == 0 || isAllowedBeforePath(input[i - 1])))
+		{
+			rawPath_out = input.substr(i);
+			return true;
+		}
+	}
+	return false;
+}
 
-	rawPath_out = input.substr(lastOccurrence - 1);
-	return true;
+// What the shell makes of ~/ at the start, as the file system does not know it
+static std::wstring withHomeFolder(const std::wstring& path)
+{
+	if (path.starts_with(L"~"))
+		return QDir::homePath().toStdWString() + path.substr(1);
+	return path;
 }
 
 static bool getPathsForPathCompletion(const std::wstring& input, std::wstring &rawPath_out, std::wstring &pathToMatch_out)
@@ -580,11 +586,11 @@ static bool getPathsForPathCompletion(const std::wstring& input, std::wstring &r
 	{
 		return false;
 	}
-	else if (doesFileExist(removeTrailingSlash(rawPath).c_str()))
+	else if (doesFileExist(removeTrailingSlash(withHomeFolder(rawPath)).c_str()))
 	{
 		return false;
 	}
-	else if (doesDirectoryExist(rawPath.c_str()))
+	else if (doesDirectoryExist(withHomeFolder(rawPath).c_str()))
 	{
 		rawPath_out = rawPath;
 		pathToMatch_out = rawPath;
@@ -592,13 +598,13 @@ static bool getPathsForPathCompletion(const std::wstring& input, std::wstring &r
 	}
 	else
 	{
-		size_t last_occurrence = rawPath.rfind(L"\\");
+		size_t last_occurrence = rawPath.rfind(nppPathSep);
 		if (last_occurrence == std::wstring::npos) // No match.
 			return false;
 		else
 		{
 			rawPath_out = rawPath;
-			pathToMatch_out = rawPath.substr(0, last_occurrence);
+			pathToMatch_out = rawPath.substr(0, last_occurrence + 1); // with the slash, as the root folder is only that
 			return true;
 		}
 	}
@@ -624,8 +630,8 @@ void AutoCompletion::showPathCompletion()
 	   But we also need to know which directory to look in (pathToMatch), which might
 	   not be the same as what the user wrote. This happens when the user types an
 	   incomplete name.
-	   For instance: the user wants to autocomplete "C:\Wind", and assuming that no such directory
-	   exists, this means we should list all files and directories in C:.
+	   For instance: the user wants to autocomplete "/home/me/Doc", and assuming that no such directory
+	   exists, this means we should list all files and directories in /home/me/.
 	*/
 	std::wstring rawPath, pathToMatch;
 	if (! getPathsForPathCompletion(currentLine, rawPath, pathToMatch))
@@ -634,37 +640,25 @@ void AutoCompletion::showPathCompletion()
 	// Get all files and directories in the path.
 	std::wstring autoCompleteEntries;
 	{
-		WIN32_FIND_DATA data;
-		std::wstring pathToMatchPlusSlash = addTrailingSlash(pathToMatch);
-		std::wstring searchString = pathToMatchPlusSlash + L"*.*";
-		HANDLE hFind = ::FindFirstFile(searchString.c_str(), &data);
-		if (hFind != INVALID_HANDLE_VALUE)
-		{
-			// Maximum number of entries to show. Without this it appears to the user like Notepad++ hangs when autocompleting
-			// some really large directories (c:\windows\winxsys on my system for instance).
-			static constexpr unsigned int maxEntries = 2000;
-			unsigned int counter = 0;
-			do
-			{
-				if (++counter > maxEntries)
-					break;
-
-				if (std::wcscmp(data.cFileName, L".") == 0 || std::wcscmp(data.cFileName, L"..") == 0)
-					continue;
-
-				if (!autoCompleteEntries.empty())
-					autoCompleteEntries += L"\n";
-
-				autoCompleteEntries += pathToMatchPlusSlash;
-				autoCompleteEntries += data.cFileName;
-				if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) // If directory, add trailing slash.
-					autoCompleteEntries += L"\\";
-
-			} while (::FindNextFile(hFind, &data));
-			::FindClose(hFind);
-		}
-		else
+		const std::wstring pathToMatchPlusSlash = addTrailingSlash(pathToMatch);
+		const QDir dir(QString::fromStdWString(withHomeFolder(pathToMatch)));
+		if (!dir.exists())
 			return;
+
+		// Maximum number of entries to show. Without this it appears to the user like Notepad++ hangs when autocompleting
+		// some really large directories.
+		static constexpr qsizetype maxEntries = 2000;
+		const QFileInfoList entries = dir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System, QDir::Name);
+		for (qsizetype i = 0; i < entries.size() && i < maxEntries; ++i)
+		{
+			if (!autoCompleteEntries.empty())
+				autoCompleteEntries += L"\n";
+
+			autoCompleteEntries += pathToMatchPlusSlash;
+			autoCompleteEntries += entries[i].fileName().toStdWString();
+			if (entries[i].isDir()) // If directory, add trailing slash.
+				autoCompleteEntries += nppPathSepStr;
+		}
 	}
 
 	// Show autocompletion box.
@@ -753,7 +747,7 @@ void AutoCompletion::getCloseTag(char* closeTag, size_t closeTagLen, size_t care
 		size_t disallowedTagsLen = sizeof(disallowedTags) / sizeof(char *);
 		for (size_t i = 0; i < disallowedTagsLen; ++i)
 		{
-			if (::strnicmp(tagHead + 1, disallowedTags[i], std::strlen(disallowedTags[i])) == 0)
+			if (_strnicmp(tagHead + 1, disallowedTags[i], std::strlen(disallowedTags[i])) == 0)
 				return;
 		}
 	}
@@ -1105,18 +1099,16 @@ bool AutoCompletion::setLanguage(LangType language)
 
 	_curLang = language;
 
-	wchar_t path[MAX_PATH];
-	::GetModuleFileNameW(nullptr, path, MAX_PATH);
-	PathRemoveFileSpec(path);
-	wcscat_s(path, L"\\autoCompletion\\");
-	wcscat_s(path, getApiFileName());
-	wcscat_s(path, L".xml");
+	std::wstring path = NppParameters::getInstance().getNppPath();
+	pathAppend(path, L"autoCompletion");
+	pathAppend(path, getApiFileName());
+	path += L".xml";
 
 	if (_pXmlFile)
 		delete _pXmlFile;
 
 	_pXmlFile = new NppXml::NewDocument();
-	_funcCompletionActive = NppXml::loadFile(_pXmlFile, path);
+	_funcCompletionActive = NppXml::loadFile(_pXmlFile, path.c_str());
 
 	NppXml::Element autoNode{};
 	if (_funcCompletionActive)
@@ -1256,7 +1248,7 @@ const wchar_t* AutoCompletion::getApiFileName()
 	if (_curLang == L_JAVASCRIPT)
 		_curLang = L_JS_EMBEDDED;
 
-	return ScintillaEditView::_langNameInfoArray[_curLang]._langName;
+	return g_langNameInfoArray[_curLang]._langName;
 }
 
 COLORREF AutoCompletion::_autocompleteText = RGB(0x00, 0x00, 0x00);

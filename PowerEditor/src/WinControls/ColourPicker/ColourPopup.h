@@ -17,12 +17,12 @@
 
 #pragma once
 
-#include <windows.h>
+#include <QPoint>
+
+#include <functional>
 
 #include "StaticDialog.h"
 #include "resource.h"
-
-#define WM_PICKUP_COLOR (COLOURPOPUP_USER + 1)
 
 class ColourPopup : public StaticDialog
 {
@@ -31,21 +31,11 @@ public:
 	explicit ColourPopup(COLORREF defaultColor) : _colour(defaultColor) {}
 	~ColourPopup() override {}
 
-	void createColorPopup();
-	void doDialog(POINT p);
-
-	void destroy() override {
-		if (_hSelf != nullptr)
-		{
-			::DestroyWindow(_hSelf);
-			_hSelf = nullptr;
-		}
-	}
+	void doDialog(const QPoint& position, std::function<void(COLORREF)> onChosen);
 
 private:
 	COLORREF _colour = RGB(0xFF, 0xFF, 0xFF);
+	std::function<void(COLORREF)> _onChosen;
 
-	static intptr_t CALLBACK dlgClrPopupProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-	static UINT_PTR CALLBACK chooseColorDlgProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+	void chooseFromDialog();
 };

@@ -17,31 +17,28 @@
 
 #pragma once
 
-#include <windows.h>
-
 #include <string>
 
 #include "Window.h"
 
-class URLCtrl : public Window {
+class QLabel;
+
+// Turns a label of a form into a link: to a web address, or to a command for the owner of the dialog.
+#include <functional>
+
+class URLCtrl : public Window
+{
 public:
-	void create(HWND itemHandle, const wchar_t* link, COLORREF linkColor = RGB(0, 0, 255));
+	void create(HWND itemHandle, const wchar_t* link);
 	void create(HWND itemHandle, int cmd, HWND msgDest = nullptr);
-	void destroy() override;
+	// Keeps the label's text, so it can be translated afterwards
+	void create(HWND itemHandle, std::function<void()> onClick);
+	void destroy() override {}
+
 private:
-	HCURSOR& loadHandCursor();
-	void action();
-protected :
-    std::wstring _URL;
-    HFONT _hfUnderlined = nullptr;
-    HCURSOR _hCursor = nullptr;
+	void applyStyle(QLabel* label) const;
 
+	std::wstring _URL;
+	int _cmdID = 0;
 	HWND _msgDest = nullptr;
-	unsigned long _cmdID = 0;
-
-    COLORREF _linkColor = RGB(0xFF, 0xFF, 0xFF);
-    COLORREF _visitedColor = RGB(0xFF, 0xFF, 0xFF);
-    bool  _clicking = false;
-
-	static LRESULT CALLBACK URLCtrlProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 };

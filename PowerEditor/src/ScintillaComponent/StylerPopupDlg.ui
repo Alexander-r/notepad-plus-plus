@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>StylerPopupDlg</class>
+ <widget class="QDialog" name="StylerPopupDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>486</width><height>495</height></rect></property>
+  <property name="windowTitle"><string>Styler Dialog</string></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QGroupBox" name="stylerStaticFontOptions">
+     <property name="nppId" stdset="0"><number>25030</number></property>
+     <property name="title"><string>Font options</string></property>
+     <layout class="QVBoxLayout" name="layout2">
+      <item>
+       <layout class="QGridLayout" name="layout3" columnstretch="0,1,0">
+        <item row="0" column="0">
+         <widget class="QLabel" name="stylerNameStatic">
+          <property name="nppId" stdset="0"><number>25031</number></property>
+          <property name="text"><string>Name:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QComboBox" name="stylerComboFontName">
+          <property name="nppId" stdset="0"><number>25004</number></property>
+          <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QCheckBox" name="stylerCheckBold">
+          <property name="nppId" stdset="0"><number>25001</number></property>
+          <property name="text"><string>Bold</string></property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="stylerSizeStatic">
+          <property name="nppId" stdset="0"><number>25032</number></property>
+          <property name="text"><string>Size:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QComboBox" name="stylerComboFontSize">
+          <property name="nppId" stdset="0"><number>25005</number></property>
+          <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QCheckBox" name="stylerCheckItalic">
+          <property name="nppId" stdset="0"><number>25002</number></property>
+          <property name="text"><string>Italic</string></property>
+         </widget>
+        </item>
+        <item row="2" column="2">
+         <widget class="QCheckBox" name="stylerCheckUnderline">
+          <property name="nppId" stdset="0"><number>25003</number></property>
+          <property name="text"><string>Underline</string></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="layout4">
+        <item row="0" column="0">
+         <widget class="QLabel" name="stylerFgStatic">
+          <property name="nppId" stdset="0"><number>25006</number></property>
+          <property name="text"><string>Foreground color:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLabel" name="stylerBgStatic">
+          <property name="nppId" stdset="0"><number>25007</number></property>
+          <property name="text"><string>Background color:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QCheckBox" name="stylerCheckFgTransparent">
+          <property name="nppId" stdset="0"><number>25033</number></property>
+          <property name="text"><string>Transparent</string></property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QCheckBox" name="stylerCheckBgTransparent">
+          <property name="nppId" stdset="0"><number>25034</number></property>
+          <property name="text"><string>Transparent</string></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="stylerStaticNestingGroup">
+     <property name="nppId" stdset="0"><number>25029</number></property>
+     <property name="title"><string>Nesting</string></property>
+     <layout class="QGridLayout" name="gridLayout2">
+      <item row="0" column="0">
+       <widget class="QCheckBox" name="stylerCheckNestingDelimiter1">
+        <property name="nppId" stdset="0"><number>25008</number></property>
+        <property name="text"><string>Delimiter 1</string></property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QCheckBox" name="stylerCheckNestingDelimiter2">
+        <property name="nppId" stdset="0"><number>25009</number></property>
+        <property name="text"><string>Delimiter 2</string></property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QCheckBox" name="stylerCheckNestingDelimiter3">
+        <property name="nppId" stdset="0"><number>25010</number></property>
+        <property name="text"><string>Delimiter 3</string></property>
+       </widget>
+      </item>
+      <item row="0" column="2">
+       <widget class="QCheckBox" name="stylerCheckNestingComment">
+        <property name="nppId" stdset="0"><number>25016</number></property>
+        <property name="text"><string>Comment</string></property>
+       </widget>
+      </item>
+      <item row="1" column="2">
+       <widget class="QCheckBox" name="stylerCheckNestingCommentLine">
+        <property name="nppId" stdset="0"><number>25017</number></property>
+        <property name="text"><string>Comment line</string></property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QCheckBox" name="stylerCheckNestingKeyword1">
+        <property name="nppId" stdset="0"><number>25018</number></property>
+        <property name="text"><string>Keyword 1</string></property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QCheckBox" name="stylerCheckNestingKeyword2">
+        <property name="nppId" stdset="0"><number>25019</number></property>
+        <property name="text"><string>Keyword 2</string></property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QCheckBox" name="stylerCheckNestingKeyword3">
+        <property name="nppId" stdset="0"><number>25020</number></property>
+        <property name="text"><string>Keyword 3</string></property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QCheckBox" name="stylerCheckNestingKeyword4">
+        <property name="nppId" stdset="0"><number>25021</number></property>
+        <property name="text"><string>Keyword 4</string></property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QCheckBox" name="stylerCheckNestingDelimiter4">
+        <property name="nppId" stdset="0"><number>25011</number></property>
+        <property name="text"><string>Delimiter 4</string></property>
+       </widget>
+      </item>
+      <item row="4" column="0">
+       <widget class="QCheckBox" name="stylerCheckNestingDelimiter5">
+        <property name="nppId" stdset="0"><number>25012</number></property>
+        <property name="text"><string>Delimiter 5</string></property>
+       </widget>
+      </item>
+      <item row="5" column="0">
+       <widget class="QCheckBox" name="stylerCheckNestingDelimiter6">
+        <property name="nppId" stdset="0"><number>25013</number></property>
+        <property name="text"><string>Delimiter 6</string></property>
+       </widget>
+      </item>
+      <item row="6" column="0">
+       <widget class="QCheckBox" name="stylerCheckNestingDelimiter7">
+        <property name="nppId" stdset="0"><number>25014</number></property>
+        <property name="text"><string>Delimiter 7</string></property>
+       </widget>
+      </item>
+      <item row="7" column="0">
+       <widget class="QCheckBox" name="stylerCheckNestingDelimiter8">
+        <property name="nppId" stdset="0"><number>25015</number></property>
+        <property name="text"><string>Delimiter 8</string></property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QCheckBox" name="stylerCheckNestingKeyword5">
+        <property name="nppId" stdset="0"><number>25022</number></property>
+        <property name="text"><string>Keyword 5</string></property>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="QCheckBox" name="stylerCheckNestingKeyword6">
+        <property name="nppId" stdset="0"><number>25023</number></property>
+        <property name="text"><string>Keyword 6</string></property>
+       </widget>
+      </item>
+      <item row="6" column="1">
+       <widget class="QCheckBox" name="stylerCheckNestingKeyword7">
+        <property name="nppId" stdset="0"><number>25024</number></property>
+        <property name="text"><string>Keyword 7</string></property>
+       </widget>
+      </item>
+      <item row="7" column="1">
+       <widget class="QCheckBox" name="stylerCheckNestingKeyword8">
+        <property name="nppId" stdset="0"><number>25025</number></property>
+        <property name="text"><string>Keyword 8</string></property>
+       </widget>
+      </item>
+      <item row="2" column="2">
+       <widget class="QCheckBox" name="stylerCheckNestingOperators1">
+        <property name="nppId" stdset="0"><number>25026</number></property>
+        <property name="text"><string>Operators 1</string></property>
+       </widget>
+      </item>
+      <item row="3" column="2">
+       <widget class="QCheckBox" name="stylerCheckNestingOperators2">
+        <property name="nppId" stdset="0"><number>25027</number></property>
+        <property name="text"><string>Operators 2</string></property>
+       </widget>
+      </item>
+      <item row="4" column="2">
+       <widget class="QCheckBox" name="stylerCheckNestingNumbers">
+        <property name="nppId" stdset="0"><number>25028</number></property>
+        <property name="text"><string>Numbers</string></property>
+       </widget>
+      </item>
+      <item row="0" column="3">
+       <spacer name="hSpacer1">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       </spacer>
+      </item>
+      <item row="8" column="0">
+       <spacer name="vSpacer2">
+        <property name="orientation"><enum>Qt::Vertical</enum></property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="layout5">
+     <item>
+      <spacer name="spacer6">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="ok">
+       <property name="nppId" stdset="0"><number>1</number></property>
+       <property name="text"><string>OK</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+       <property name="default"><bool>true</bool></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancel">
+       <property name="nppId" stdset="0"><number>2</number></property>
+       <property name="text"><string>Cancel</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

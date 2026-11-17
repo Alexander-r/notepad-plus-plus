@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubSearchengineDlg</class>
+ <widget class="QWidget" name="PreferenceSubSearchengineDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QGroupBox" name="searchenginesGbStatic">
+     <property name="nppId" stdset="0"><number>6271</number></property>
+     <property name="title"><string>Search Engine (for command "Search on Internet")</string></property>
+     <layout class="QVBoxLayout" name="layout2">
+      <item>
+       <widget class="QRadioButton" name="searchengineDuckduckgoRadio">
+        <property name="nppId" stdset="0"><number>6272</number></property>
+        <property name="text"><string>DuckDuckGo</string></property>
+        <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+       </widget>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="searchengineGoogleRadio">
+        <property name="nppId" stdset="0"><number>6273</number></property>
+        <property name="text"><string>Google</string></property>
+        <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+       </widget>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="searchengineYahooRadio">
+        <property name="nppId" stdset="0"><number>6275</number></property>
+        <property name="text"><string>Yahoo!</string></property>
+        <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+       </widget>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="searchengineStackoverflowRadio">
+        <property name="nppId" stdset="0"><number>6279</number></property>
+        <property name="text"><string>Stack Overflow</string></property>
+        <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+       </widget>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="searchengineCustomRadio">
+        <property name="nppId" stdset="0"><number>6276</number></property>
+        <property name="text"><string>Set your search engine here:</string></property>
+        <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="layout3">
+        <item>
+         <spacer name="spacer4">
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="searchengineEdit">
+          <property name="nppId" stdset="0"><number>6277</number></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="searchengineNoteStatic">
+        <property name="nppId" stdset="0"><number>6278</number></property>
+        <property name="text"><string>Example: https://www.google.com/search?q=$(CURRENT_WORD)</string></property>
+        <property name="wordWrap"><bool>true</bool></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer5">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+ </buttongroups>
+</ui>

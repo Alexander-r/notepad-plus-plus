@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <windows.h>
+#include "NppPlatform.h"
 #include <string>
 #include <cstdint>
 
@@ -37,7 +37,7 @@ public:
 	}
 
 	bool isOpened() const {
-		return (_hFile != INVALID_HANDLE_VALUE);
+		return (_fd != -1);
 	}
 
 	void close();
@@ -57,13 +57,9 @@ public:
 	}
 
 private:
-	HANDLE	_hFile		{INVALID_HANDLE_VALUE};
+	int		_fd			{-1};
 	bool	_written	{false};
 	std::string _path;
-
-	const DWORD _accessParam  { GENERIC_READ | GENERIC_WRITE };
-	const DWORD _shareParam   { FILE_SHARE_READ | FILE_SHARE_WRITE };
-	const DWORD _attribParam  { FILE_ATTRIBUTE_NORMAL };
 
 	DWORD _dwErrorCode{ NO_ERROR };
 };

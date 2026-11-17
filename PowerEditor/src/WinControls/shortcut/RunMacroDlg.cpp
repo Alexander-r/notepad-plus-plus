@@ -19,18 +19,19 @@
 
 #include "RunMacroDlg.h"
 
-#include <windows.h>
+#include <QAbstractButton>
+#include <QComboBox>
+#include <QDialog>
+#include <QIntValidator>
+#include <QLineEdit>
 
 #include <algorithm>
-#include <vector>
 
-#include "Common.h"
-#include "NppDarkMode.h"
-#include "Parameters.h"
-#include "shortcut.h"
 #include "Notepad_plus_msgs.h"
+#include "Parameters.h"
+#include "ScintillaEditView.h"
 #include "resource.h"
-#include "RunMacroDlg_rc.h"
+#include "ui_RunMacroDlg.h"
 
 void RunMacroDlg::initMacroList()
 {
@@ -39,183 +40,62 @@ void RunMacroDlg::initMacroList()
 	NppParameters& nppParam = NppParameters::getInstance();
 	const std::vector<MacroShortcut>& macroList = nppParam.getMacroList();
 
-	::SendDlgItemMessage(_hSelf, IDC_MACRO_COMBO, CB_RESETCONTENT, 0, 0);
+	QComboBox* macroCombo = combo(IDC_MACRO_COMBO);
+	macroCombo->clear();
 
 	if (static_cast<MacroStatus>(::SendMessage(_hParent, NPPM_GETCURRENTMACROSTATUS, 0, 0)) == MacroStatus::RecordingStopped)
-		::SendDlgItemMessage(_hSelf, IDC_MACRO_COMBO, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Current recorded macro"));
+		macroCombo->addItem(QStringLiteral("Current recorded macro"));
 
 	for (size_t i = 0, len = macroList.size(); i < len ; ++i)
-		::SendDlgItemMessage(_hSelf, IDC_MACRO_COMBO, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(string2wstring(macroList[i].getName(), CP_UTF8).c_str()));
+		macroCombo->addItem(QString::fromStdWString(string2wstring(macroList[i].getName(), CP_UTF8)));
 
-	::SendDlgItemMessage(_hSelf, IDC_MACRO_COMBO, CB_SETCURSEL, 0, 0);
+	macroCombo->setCurrentIndex(0);
 	_macroIndex = 0;
 }
 
-intptr_t CALLBACK RunMacroDlg::run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam)
-{	
-	switch (message)
+void RunMacroDlg::doDialog(bool isRTL)
+{
+	if (!isCreated())
 	{
-		case WM_INITDIALOG :
+		QDialog* dialog = createDialogWidget(isRTL);
+		Ui::RunMacroDlg ui;
+		ui.setupUi(dialog);
+
+		initMacroList();
+		ui.mRunTimes->setValidator(new QIntValidator(0, 9999, ui.mRunTimes));
+		ui.mRunTimes->setText(QString::number(_times));
+		ui.mRunMulti->setChecked(true);
+		goToCenter();
+
+		QObject::connect(ui.mRunMulti, &QAbstractButton::toggled, ui.mRunTimes, &QWidget::setEnabled);
+		QObject::connect(ui.mRunMulti, &QAbstractButton::toggled, ui.timesStatic, &QWidget::setEnabled);
+		QObject::connect(ui.cancel, &QAbstractButton::clicked, dialog, [this]() { display(false); });
+		QObject::connect(ui.ok, &QAbstractButton::clicked, dialog, [this]()
 		{
-			NppDarkMode::autoSubclassAndThemeChildControls(_hSelf);
-
-			initMacroList();
-			::SetDlgItemInt(_hSelf, IDC_M_RUN_TIMES, _times, FALSE);
-			setChecked(IDC_M_RUN_MULTI);
-
-			::SendDlgItemMessage(_hSelf, IDC_M_RUN_TIMES, EM_LIMITTEXT, 4, 0);
-			goToCenter(SWP_SHOWWINDOW | SWP_NOSIZE);
-
-			return TRUE;
-		}
-
-		case WM_CTLCOLOREDIT:
+			if (combo(IDC_MACRO_COMBO)->count() > 0)
+				::SendMessage(_hParent, WM_MACRODLGRUNMACRO, 0, 0);
+		});
+		QObject::connect(ui.macroCombo, &QComboBox::currentIndexChanged, dialog, [this](int index) { _macroIndex = index; });
+		QObject::connect(ui.mRunTimes, &QLineEdit::textChanged, dialog, [this](const QString& text)
 		{
-			return NppDarkMode::onCtlColorCtrl(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_CTLCOLORLISTBOX:
+			_times = std::max(text.toInt(), 1);
+		});
+		QObject::connect(ui.mRunTimes, &QLineEdit::editingFinished, dialog, [edit = ui.mRunTimes]()
 		{
-			return NppDarkMode::onCtlColorListbox(wParam, lParam);
-		}
-
-		case WM_CTLCOLORDLG:
-		{
-			return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_CTLCOLORSTATIC:
-		{
-			auto hdcStatic = reinterpret_cast<HDC>(wParam);
-			const auto dlgCtrlID = ::GetDlgCtrlID(reinterpret_cast<HWND>(lParam));
-
-			const bool isStaticText = (dlgCtrlID == IDC_TIMES_STATIC);
-			//set the static text colors to show enable/disable instead of ::EnableWindow which causes blurry text
-			if (isStaticText)
-			{
-				const bool isTextEnabled = isCheckedOrNot(IDC_M_RUN_MULTI);
-				return NppDarkMode::onCtlColorDlgStaticText(hdcStatic, isTextEnabled);
-			}
-			return NppDarkMode::onCtlColorDlg(hdcStatic);
-		}
-
-		case WM_PRINTCLIENT:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				return TRUE;
-			}
-			break;
-		}
-
-		case NPPM_INTERNAL_REFRESHDARKMODE:
-		{
-			NppDarkMode::autoThemeChildControls(_hSelf);
-			return TRUE;
-		}
-
-		case WM_CHANGEUISTATE:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				redrawDlgItem(IDC_MACRO2RUN_STATIC);
-			}
-
-			return FALSE;
-		}
-
-		case WM_DPICHANGED:
-		{
-			_dpiManager.setDpiWP(wParam);
-			setPositionDpi(lParam);
-
-			return TRUE;
-		}
-
-		case WM_COMMAND:
-		{
-			switch (LOWORD(wParam))
-			{
-				case IDC_M_RUN_MULTI:
-				case IDC_M_RUN_EOF:
-				{
-					const bool isRunMulti = (wParam == IDC_M_RUN_MULTI);
-					if (isRunMulti)
-					{
-						::EnableWindow(::GetDlgItem(_hSelf, IDC_M_RUN_TIMES), TRUE);
-						_times = ::GetDlgItemInt(_hSelf, IDC_M_RUN_TIMES, NULL, FALSE);
-					}
-					else
-					{
-						::EnableWindow(::GetDlgItem(_hSelf, IDC_M_RUN_TIMES), FALSE);
-					}
-					redrawDlgItem(IDC_TIMES_STATIC);
-
-					return TRUE;
-				}
-
-				case IDCANCEL:
-					::ShowWindow(_hSelf, SW_HIDE);
-					return TRUE;
-
-				case IDOK:
-				{
-					if (::SendDlgItemMessage(_hSelf, IDC_MACRO_COMBO, CB_GETCOUNT, 0, 0) > 0)
-						::SendMessage(_hParent, WM_MACRODLGRUNMACRO, 0, 0);
-
-					return TRUE;
-				}
-
-				case IDC_MACRO_COMBO:
-				{
-					if (HIWORD(wParam) == CBN_SELCHANGE)
-					{
-						_macroIndex = static_cast<int>(::SendDlgItemMessage(_hSelf, IDC_MACRO_COMBO, CB_GETCURSEL, 0, 0));
-						return TRUE;
-					}
-					return FALSE;
-				}
-
-				case IDC_M_RUN_TIMES:
-				{
-					switch (HIWORD(wParam))
-					{
-						case EN_KILLFOCUS:
-						{
-							const int times = ::GetDlgItemInt(_hSelf, IDC_M_RUN_TIMES, nullptr, FALSE);
-							if (times < 1)
-							{
-								::SetDlgItemInt(_hSelf, IDC_M_RUN_TIMES, 1, FALSE);
-								return TRUE;
-							}
-
-							return FALSE;
-						}
-
-						case EN_CHANGE:
-						{
-							_times = std::max<int>(::GetDlgItemInt(_hSelf, IDC_M_RUN_TIMES, nullptr, FALSE), 1);
-							return TRUE;
-						}
-
-						default:
-						{
-							return FALSE;
-						}
-					}
-				}
-
-				default:
-				{
-					return FALSE;
-				}
-			}
-		}
+			if (edit->text().toInt() < 1)
+				edit->setText(QStringLiteral("1"));
+		});
 	}
-	return FALSE;
+	else
+	{
+		// Shortcut might have been updated for current session
+		// So reload the macro list (issue #4526)
+		initMacroList();
+	}
+	display();
 }
 
-int RunMacroDlg::getMacro2Exec() const 
+int RunMacroDlg::getMacro2Exec() const
 {
 	bool isCurMacroPresent = static_cast<MacroStatus>(::SendMessage(_hParent, NPPM_GETCURRENTMACROSTATUS, 0, 0)) == MacroStatus::RecordingStopped;
 	return isCurMacroPresent?(_macroIndex - 1):_macroIndex;

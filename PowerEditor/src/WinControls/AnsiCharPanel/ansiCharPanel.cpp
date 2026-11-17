@@ -17,26 +17,88 @@
 
 #include "ansiCharPanel.h"
 
-#include <windows.h>
+#include <QAbstractItemView>
+#include <QDialog>
+#include <QKeySequence>
+#include <QShortcut>
+#include <QTableWidget>
+#include <QVBoxLayout>
 
-#include <cstdlib>
 #include <string>
-#include <string.h>
 
 #include <Scintilla.h>
 
+#include "Common.h"
 #include "DockingDlgInterface.h"
 #include "ListView.h"
 #include "Parameters.h"
 #include "ScintillaEditView.h"
 #include "ansiCharPanel_rc.h"
 #include "dockingResource.h"
-#include "dpiManagerV2.h"
 #include "localization.h"
 #include "menuCmdID.h"
 #include "resource.h"
 
 using namespace std;
+
+void AnsiCharPanel::create(DockedWidgetData* data, bool isRTL)
+{
+	DockingDlgInterface::create(data, isRTL);
+
+	NppParameters& nppParam = NppParameters::getInstance();
+	NativeLangSpeaker *pNativeSpeaker = nppParam.getNativeLangSpeaker();
+	wstring valStr = pNativeSpeaker->getAttrNameStr(L"Value", "AsciiInsertion", "ColumnVal");
+	wstring hexStr = pNativeSpeaker->getAttrNameStr(L"Hex", "AsciiInsertion", "ColumnHex");
+	wstring charStr = pNativeSpeaker->getAttrNameStr(L"Character", "AsciiInsertion", "ColumnChar");
+	wstring htmlNameStr = pNativeSpeaker->getAttrNameStr(L"HTML Name", "AsciiInsertion", "ColumnHtmlName");
+	wstring htmlNumberStr = pNativeSpeaker->getAttrNameStr(L"HTML Decimal", "AsciiInsertion", "ColumnHtmlNumber");
+	wstring htmlHexNbStr = pNativeSpeaker->getAttrNameStr(L"HTML Hexadecimal", "AsciiInsertion", "ColumnHtmlHexNumber");
+
+	_listView.addColumn(columnInfo(valStr, 45));
+	_listView.addColumn(columnInfo(hexStr, 45));
+	_listView.addColumn(columnInfo(charStr, 70));
+	_listView.addColumn(columnInfo(htmlNameStr, 90));
+	_listView.addColumn(columnInfo(htmlNumberStr, 100));
+	_listView.addColumn(columnInfo(htmlHexNbStr, 120));
+
+	_listView.init(_hInst, _hSelf, IDC_LIST_ANSICHAR);
+	int codepage = (*_ppEditView)->getCurrentBuffer()->getEncoding();
+	_listView.setValues(codepage==-1?0:codepage);
+
+	auto* layout = new QVBoxLayout(_hSelf);
+	layout->setContentsMargins(0, 0, 0, 0);
+	layout->addWidget(_listView.getHSelf());
+
+	QTableWidget* list = _listView.table();
+	QObject::connect(list, &QTableWidget::cellDoubleClicked, _hSelf, [this](int row, int column)
+	{
+		if (column != 2)
+			insertString(_listView.getText(row, column));
+		else
+			insertChar(static_cast<unsigned char>(row));
+	});
+
+	const auto insertSelected = [this]()
+	{
+		const int row = _listView.getSelectedIndex();
+		if (row != -1)
+			insertChar(static_cast<unsigned char>(row));
+	};
+	for (const int key : { Qt::Key_Return, Qt::Key_Enter })
+	{
+		auto* shortcut = new QShortcut(QKeySequence(key), list);
+		shortcut->setContext(Qt::WidgetShortcut);
+		QObject::connect(shortcut, &QShortcut::activated, _hSelf, insertSelected);
+	}
+}
+
+void AnsiCharPanel::onDockingNotify(const NMHDR& notification)
+{
+	if (LOWORD(notification.code) == DMN_CLOSE)
+		::SendMessage(_hParent, WM_COMMAND, IDM_EDIT_CHAR_PANEL, 0);
+	else
+		DockingDlgInterface::onDockingNotify(notification);
+}
 
 void AnsiCharPanel::switchEncoding()
 {
@@ -44,178 +106,45 @@ void AnsiCharPanel::switchEncoding()
 	_listView.resetValues(codepage);
 }
 
-intptr_t CALLBACK AnsiCharPanel::run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam)
-{
-	switch (message)
-	{
-		case WM_INITDIALOG :
-		{
-			NppParameters& nppParam = NppParameters::getInstance();
-			NativeLangSpeaker *pNativeSpeaker = nppParam.getNativeLangSpeaker();
-			wstring valStr = pNativeSpeaker->getAttrNameStr(L"Value", "AsciiInsertion", "ColumnVal");
-			wstring hexStr = pNativeSpeaker->getAttrNameStr(L"Hex", "AsciiInsertion", "ColumnHex");
-			wstring charStr = pNativeSpeaker->getAttrNameStr(L"Character", "AsciiInsertion", "ColumnChar");
-			wstring htmlNameStr = pNativeSpeaker->getAttrNameStr(L"HTML Name", "AsciiInsertion", "ColumnHtmlName");
-			wstring htmlNumberStr = pNativeSpeaker->getAttrNameStr(L"HTML Decimal", "AsciiInsertion", "ColumnHtmlNumber");
-			wstring htmlHexNbStr = pNativeSpeaker->getAttrNameStr(L"HTML Hexadecimal", "AsciiInsertion", "ColumnHtmlHexNb");
-
-			_listView.addColumn(columnInfo(valStr, _dpiManager.scale(45)));
-			_listView.addColumn(columnInfo(hexStr, _dpiManager.scale(45)));
-			_listView.addColumn(columnInfo(charStr, _dpiManager.scale(70)));
-			_listView.addColumn(columnInfo(htmlNameStr, _dpiManager.scale(90)));
-			_listView.addColumn(columnInfo(htmlNumberStr, _dpiManager.scale(100)));
-			_listView.addColumn(columnInfo(htmlHexNbStr, _dpiManager.scale(120)));
-
-			_listView.init(_hInst, _hSelf, IDC_LIST_ANSICHAR);
-			int codepage = (*_ppEditView)->getCurrentBuffer()->getEncoding();
-			_listView.setValues(codepage==-1?0:codepage);
-			_listView.display();
-
-			return TRUE;
-		}
-
-		case NPPM_INTERNAL_REFRESHDARKMODE:
-		{
-			_listView.setDarkTheme();
-			return TRUE;
-		}
-
-		case WM_NOTIFY:
-		{
-			switch (reinterpret_cast<LPNMHDR>(lParam)->code)
-			{
-				case DMN_CLOSE:
-				{
-					::SendMessage(_hParent, WM_COMMAND, IDM_EDIT_CHAR_PANEL, 0);
-
-					return TRUE;
-				}
-
-				case NM_DBLCLK:
-				{
-					const auto lpnmitem = reinterpret_cast<LPNMITEMACTIVATE>(lParam);
-					LVHITTESTINFO pInfo{};
-					pInfo.pt = lpnmitem->ptAction;
-					ListView_SubItemHitTest(_listView.getHSelf(), &pInfo);
-
-					int i = pInfo.iItem;
-					int j = pInfo.iSubItem;
-					wchar_t buffer[10]{};
-					LVITEM item{};
-					item.mask = LVIF_TEXT;
-					item.iItem = i;
-					item.iSubItem = j;
-					item.cchTextMax = 10;
-					item.pszText = buffer;
-					ListView_GetItem(_listView.getHSelf(), &item);
-
-					if (i == -1)
-						return TRUE;
-
-					if (j != 2)
-						insertString(item.pszText);
-					else
-						insertChar(static_cast<unsigned char>(i));
-					
-					return TRUE;
-				}
-
-				case LVN_KEYDOWN:
-				{
-					switch (reinterpret_cast<LPNMLVKEYDOWN>(lParam)->wVKey)
-					{
-						case VK_RETURN:
-						{
-							int i = _listView.getSelectedIndex();
-
-							if (i == -1)
-								return TRUE;
-
-							insertChar(static_cast<unsigned char>(i));
-							return TRUE;
-						}
-						default:
-							break;
-					}
-				}
-				break;
-
-				default:
-					break;
-			}
-		}
-		return TRUE;
-
-		case WM_SIZE:
-		{
-			int width = LOWORD(lParam);
-			int height = HIWORD(lParam);
-			::MoveWindow(_listView.getHSelf(), 0, 0, width, height, TRUE);
-			break;
-		}
-
-		default :
-			return DockingDlgInterface::run_dlgProc(message, wParam, lParam);
-	}
-	return DockingDlgInterface::run_dlgProc(message, wParam, lParam);
-}
-
 void AnsiCharPanel::insertChar(unsigned char char2insert) const
 {
-	char charStr[2]{};
-	charStr[0] = char2insert;
-	charStr[1] = '\0';
-	wchar_t wCharStr[10]{};
-	char multiByteStr[10]{};
+	const char charStr[2] { static_cast<char>(char2insert), '\0' };
+	WcharMbcsConvertor& wmc = WcharMbcsConvertor::getInstance();
+
+	std::string text;
 	int codepage = (*_ppEditView)->getCurrentBuffer()->getEncoding();
 	if (codepage == -1)
 	{
 		bool isUnicode = ((*_ppEditView)->execute(SCI_GETCODEPAGE) == SC_CP_UTF8);
 		if (isUnicode)
-		{
-			MultiByteToWideChar(0, 0, charStr, -1, wCharStr, _countof(wCharStr));
-			WideCharToMultiByte(CP_UTF8, 0, wCharStr, -1, multiByteStr, sizeof(multiByteStr), NULL, NULL);
-		}
+			text = wstring2string(wmc.char2wchar(charStr, 0), CP_UTF8);
 		else // ANSI
-		{
-			multiByteStr[0] = charStr[0];
-			multiByteStr[1] = charStr[1];
-		}
+			text.assign(1, charStr[0]);
 	}
 	else
 	{
-		MultiByteToWideChar(codepage, 0, charStr, -1, wCharStr, _countof(wCharStr));
-		WideCharToMultiByte(CP_UTF8, 0, wCharStr, -1, multiByteStr, sizeof(multiByteStr), NULL, NULL);
+		text = wstring2string(wmc.char2wchar(charStr, codepage), CP_UTF8);
 	}
+
+	// The NUL character is a character like any other here
 	(*_ppEditView)->execute(SCI_REPLACESEL, 0, reinterpret_cast<LPARAM>(""));
-	size_t len = (char2insert < 128) ? 1 : strlen(multiByteStr);
-	(*_ppEditView)->execute(SCI_ADDTEXT, len, reinterpret_cast<LPARAM>(multiByteStr));
+	const size_t len = (char2insert < 128) ? 1 : text.length();
+	if (char2insert == 0)
+		text.assign(1, '\0');
+	(*_ppEditView)->execute(SCI_ADDTEXT, len, reinterpret_cast<LPARAM>(text.data()));
 	(*_ppEditView)->grabFocus();
 }
 
-void AnsiCharPanel::insertString(LPWSTR string2insert) const
+void AnsiCharPanel::insertString(const std::wstring& string2insert) const
 {
-	char multiByteStr[10]{};
+	std::string text;
 	int codepage = (*_ppEditView)->getCurrentBuffer()->getEncoding();
-	if (codepage == -1)
-	{
-		bool isUnicode = ((*_ppEditView)->execute(SCI_GETCODEPAGE) == SC_CP_UTF8);
-		if (isUnicode)
-		{
-			WideCharToMultiByte(CP_UTF8, 0, string2insert, -1, multiByteStr, sizeof(multiByteStr), NULL, NULL);
-		}
-		else // ANSI
-		{
-			wcstombs(multiByteStr, string2insert, 10);
-		}
-	}
+	if (codepage == -1 && (*_ppEditView)->execute(SCI_GETCODEPAGE) != SC_CP_UTF8)
+		text = wstring2string(string2insert, 0); // ANSI
 	else
-	{
-		WideCharToMultiByte(CP_UTF8, 0, string2insert, -1, multiByteStr, sizeof(multiByteStr), NULL, NULL);
-	}
+		text = wstring2string(string2insert, CP_UTF8);
 
 	(*_ppEditView)->execute(SCI_REPLACESEL, 0, reinterpret_cast<LPARAM>(""));
-	size_t len = strlen(multiByteStr);
-	(*_ppEditView)->execute(SCI_ADDTEXT, len, reinterpret_cast<LPARAM>(multiByteStr));
+	(*_ppEditView)->execute(SCI_ADDTEXT, text.length(), reinterpret_cast<LPARAM>(text.c_str()));
 	(*_ppEditView)->grabFocus();
 }

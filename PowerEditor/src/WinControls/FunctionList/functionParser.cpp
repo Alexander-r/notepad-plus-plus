@@ -17,7 +17,7 @@
 
 #include "functionParser.h"
 
-#include <windows.h>
+#include "NppPlatform.h"
 
 #include <memory>
 #include <string>
@@ -151,7 +151,7 @@ bool FunctionParsersManager::getUnitPaserParameters(
 bool FunctionParsersManager::loadFuncListFromXmlTree(const std::wstring& xmlDirPath, LangType lType, const std::wstring& overrideId, int udlIndex)
 {
 	std::wstring funcListRulePath = xmlDirPath;
-	funcListRulePath += L"\\";
+	funcListRulePath += nppPathSepStr;
 	int index = -1;
 	if (lType == L_USER) // UDL
 	{
@@ -169,7 +169,7 @@ bool FunctionParsersManager::loadFuncListFromXmlTree(const std::wstring& xmlDirP
 		index = lType;
 		if (overrideId.empty())
 		{
-			std::wstring lexerName = ScintillaEditView::_langNameInfoArray[lType]._langName;
+			std::wstring lexerName = g_langNameInfoArray[lType]._langName;
 			funcListRulePath += lexerName;
 			funcListRulePath += L".xml";
 		}
@@ -253,7 +253,7 @@ bool FunctionParsersManager::loadFuncListFromXmlTree(const std::wstring& xmlDirP
 bool FunctionParsersManager::getOverrideMapFromXmlTree(const std::wstring& xmlDirPath)
 {
 	std::wstring funcListRulePath = xmlDirPath;
-	funcListRulePath += L"\\overrideMap.xml";
+	pathAppend(funcListRulePath, L"overrideMap.xml");
 	
 	NppXml::NewDocument xmlFuncListDoc{};
 	const bool loadOK = NppXml::loadFile(&xmlFuncListDoc, funcListRulePath.c_str());
@@ -409,7 +409,10 @@ void FunctionParser::funcParse(
 			break;
 		}
 		size_t foundTextLen = targetEnd - targetStart;
-		if (targetStart + foundTextLen == end)
+
+		// Only at the end of the document. A zone before a comment ends at the character before that comment's line, which
+		// with LF line endings can be the end of a match, like the "{" of a function. CRLF keeps these apart on Windows.
+		if (targetStart + foundTextLen == end && static_cast<intptr_t>(end) == (*ppEditView)->execute(SCI_GETLENGTH))
 			break;
 
 		foundInfo fi;

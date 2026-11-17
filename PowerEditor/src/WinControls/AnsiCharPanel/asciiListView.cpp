@@ -17,14 +17,12 @@
 
 #include "asciiListView.h"
 
-#include <windows.h>
-
-#include <commctrl.h>
-
 #include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <vector>
+
+#include "Common.h"
 
 using namespace std;
 
@@ -36,7 +34,7 @@ void AsciiListView::resetValues(int codepage)
 	if (_codepage == codepage)
 		return;
 
-	ListView_DeleteAllItems(_hSelf);
+	removeAll();
 	setValues(codepage);
 }
 
@@ -114,12 +112,10 @@ std::wstring AsciiListView::getAscii(unsigned char value) const
 			return L"DEL";
 		default:
 		{
-			wchar_t charStr[10]{};
 			char ascii[2]{};
 			ascii[0] = value;
 			ascii[1] = '\0';
-			MultiByteToWideChar(_codepage, 0, ascii, -1, charStr, _countof(charStr));
-			return charStr;
+			return WcharMbcsConvertor::getInstance().char2wchar(ascii, _codepage);
 		}
 
 	}
@@ -547,8 +543,8 @@ void AsciiListView::setValues(int codepage)
 				}
 				else
 				{
-					swprintf(htmlNumber, bufSize, L"");
-					swprintf(htmlHexNumber, bufSizeHex, L"");
+					htmlNumber[0] = L'\0';
+					htmlHexNumber[0] = L'\0';
 				}
 			}
 
@@ -556,8 +552,8 @@ void AsciiListView::setValues(int codepage)
 		}
 		else
 		{
-			swprintf(htmlNumber, bufSize, L"");
-			swprintf(htmlHexNumber, bufSizeHex, L"");
+			htmlNumber[0] = L'\0';
+			htmlHexNumber[0] = L'\0';
 			htmlName = L"";
 		}
 

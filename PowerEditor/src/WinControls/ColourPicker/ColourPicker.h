@@ -17,17 +17,21 @@
 
 #pragma once
 
+#include <functional>
+#include <memory>
+
 #include "Window.h"
 
 class ColourPopup;
 
-#define CPN_COLOURPICKED (BN_CLICKED)
+inline constexpr UINT CPN_COLOURPICKED = 0;
 
+// A button showing a colour. A left click chooses another one from a popup, and a right click turns the colour on or off.
 class ColourPicker : public Window
 {
 public:
-	ColourPicker() = default;
-	~ColourPicker() override = default;
+	ColourPicker();
+	~ColourPicker() override;
 	void init(HINSTANCE hInst, HWND parent) override;
 	void destroy() override;
 	void setColour(COLORREF c) {
@@ -39,16 +43,19 @@ public:
 	void setEnabled(bool enabled) { _isEnabled = enabled; }
 	void disableRightClick() { _disableRightClick = true; }
 
+	// Called when the user has changed the colour, or turned it on or off
+	void setOnPicked(std::function<void()> onPicked) { _onPicked = std::move(onPicked); }
+
+	void showPopup();
+	void toggleEnabled();
+
 private:
 	void destroyColorPopup();
+	void colourChosen(COLORREF colour);
 
-	ColourPopup* _pColourPopup = nullptr;
+	std::unique_ptr<ColourPopup> _pColourPopup;
+	std::function<void()> _onPicked;
 	COLORREF _currentColour = RGB(0xFF, 0x00, 0x00);
 	bool _isEnabled = true;
 	bool _disableRightClick = false;
-
-	void drawForeground(HDC hDC) const;
-	void drawBackground(HDC hDC) const;
-
-	static LRESULT CALLBACK staticProc(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 };

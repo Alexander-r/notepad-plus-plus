@@ -17,47 +17,54 @@
 
 #include "documentSnapshot.h"
 
+#include <QDialog>
+
+#include "Parameters.h"
 #include "ScintillaEditView.h"
 #include "documentSnapshot_rc.h"
+#include "resource.h"
+#include "ui_DocumentsnapshotDlg.h"
 
-intptr_t CALLBACK DocumentPeeker::run_dlgProc(UINT message, WPARAM /*wParam*/, LPARAM /*lParam*/)
+void DocumentPeeker::createWindow()
 {
-	switch (message)
-	{
-        case WM_INITDIALOG :
-		{
-			HWND hwndScintilla = reinterpret_cast<HWND>(::SendMessage(_hParent, NPPM_CREATESCINTILLAHANDLE, 0, reinterpret_cast<LPARAM>(_hSelf)));
-			_pPeekerView = reinterpret_cast<ScintillaEditView *>(::SendMessage(_hParent, NPPM_INTERNAL_GETSCINTEDTVIEW, 0, reinterpret_cast<LPARAM>(hwndScintilla)));
-			_pPeekerView->execute(SCI_SETZOOM, static_cast<WPARAM>(-10), 0);
-			_pPeekerView->execute(SCI_SETVSCROLLBAR, FALSE, 0);
-			_pPeekerView->execute(SCI_SETHSCROLLBAR, FALSE, 0);
-			_pPeekerView->execute(SCI_SETMODEVENTMASK, MODEVENTMASK_OFF); // Turn off the modification event
+	QDialog* dialog = createDialogWidget();
+	dialog->setWindowFlags(Qt::ToolTip | Qt::FramelessWindowHint);
+	dialog->setAttribute(Qt::WA_ShowWithoutActivating);
 
-			_pPeekerView->showIndentGuideLine(false);
+	Ui::DocumentsnapshotDlg ui;
+	ui.setupUi(dialog);
+	_width = dialog->width();
+	_height = dialog->height();
 
-			::MoveWindow(_pPeekerView->getHSelf(), 0, 0, _rc.right - _rc.left, _rc.bottom - _rc.top, TRUE);
-			_pPeekerView->display();
-		}
-		break;
-	}
-	return FALSE;
+	HWND hwndScintilla = reinterpret_cast<HWND>(::SendMessage(_hParent, NPPM_CREATESCINTILLAHANDLE, 0, reinterpret_cast<LPARAM>(_hSelf)));
+	_pPeekerView = reinterpret_cast<ScintillaEditView *>(::SendMessage(_hParent, NPPM_INTERNAL_GETSCINTEDTVIEW, 0, reinterpret_cast<LPARAM>(hwndScintilla)));
+	_pPeekerView->execute(SCI_SETZOOM, static_cast<WPARAM>(-10), 0);
+	_pPeekerView->execute(SCI_SETVSCROLLBAR, FALSE, 0);
+	_pPeekerView->execute(SCI_SETHSCROLLBAR, FALSE, 0);
+	_pPeekerView->execute(SCI_SETMODEVENTMASK, MODEVENTMASK_OFF); // Turn off the modification event
+
+	_pPeekerView->showIndentGuideLine(false);
+
+	_pPeekerView->getHSelf()->setGeometry(0, 0, _width, _height);
+	_pPeekerView->display();
 }
 
 void DocumentPeeker::doDialog(POINT p, Buffer *pBuf, const ScintillaEditView & scintSource)
 {
 	if (!isCreated())
 	{
-		create(IDD_DOCUMENTSNAPSHOT);
+		createWindow();
 	}
 
 	syncDisplay(pBuf, scintSource);
-    // Adjust the position of DocumentPeeker
+	// Adjust the position of DocumentPeeker
 	goTo(p);
 }
 
 void DocumentPeeker::goTo(POINT p)
 {
-	::SetWindowPos(_hSelf, HWND_TOP, p.x, p.y + 10, _rc.right - _rc.left, _rc.bottom - _rc.top, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+	_hSelf->setGeometry(p.x, p.y + 10, _width, _height);
+	_hSelf->show();
 }
 
 
@@ -104,20 +111,20 @@ void DocumentPeeker::scrollSnapshotWith(const MapPosition & mapPos, int textZone
 		//
 		// if window size has been changed, resize windows
 		//
-		if (mapPos._height != -1 && _rc.bottom != _rc.top + mapPos._height)
+		if (mapPos._height != -1 && _height != mapPos._height)
 		{
-			_rc.bottom = _rc.top + static_cast<LONG>(mapPos._height);
+			_height = static_cast<int>(mapPos._height);
 			hasBeenChanged = true;
 		}
 
-		if (mapPos._width != -1 && _rc.right != _rc.left + mapPos._width)
+		if (mapPos._width != -1 && _width != mapPos._width)
 		{
-			_rc.right = _rc.left + static_cast<LONG>(mapPos._width);
+			_width = static_cast<int>(mapPos._width);
 			hasBeenChanged = true;
 		}
 
 		if (hasBeenChanged)
-			::MoveWindow(_pPeekerView->getHSelf(), 0, 0, _rc.right - _rc.left, _rc.bottom - _rc.top, TRUE);
+			_pPeekerView->getHSelf()->setGeometry(0, 0, _width, _height);
 		//
 		// Wrapping
 		//

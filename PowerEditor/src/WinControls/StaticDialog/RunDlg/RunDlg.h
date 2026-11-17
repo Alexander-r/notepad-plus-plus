@@ -16,41 +16,39 @@
 
 #pragma once
 
-#include <windows.h>
-
 #include <string>
 
 #include "StaticDialog.h"
 
-#define CURRENTWORD_MAXLENGTH 2048
+inline constexpr int CURRENTWORD_MAXLENGTH = 2048;
 
-const wchar_t fullCurrentPath[] = L"FULL_CURRENT_PATH";
-const wchar_t currentDirectory[] = L"CURRENT_DIRECTORY";
-const wchar_t onlyFileName[] = L"FILE_NAME";
-const wchar_t fileNamePart[] = L"NAME_PART";
-const wchar_t fileExtPart[] = L"EXT_PART";
-const wchar_t currentWord[] = L"CURRENT_WORD";
-const wchar_t nppDir[] = L"NPP_DIRECTORY";
-const wchar_t nppFullFilePath[] = L"NPP_FULL_FILE_PATH";
-const wchar_t currentLine[] = L"CURRENT_LINE";
-const wchar_t currentColumn[] = L"CURRENT_COLUMN";
-const wchar_t currentLineStr[] = L"CURRENT_LINESTR";
+inline constexpr wchar_t fullCurrentPath[] = L"FULL_CURRENT_PATH";
+inline constexpr wchar_t currentDirectory[] = L"CURRENT_DIRECTORY";
+inline constexpr wchar_t onlyFileName[] = L"FILE_NAME";
+inline constexpr wchar_t fileNamePart[] = L"NAME_PART";
+inline constexpr wchar_t fileExtPart[] = L"EXT_PART";
+inline constexpr wchar_t currentWord[] = L"CURRENT_WORD";
+inline constexpr wchar_t nppDir[] = L"NPP_DIRECTORY";
+inline constexpr wchar_t nppFullFilePath[] = L"NPP_FULL_FILE_PATH";
+inline constexpr wchar_t currentLine[] = L"CURRENT_LINE";
+inline constexpr wchar_t currentColumn[] = L"CURRENT_COLUMN";
+inline constexpr wchar_t currentLineStr[] = L"CURRENT_LINESTR";
 
-int whichVar(wchar_t *str);
-void expandNppEnvironmentStrs(const wchar_t *strSrc, wchar_t *stringDest, size_t strDestLen, HWND hWnd);
+int whichVar(const std::wstring& str);
+std::wstring expandNppEnvironmentStrs(const std::wstring& strSrc, HWND hWnd);
+std::wstring expandEnvironmentStrs(const std::wstring& text);
 
 class Command {
 public :
 	Command() = default;
 	explicit Command(const wchar_t* cmd) : _cmdLine(cmd) {}
 	explicit Command(const std::wstring& cmd) : _cmdLine(cmd) {}
-	HINSTANCE run(HWND hWnd);
-	HINSTANCE run(HWND hWnd, const wchar_t* cwd);
+	// Returns whether the command could be launched. On failure the user has been told why.
+	bool run(HWND hWnd);
+	bool run(HWND hWnd, const wchar_t* cwd);
 
 protected :
 	std::wstring _cmdLine;
-private :
-	void extractArgs(wchar_t *cmd2Exec, size_t cmd2ExecLen, wchar_t *args, size_t argsLen, const wchar_t *cmdEntier);
 };
 
 class RunDlg : public Command, public StaticDialog
@@ -63,9 +61,12 @@ public :
 
 protected :
 	void insertVariable(unsigned char id);
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
 
 private :
+	void onRun();
+	void onSave();
+	void onBrowse();
+	void onVariables();
 	void addTextToCombo(const wchar_t *txt2Add) const;
 	void removeTextFromCombo(const wchar_t *txt2Remove) const;
 };

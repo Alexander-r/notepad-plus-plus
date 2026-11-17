@@ -17,15 +17,13 @@
 
 #pragma once
 
-#include <windows.h>
-
-#include <commctrl.h>
-
 #include <string>
 #include <vector>
 
-#include "NppDarkMode.h"
+#include "NppPlatform.h"
 #include "Window.h"
+
+class QTableWidget;
 
 struct columnInfo {
 	size_t _width;
@@ -34,42 +32,16 @@ struct columnInfo {
 	columnInfo(const std::wstring& label, size_t width) : _width(width), _label(label) {}
 };
 
-class ListViewBase : public Window
-{
-public:
-	ListViewBase() = default;
-	~ListViewBase() override = default;
-
-	virtual void init(HINSTANCE hInst, HWND hParent, UINT_PTR listViewID,
-		DWORD style = LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
-		DWORD exStyle = LVS_EX_FULLROWSELECT | LVS_EX_BORDERSELECT | LVS_EX_DOUBLEBUFFER);
-
-	void destroy() override;
-
-	void setDarkTheme() {
-		NppDarkMode::setDarkListView(_hSelf);
-		NppDarkMode::setDarkTooltips(_hSelf, NppDarkMode::ToolTipsType::listview);
-	}
-
-	static void subclassParentNotifyListViewCustomDraw(HWND hParent, UINT_PTR listViewID);
-
-protected:
-	using Window::init;
-
-private:
-	static LRESULT listViewNotifyCustomDraw(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) noexcept;
-	static LRESULT CALLBACK ListViewParentNotifyCustomDrawSubclass(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) noexcept;
-};
-
-class ListView : public ListViewBase
+// A list of rows, with one column per addColumn(). It selects whole rows.
+class ListView : public Window
 {
 public:
 	ListView() = default;
 	~ListView() override = default;
 
-	void init(HINSTANCE hInst, HWND parent, UINT_PTR listViewID,
-		DWORD style = LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
-		DWORD exStyle = LVS_EX_FULLROWSELECT | LVS_EX_BORDERSELECT | LVS_EX_DOUBLEBUFFER) override;
+	// The control takes the given ID in its nppId property
+	void init(HINSTANCE hInst, HWND parent, UINT_PTR listViewID);
+	void destroy() override;
 
 	enum SortDirection {
 		sortEncrease = 0,
@@ -80,42 +52,28 @@ public:
 		_columnInfos.push_back(column2Add);
 	}
 
-	void setColumnText(size_t i, std::wstring txt2Set) {
-		LVCOLUMN lvColumn{};
-		lvColumn.mask = LVCF_TEXT;
-		lvColumn.pszText = txt2Set.data();
-		ListView_SetColumn(_hSelf, i, &lvColumn);
-	}
+	void setColumnText(size_t i, const std::wstring& txt2Set);
 
 	size_t findAlphabeticalOrderPos(const std::wstring& string2Cmp, SortDirection sortDir);
 
-	void addLine(std::vector<std::wstring>& values2Add, LPARAM lParam = 0, int pos2insert = -1);
-	
-	size_t nbItem() const {
-		return ListView_GetItemCount(_hSelf);
-	}
+	void addLine(const std::vector<std::wstring>& values2Add, LPARAM lParam = 0, int pos2insert = -1);
 
-	long getSelectedIndex() const {
-		return ListView_GetSelectionMark(_hSelf);
-	}
-
-	void setSelection(int itemIndex) const {
-		ListView_SetItemState(_hSelf, itemIndex, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-		ListView_EnsureVisible(_hSelf, itemIndex, false);
-		ListView_SetSelectionMark(_hSelf, itemIndex);
-	}
-
+	size_t nbItem() const;
+	long getSelectedIndex() const;
+	void setSelection(int itemIndex) const;
 	LPARAM getLParamFromIndex(int itemIndex) const;
+	bool removeFromIndex(size_t i);
+	void removeAll();
 
-	bool removeFromIndex(size_t i)	{
-		if (i >= nbItem())
-			return false;
+	std::wstring getText(int row, int column) const;
 
-		return (ListView_DeleteItem(_hSelf, i) == TRUE);
-	}
+	void setColours(COLORREF background, COLORREF text);
 
-	std::vector<size_t> getCheckedIndexes() const;
+	QTableWidget* table() const;
 
 protected:
 	std::vector<columnInfo> _columnInfos;
+
+private:
+	using Window::init;
 };

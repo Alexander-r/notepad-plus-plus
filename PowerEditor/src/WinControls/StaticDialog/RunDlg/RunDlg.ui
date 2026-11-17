@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>RunDlg</class>
+ <widget class="QDialog" name="RunDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>603</width><height>130</height></rect></property>
+  <property name="windowTitle"><string>Run...</string></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QGroupBox" name="maintextStatic">
+     <property name="nppId" stdset="0"><number>1903</number></property>
+     <property name="title"><string>The &amp;Program to Run</string></property>
+     <layout class="QHBoxLayout" name="layout2" stretch="1,0,0">
+      <item>
+       <widget class="QComboBox" name="comboRunPath">
+        <property name="nppId" stdset="0"><number>1902</number></property>
+        <property name="editable"><bool>true</bool></property>
+        <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="buttonFileBrowser">
+        <property name="nppId" stdset="0"><number>1901</number></property>
+        <property name="text"><string>...</string></property>
+        <property name="autoDefault"><bool>false</bool></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="buttonVariables">
+        <property name="nppId" stdset="0"><number>1905</number></property>
+        <property name="text"><string>&amp;+</string></property>
+        <property name="autoDefault"><bool>false</bool></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="layout3">
+     <item>
+      <spacer name="spacer4">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="ok">
+       <property name="nppId" stdset="0"><number>1</number></property>
+       <property name="text"><string>&amp;Run</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+       <property name="default"><bool>true</bool></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="buttonSave">
+       <property name="nppId" stdset="0"><number>1904</number></property>
+       <property name="text"><string>&amp;Save...</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancel">
+       <property name="nppId" stdset="0"><number>2</number></property>
+       <property name="text"><string>&amp;Cancel</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubMargingBorderEdgeDlg</class>
+ <widget class="QWidget" name="PreferenceSubMargingBorderEdgeDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <layout class="QGridLayout" name="layout2">
+     <item row="0" column="0">
+      <widget class="QGroupBox" name="fmsGbStatic">
+       <property name="nppId" stdset="0"><number>6201</number></property>
+       <property name="title"><string>Fold Margin Style</string></property>
+       <layout class="QVBoxLayout" name="layout3">
+        <item>
+         <widget class="QRadioButton" name="radioSimple">
+          <property name="nppId" stdset="0"><number>6202</number></property>
+          <property name="text"><string>Simple</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radioArrow">
+          <property name="nppId" stdset="0"><number>6203</number></property>
+          <property name="text"><string>Arrow</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radioCircle">
+          <property name="nppId" stdset="0"><number>6204</number></property>
+          <property name="text"><string>Circle tree</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radioBox">
+          <property name="nppId" stdset="0"><number>6205</number></property>
+          <property name="text"><string>Box tree</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radioFoldmargenone">
+          <property name="nppId" stdset="0"><number>6226</number></property>
+          <property name="text"><string>None</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer4">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="0" column="1">
+      <widget class="QGroupBox" name="vesGbStatic">
+       <property name="nppId" stdset="0"><number>6211</number></property>
+       <property name="title"><string>Vertical Edge Settings</string></property>
+       <layout class="QVBoxLayout" name="layout5">
+        <item>
+         <layout class="QHBoxLayout" name="layout6">
+          <item>
+           <widget class="QLineEdit" name="columnposEdit">
+            <property name="nppId" stdset="0"><number>6238</number></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="buttonVesTip">
+            <property name="nppId" stdset="0"><number>6294</number></property>
+            <property name="text"><string>(?)</string></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkEdgebgmode">
+          <property name="nppId" stdset="0"><number>6213</number></property>
+          <property name="text"><string>Background mode</string></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer7">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="0" column="2">
+      <widget class="QGroupBox" name="linenumbermargeGbStatic">
+       <property name="nppId" stdset="0"><number>6291</number></property>
+       <property name="title"><string>Line Number</string></property>
+       <layout class="QVBoxLayout" name="layout8">
+        <item>
+         <widget class="QCheckBox" name="checkLinenumbermarge">
+          <property name="nppId" stdset="0"><number>6206</number></property>
+          <property name="text"><string>Display</string></property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="layout9">
+          <item>
+           <spacer name="spacer10">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="radioDynamic">
+            <property name="nppId" stdset="0"><number>6292</number></property>
+            <property name="text"><string>Dynamic width</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="layout11">
+          <item>
+           <spacer name="spacer12">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="radioConstant">
+            <property name="nppId" stdset="0"><number>6293</number></property>
+            <property name="text"><string>Constant width</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <spacer name="spacer13">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="1" column="0">
+      <widget class="QGroupBox" name="borderwidthStatic">
+       <property name="nppId" stdset="0"><number>6231</number></property>
+       <property name="title"><string>Border Width</string></property>
+       <layout class="QVBoxLayout" name="layout14">
+        <item>
+         <layout class="QHBoxLayout" name="layout15">
+          <item>
+           <widget class="QSlider" name="borderwidthSlider">
+            <property name="nppId" stdset="0"><number>6233</number></property>
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="borderwidthvalStatic">
+            <property name="nppId" stdset="0"><number>6232</number></property>
+            <property name="text"><string>0</string></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkNoedge">
+          <property name="nppId" stdset="0"><number>6235</number></property>
+          <property name="text"><string>No edge</string></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer16">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <widget class="QGroupBox" name="gbChanghistory">
+       <property name="nppId" stdset="0"><number>6295</number></property>
+       <property name="title"><string>Change History</string></property>
+       <layout class="QVBoxLayout" name="layout17">
+        <item>
+         <widget class="QCheckBox" name="checkChanghistorymargin">
+          <property name="nppId" stdset="0"><number>6223</number></property>
+          <property name="text"><string>Show in the margin</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkChanghistoryindicator">
+          <property name="nppId" stdset="0"><number>6296</number></property>
+          <property name="text"><string>Show in the text</string></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer18">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="1" column="2">
+      <widget class="QGroupBox" name="paddingStatic">
+       <property name="nppId" stdset="0"><number>6208</number></property>
+       <property name="title"><string>Padding</string></property>
+       <layout class="QGridLayout" name="layout19">
+        <item row="0" column="0">
+         <widget class="QLabel" name="paddingleftStatic">
+          <property name="nppId" stdset="0"><number>6209</number></property>
+          <property name="text"><string>Left</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QSlider" name="paddingleftSlider">
+          <property name="nppId" stdset="0"><number>6240</number></property>
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QLabel" name="paddingleftvalStatic">
+          <property name="nppId" stdset="0"><number>6242</number></property>
+          <property name="text"><string>0</string></property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="paddingrightStatic">
+          <property name="nppId" stdset="0"><number>6210</number></property>
+          <property name="text"><string>Right</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QSlider" name="paddingrightSlider">
+          <property name="nppId" stdset="0"><number>6241</number></property>
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QLabel" name="paddingrightvalStatic">
+          <property name="nppId" stdset="0"><number>6243</number></property>
+          <property name="text"><string>0</string></property>
+         </widget>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="distractionfreeStatic">
+          <property name="nppId" stdset="0"><number>6212</number></property>
+          <property name="text"><string>Distraction Free</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QSlider" name="distractionfreeSlider">
+          <property name="nppId" stdset="0"><number>6224</number></property>
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+         </widget>
+        </item>
+        <item row="2" column="2">
+         <widget class="QLabel" name="distractionfreevalStatic">
+          <property name="nppId" stdset="0"><number>6244</number></property>
+          <property name="text"><string>0</string></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="checkBookmarkmarge">
+     <property name="nppId" stdset="0"><number>6207</number></property>
+     <property name="text"><string>Display bookmark</string></property>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer20">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+  <buttongroup name="radioGroup2"/>
+ </buttongroups>
+</ui>

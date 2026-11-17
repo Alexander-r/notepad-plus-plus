@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubDarkmodeDlg</class>
+ <widget class="QWidget" name="PreferenceSubDarkmodeDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QRadioButton" name="radioDarkmodeLightmode">
+     <property name="nppId" stdset="0"><number>7131</number></property>
+     <property name="text"><string>Light mode</string></property>
+     <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+    </widget>
+   </item>
+   <item>
+    <widget class="QRadioButton" name="radioDarkmodeDarkmode">
+     <property name="nppId" stdset="0"><number>7132</number></property>
+     <property name="text"><string>Dark mode</string></property>
+     <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+    </widget>
+   </item>
+   <item>
+    <widget class="QRadioButton" name="radioDarkmodeFollowwindows">
+     <property name="nppId" stdset="0"><number>7133</number></property>
+     <property name="text"><string>Follow system</string></property>
+     <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="darkmodeTonesGbStatic">
+     <property name="nppId" stdset="0"><number>7135</number></property>
+     <property name="title"><string>Tones</string></property>
+     <layout class="QHBoxLayout" name="layout2">
+      <item>
+       <layout class="QVBoxLayout" name="layout3">
+        <item>
+         <widget class="QRadioButton" name="radioDarkmodeBlack">
+          <property name="nppId" stdset="0"><number>7102</number></property>
+          <property name="text"><string>Black</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radioDarkmodeRed">
+          <property name="nppId" stdset="0"><number>7103</number></property>
+          <property name="text"><string>Red</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radioDarkmodeGreen">
+          <property name="nppId" stdset="0"><number>7104</number></property>
+          <property name="text"><string>Green</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radioDarkmodeBlue">
+          <property name="nppId" stdset="0"><number>7105</number></property>
+          <property name="text"><string>Blue</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radioDarkmodePurple">
+          <property name="nppId" stdset="0"><number>7107</number></property>
+          <property name="text"><string>Purple</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radioDarkmodeCyan">
+          <property name="nppId" stdset="0"><number>7108</number></property>
+          <property name="text"><string>Cyan</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radioDarkmodeOlive">
+          <property name="nppId" stdset="0"><number>7109</number></property>
+          <property name="text"><string>Olive</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer4">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <spacer name="spacer5">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+        <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+        <property name="sizeHint" stdset="0"><size><width>12</width><height>0</height></size></property>
+       </spacer>
+      </item>
+      <item>
+       <layout class="QVBoxLayout" name="layout6">
+        <item>
+         <widget class="QRadioButton" name="radioDarkmodeCustomized">
+          <property name="nppId" stdset="0"><number>7115</number></property>
+          <property name="text"><string>Customized</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <layout class="QGridLayout" name="layout7">
+          <item row="0" column="0">
+           <widget class="QLabel" name="customizedColor1Static">
+            <property name="nppId" stdset="0"><number>7116</number></property>
+            <property name="text"><string>Content background</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLabel" name="customizedColor6Static">
+            <property name="nppId" stdset="0"><number>7121</number></property>
+            <property name="text"><string>Text</string></property>
+           </widget>
+          </item>
+          <item row="0" column="2">
+           <widget class="QLabel" name="customizedColor9Static">
+            <property name="nppId" stdset="0"><number>7124</number></property>
+            <property name="text"><string>Edge</string></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="customizedColor2Static">
+            <property name="nppId" stdset="0"><number>7117</number></property>
+            <property name="text"><string>Hot track item</string></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLabel" name="customizedColor7Static">
+            <property name="nppId" stdset="0"><number>7122</number></property>
+            <property name="text"><string>Darker text</string></property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QLabel" name="customizedColor11Static">
+            <property name="nppId" stdset="0"><number>7126</number></property>
+            <property name="text"><string>Edge highlight</string></property>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="customizedColor3Static">
+            <property name="nppId" stdset="0"><number>7118</number></property>
+            <property name="text"><string>Control background</string></property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QLabel" name="customizedColor8Static">
+            <property name="nppId" stdset="0"><number>7123</number></property>
+            <property name="text"><string>Disabled text</string></property>
+           </widget>
+          </item>
+          <item row="2" column="2">
+           <widget class="QLabel" name="customizedColor12Static">
+            <property name="nppId" stdset="0"><number>7127</number></property>
+            <property name="text"><string>Edge disabled</string></property>
+           </widget>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="customizedColor4Static">
+            <property name="nppId" stdset="0"><number>7119</number></property>
+            <property name="text"><string>Dialog background</string></property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QLabel" name="customizedColor10Static">
+            <property name="nppId" stdset="0"><number>7125</number></property>
+            <property name="text"><string>Link</string></property>
+           </widget>
+          </item>
+          <item row="4" column="0">
+           <widget class="QLabel" name="customizedColor5Static">
+            <property name="nppId" stdset="0"><number>7120</number></property>
+            <property name="text"><string>Error</string></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="layout8">
+          <item>
+           <widget class="QPushButton" name="customizedResetButton">
+            <property name="nppId" stdset="0"><number>7130</number></property>
+            <property name="text"><string>Reset</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer9">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <spacer name="spacer10">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <spacer name="spacer11">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+        <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+        <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer12">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+  <buttongroup name="radioGroup2"/>
+ </buttongroups>
+</ui>

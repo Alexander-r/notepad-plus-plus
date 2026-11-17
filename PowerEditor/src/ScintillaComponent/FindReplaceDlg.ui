@@ -1,0 +1,872 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<ui version="4.0">
+ <class>FindReplaceDlg</class>
+ <widget class="QDialog" name="FindReplaceDlg">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>616</width>
+    <height>320</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Replace</string>
+  </property>
+  <layout class="QVBoxLayout" name="mainLayout">
+   <property name="leftMargin">
+    <number>0</number>
+   </property>
+   <property name="topMargin">
+    <number>0</number>
+   </property>
+   <property name="rightMargin">
+    <number>0</number>
+   </property>
+   <property name="bottomMargin">
+    <number>0</number>
+   </property>
+   <property name="spacing">
+    <number>0</number>
+   </property>
+   <item>
+    <layout class="QHBoxLayout" name="bodyLayout">
+     <property name="leftMargin">
+      <number>9</number>
+     </property>
+     <property name="topMargin">
+      <number>9</number>
+     </property>
+     <property name="rightMargin">
+      <number>9</number>
+     </property>
+     <property name="bottomMargin">
+      <number>9</number>
+     </property>
+     <item>
+      <layout class="QVBoxLayout" name="leftLayout">
+       <item>
+        <layout class="QGridLayout" name="fieldsLayout">
+         <item row="0" column="0">
+          <widget class="QLabel" name="findwhatStatic">
+           <property name="nppId" stdset="0">
+            <number>1620</number>
+           </property>
+           <property name="text">
+            <string>&amp;Find what:</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignVCenter</set>
+           </property>
+           <property name="buddy">
+            <cstring>findwhat</cstring>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <layout class="QHBoxLayout" name="findwhatLayout">
+           <item>
+            <widget class="QComboBox" name="findwhat">
+             <property name="nppId" stdset="0">
+              <number>1601</number>
+             </property>
+             <property name="editable">
+              <bool>true</bool>
+             </property>
+             <property name="insertPolicy">
+              <enum>QComboBox::NoInsert</enum>
+             </property>
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+               <horstretch>1</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="highlightMode">
+             <property name="nppId" stdset="0">
+              <number>1628</number>
+             </property>
+             <property name="text">
+              <string />
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item row="0" column="2" rowspan="2" colspan="2" alignment="Qt::AlignLeft|Qt::AlignVCenter">
+          <widget class="QToolButton" name="findreplaceSwapButton">
+           <property name="nppId" stdset="0">
+            <number>1610</number>
+           </property>
+           <property name="text">
+            <string />
+           </property>
+           <property name="popupMode">
+            <enum>QToolButton::MenuButtonPopup</enum>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="statictextReplace">
+           <property name="nppId" stdset="0">
+            <number>1611</number>
+           </property>
+           <property name="text">
+            <string>Rep&amp;lace with:</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignVCenter</set>
+           </property>
+           <property name="buddy">
+            <cstring>replacewith</cstring>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QComboBox" name="replacewith">
+           <property name="nppId" stdset="0">
+            <number>1602</number>
+           </property>
+           <property name="editable">
+            <bool>true</bool>
+           </property>
+           <property name="insertPolicy">
+            <enum>QComboBox::NoInsert</enum>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+             <horstretch>1</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="findinfilesFiltersStatic">
+           <property name="nppId" stdset="0">
+            <number>1654</number>
+           </property>
+           <property name="text">
+            <string>Filter&amp;s:</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignVCenter</set>
+           </property>
+           <property name="buddy">
+            <cstring>findinfilesFiltersCombo</cstring>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QComboBox" name="findinfilesFiltersCombo">
+           <property name="nppId" stdset="0">
+            <number>1652</number>
+           </property>
+           <property name="editable">
+            <bool>true</bool>
+           </property>
+           <property name="insertPolicy">
+            <enum>QComboBox::NoInsert</enum>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+             <horstretch>1</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="2" rowspan="1" colspan="2">
+          <widget class="QLabel" name="fifFilterTipStatic">
+           <property name="nppId" stdset="0">
+            <number>1621</number>
+           </property>
+           <property name="text">
+            <string>(?)</string>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0">
+          <widget class="QLabel" name="findinfilesDirStatic">
+           <property name="nppId" stdset="0">
+            <number>1655</number>
+           </property>
+           <property name="text">
+            <string>Dir&amp;ectory:</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignVCenter</set>
+           </property>
+           <property name="buddy">
+            <cstring>findinfilesDirCombo</cstring>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="1">
+          <widget class="QComboBox" name="findinfilesDirCombo">
+           <property name="nppId" stdset="0">
+            <number>1653</number>
+           </property>
+           <property name="editable">
+            <bool>true</bool>
+           </property>
+           <property name="insertPolicy">
+            <enum>QComboBox::NoInsert</enum>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+             <horstretch>1</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="2">
+          <widget class="QToolButton" name="findinfilesBrowseButton">
+           <property name="nppId" stdset="0">
+            <number>1651</number>
+           </property>
+           <property name="text">
+            <string>...</string>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="3">
+          <widget class="QToolButton" name="findinfilesSetdirfromdocButton">
+           <property name="nppId" stdset="0">
+            <number>1661</number>
+           </property>
+           <property name="text">
+            <string>&lt;&lt;</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="optionsLayout">
+         <item>
+          <layout class="QVBoxLayout" name="checksLayout">
+           <item>
+            <widget class="QCheckBox" name="marklineCheck">
+             <property name="nppId" stdset="0">
+              <number>1616</number>
+             </property>
+             <property name="text">
+              <string>Book&amp;mark line</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="purgeCheck">
+             <property name="nppId" stdset="0">
+              <number>1618</number>
+             </property>
+             <property name="text">
+              <string>Purge for each search</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="backwarddirection">
+             <property name="nppId" stdset="0">
+              <number>1722</number>
+             </property>
+             <property name="text">
+              <string>Backward direction</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="wholeword">
+             <property name="nppId" stdset="0">
+              <number>1603</number>
+             </property>
+             <property name="text">
+              <string>Match &amp;whole word only</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="matchcase">
+             <property name="nppId" stdset="0">
+              <number>1604</number>
+             </property>
+             <property name="text">
+              <string>Match &amp;case</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="wrap">
+             <property name="nppId" stdset="0">
+              <number>1606</number>
+             </property>
+             <property name="text">
+              <string>Wra&amp;p around</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="spacer1">
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QVBoxLayout" name="extrasLayout">
+           <item>
+            <widget class="QCheckBox" name="findinfilesRecursiveCheck">
+             <property name="nppId" stdset="0">
+              <number>1658</number>
+             </property>
+             <property name="text">
+              <string>In all su&amp;b-folders</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="findinfilesInhiddendirCheck">
+             <property name="nppId" stdset="0">
+              <number>1659</number>
+             </property>
+             <property name="text">
+              <string>In &amp;hidden folders</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="findinfilesProject1Check">
+             <property name="nppId" stdset="0">
+              <number>1662</number>
+             </property>
+             <property name="text">
+              <string>Project Panel 1</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="findinfilesProject2Check">
+             <property name="nppId" stdset="0">
+              <number>1663</number>
+             </property>
+             <property name="text">
+              <string>Project Panel 2</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="findinfilesProject3Check">
+             <property name="nppId" stdset="0">
+              <number>1664</number>
+             </property>
+             <property name="text">
+              <string>Project Panel 3</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="replaceinselection">
+             <property name="nppId" stdset="0">
+              <number>1634</number>
+             </property>
+             <property name="title">
+              <string />
+             </property>
+             <layout class="QVBoxLayout" name="inSelectionLayout">
+              <item>
+               <widget class="QCheckBox" name="inSelectionCheck">
+                <property name="nppId" stdset="0">
+                 <number>1632</number>
+                </property>
+                <property name="text">
+                 <string>In select&amp;ion</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <spacer name="spacer2">
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="lowerLayout">
+         <item>
+          <widget class="QGroupBox" name="modeStatic">
+           <property name="nppId" stdset="0">
+            <number>1624</number>
+           </property>
+           <property name="title">
+            <string>Search Mode</string>
+           </property>
+           <layout class="QVBoxLayout" name="modeLayout">
+            <item>
+             <widget class="QRadioButton" name="normal">
+              <property name="nppId" stdset="0">
+               <number>1625</number>
+              </property>
+              <property name="text">
+               <string>&amp;Normal</string>
+              </property>
+              <attribute name="buttonGroup">
+               <string notr="true">radioGroup1</string>
+              </attribute>
+             </widget>
+            </item>
+            <item>
+             <widget class="QRadioButton" name="extended">
+              <property name="nppId" stdset="0">
+               <number>1626</number>
+              </property>
+              <property name="text">
+               <string>E&amp;xtended (\n, \r, \t, \0, \x...)</string>
+              </property>
+              <attribute name="buttonGroup">
+               <string notr="true">radioGroup1</string>
+              </attribute>
+             </widget>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="regexLayout">
+              <item>
+               <widget class="QRadioButton" name="regexp">
+                <property name="nppId" stdset="0">
+                 <number>1605</number>
+                </property>
+                <property name="text">
+                 <string>Re&amp;gular expression</string>
+                </property>
+                <attribute name="buttonGroup">
+                 <string notr="true">radioGroup1</string>
+                </attribute>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="redotmatchnl">
+                <property name="nppId" stdset="0">
+                 <number>1703</number>
+                </property>
+                <property name="text">
+                 <string>&amp;. matches newline</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="spacer3">
+                <property name="orientation">
+                 <enum>Qt::Horizontal</enum>
+                </property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="transparentGrpbox">
+           <property name="nppId" stdset="0">
+            <number>1623</number>
+           </property>
+           <property name="title">
+            <string />
+           </property>
+           <layout class="QVBoxLayout" name="transparencyLayout">
+            <item>
+             <widget class="QCheckBox" name="transparentCheck">
+              <property name="nppId" stdset="0">
+               <number>1686</number>
+              </property>
+              <property name="text">
+               <string>Transparenc&amp;y</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QRadioButton" name="transparentLossfocusRadio">
+              <property name="nppId" stdset="0">
+               <number>1687</number>
+              </property>
+              <property name="text">
+               <string>On losing focus</string>
+              </property>
+              <attribute name="buttonGroup">
+               <string notr="true">radioGroup2</string>
+              </attribute>
+             </widget>
+            </item>
+            <item>
+             <widget class="QRadioButton" name="transparentAlwaysRadio">
+              <property name="nppId" stdset="0">
+               <number>1688</number>
+              </property>
+              <property name="text">
+               <string>Always</string>
+              </property>
+              <attribute name="buttonGroup">
+               <string notr="true">radioGroup2</string>
+              </attribute>
+             </widget>
+            </item>
+            <item>
+             <widget class="QSlider" name="percentageSlider">
+              <property name="nppId" stdset="0">
+               <number>1622</number>
+              </property>
+              <property name="minimum">
+               <number>20</number>
+              </property>
+              <property name="maximum">
+               <number>200</number>
+              </property>
+              <property name="value">
+               <number>150</number>
+              </property>
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="buttonsLayout">
+       <item>
+        <layout class="QHBoxLayout" name="findButtonsLayout">
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="QPushButton" name="findprev">
+           <property name="nppId" stdset="0">
+            <number>1721</number>
+           </property>
+           <property name="text">
+            <string />
+           </property>
+           <property name="autoDefault">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="findnext">
+           <property name="nppId" stdset="0">
+            <number>1723</number>
+           </property>
+           <property name="text">
+            <string />
+           </property>
+           <property name="autoDefault">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="ok">
+           <property name="nppId" stdset="0">
+            <number>1</number>
+           </property>
+           <property name="text">
+            <string>Find Next</string>
+           </property>
+           <property name="autoDefault">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="n2ButtonsMode">
+           <property name="nppId" stdset="0">
+            <number>1724</number>
+           </property>
+           <property name="text">
+            <string />
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QPushButton" name="findinfilesFindButton">
+         <property name="nppId" stdset="0">
+          <number>1656</number>
+         </property>
+         <property name="text">
+          <string>Find All</string>
+         </property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="markall">
+         <property name="nppId" stdset="0">
+          <number>1615</number>
+         </property>
+         <property name="text">
+          <string>Mark All</string>
+         </property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="countall">
+         <property name="nppId" stdset="0">
+          <number>1614</number>
+         </property>
+         <property name="text">
+          <string>Coun&amp;t</string>
+         </property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="replaceRowLayout">
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="QPushButton" name="replace">
+           <property name="nppId" stdset="0">
+            <number>1608</number>
+           </property>
+           <property name="text">
+            <string>&amp;Replace</string>
+           </property>
+           <property name="autoDefault">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="replaceandstop">
+           <property name="nppId" stdset="0">
+            <number>1631</number>
+           </property>
+           <property name="text">
+            <string />
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QPushButton" name="findinfilesReplaceinfiles">
+         <property name="nppId" stdset="0">
+          <number>1660</number>
+         </property>
+         <property name="text">
+          <string>Replace in Files</string>
+         </property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="findinfilesReplaceinprojects">
+         <property name="nppId" stdset="0">
+          <number>1665</number>
+         </property>
+         <property name="text">
+          <string>Replace in Projects</string>
+         </property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="clearAll">
+         <property name="nppId" stdset="0">
+          <number>1633</number>
+         </property>
+         <property name="text">
+          <string>Clear all marks</string>
+         </property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="replaceall">
+         <property name="nppId" stdset="0">
+          <number>1609</number>
+         </property>
+         <property name="text">
+          <string>Replace &amp;All</string>
+         </property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="copyMarkedText">
+         <property name="nppId" stdset="0">
+          <number>1725</number>
+         </property>
+         <property name="text">
+          <string>Copy Marked Text</string>
+         </property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="findallCurrentfile">
+         <property name="nppId" stdset="0">
+          <number>1641</number>
+         </property>
+         <property name="text">
+          <string>Find All in Current &amp;Document</string>
+         </property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="replaceOpenedRowLayout">
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="QPushButton" name="replaceOpenedfiles">
+           <property name="nppId" stdset="0">
+            <number>1635</number>
+           </property>
+           <property name="text">
+            <string>Replace All in All Opened Doc&amp;uments</string>
+           </property>
+           <property name="autoDefault">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="confirmreplaceopendocs">
+           <property name="nppId" stdset="0">
+            <number>1637</number>
+           </property>
+           <property name="text">
+            <string />
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QPushButton" name="findallOpenedfiles">
+         <property name="nppId" stdset="0">
+          <number>1636</number>
+         </property>
+         <property name="text">
+          <string>Find All in All &amp;Opened Documents</string>
+         </property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="spacer4">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QPushButton" name="cancel">
+         <property name="nppId" stdset="0">
+          <number>2</number>
+         </property>
+         <property name="text">
+          <string>Close</string>
+         </property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="resizeToggleButton">
+         <property name="nppId" stdset="0">
+          <number>1640</number>
+         </property>
+         <property name="text">
+          <string />
+         </property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources />
+ <connections />
+ <buttongroups>
+  <buttongroup name="radioGroup1" />
+  <buttongroup name="radioGroup2" />
+ </buttongroups>
+</ui>

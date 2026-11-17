@@ -16,6 +16,13 @@
 
 #pragma once
 
+#include <QString>
+
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "DockingDlgInterface.h"
 #include "functionListPanel_rc.h"
 #include "functionParser.h"
@@ -30,6 +37,9 @@
 
 #define FL_PREFERENCE_INITIALSORT "PreferencesInitialSort"
 
+class QLineEdit;
+class QMenu;
+class QToolButton;
 class ScintillaEditView;
 
 /*
@@ -75,14 +85,24 @@ public:
 
 	void init(HINSTANCE hInst, HWND hPere, ScintillaEditView **ppEditView);
 
+	using DockingDlgInterface::create;
+	void create(DockedWidgetData* data, bool isRTL = false) override;
+
+	void refreshIcons() override {
+		DockingDlgInterface::refreshIcons();
+		_treeView.refreshImages();
+	}
+
 	void setBackgroundColor(COLORREF bgColour) override {
-		TreeView_SetBkColor(_treeView.getHSelf(), bgColour);
-		TreeView_SetBkColor(_treeViewSearchResult.getHSelf(), bgColour);
+		_bgColour = bgColour;
+		_treeView.setColours(_bgColour, _fgColour);
+		_treeViewSearchResult.setColours(_bgColour, _fgColour);
 	}
 
 	void setForegroundColor(COLORREF fgColour) override {
-		TreeView_SetTextColor(_treeView.getHSelf(), fgColour);
-		TreeView_SetTextColor(_treeViewSearchResult.getHSelf(), fgColour);
+		_fgColour = fgColour;
+		_treeView.setColours(_bgColour, _fgColour);
+		_treeViewSearchResult.setColours(_bgColour, _fgColour);
 	}
 
 	void setParent(HWND parent2set){
@@ -90,7 +110,7 @@ public:
 	}
 	
 	// functionalities
-	static int CALLBACK categorySortFunc(LPARAM lParam1, LPARAM lParam2, LPARAM /*lParamSort*/);
+	static int categorySortFunc(LPARAM lParam1, LPARAM lParam2, LPARAM /*lParamSort*/);
 	void sortOrUnsort();
 	void reload();
 	void markEntry();
@@ -100,20 +120,19 @@ public:
 	void searchFuncAndSwitchView();
 
 protected:
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-	HMENU _hPreferencesMenu = NULL;
+	void onDockingNotify(const NMHDR& notification) override;
 
 private:
-	HWND _hToolbarMenu = nullptr;
-	HWND _hSearchEdit = nullptr;
-	HFONT _hFontSearchEdit = nullptr;
-	std::vector<HIMAGELIST> _iconListVector;
+	QToolButton* _sortButton = nullptr;
+	QLineEdit* _hSearchEdit = nullptr;
+	std::unique_ptr<QMenu> _hPreferencesMenu;
+	COLORREF _bgColour = RGB(0xFF, 0xFF, 0xFF);
+	COLORREF _fgColour = RGB(0, 0, 0);
 
 	TreeView *_pTreeView = nullptr;
 	TreeView _treeView;
 	TreeView _treeViewSearchResult;
 
-	SCROLLINFO si{};
 	long _findLine = -1;
 	long _findEndLine = -1;
 	HTREEITEM _findItem = nullptr;
@@ -133,7 +152,12 @@ private:
 
 	using DockingDlgInterface::init;
 
-	void notified(LPNMHDR notification);
+	void connectTree(TreeView& treeView);
+	void onReturnKey(const TreeView& treeView);
+	void focusOnEditor() const;
+	void updateSearchEditColor() const;
+	QString searchText() const;
+	void setSearchText(const std::wstring& text);
 	void addInStateArray(TreeStateNode tree2Update, const wchar_t *searchText, bool isSorted);
 	TreeParams* getFromStateArray(const std::wstring& fullFilePath);
 	bool openSelection(const TreeView &treeView);
@@ -141,5 +165,4 @@ private:
 	void setSort(bool isEnabled);
 	void findMarkEntry(HTREEITEM htItem, LONG line);
 	void initPreferencesMenu();
-	void showPreferencesMenu();
 };

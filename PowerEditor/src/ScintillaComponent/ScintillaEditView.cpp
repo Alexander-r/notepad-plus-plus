@@ -17,10 +17,18 @@
 
 #include "ScintillaEditView.h"
 
-#include <windows.h>
+#include <QDropEvent>
+#include <QMainWindow>
+#include <QUrl>
+#include <QApplication>
+#include <QClipboard>
+#include <QKeyEvent>
+#include <QMimeData>
+#include <QMouseEvent>
+#include <QWheelEvent>
 
-#include <commctrl.h>
-#include <windowsx.h>
+#include "ScintillaEditBase.h"
+
 
 #include <algorithm>
 #include <array>
@@ -48,9 +56,11 @@
 #include "Common.h"
 #include "NppConstants.h"
 #include "NppDarkMode.h"
+#include "NppKeys.h"
 #include "Parameters.h"
 #include "Sorters.h"
 #include "UserDefineDialog.h"
+#include "resource.h"
 #include "Window.h"
 #include "dpiManagerV2.h"
 #include "localization.h"
@@ -63,9 +73,157 @@ static constexpr int MAX_FOLD_COLLAPSE_LEVEL = 8;
 static constexpr int MAX_FOLD_LINES_MORE_THAN = 99;
 
 // initialize the static variable
-bool ScintillaEditView::_SciInit = false;
 int ScintillaEditView::_refCount = 0;
-UserDefineDialog ScintillaEditView::_userDefineDlg;
+namespace
+{
+	UserDefineDialog g_userDefineDlg;
+
+	// Win32 text functions on single characters, by Unicode tables and independent of the locale
+	bool isAlphaChar(wchar_t c) { return QChar::isLetter(static_cast<char32_t>(c)); }
+	bool isAlphaNumericChar(wchar_t c) { return QChar::isLetterOrNumber(static_cast<char32_t>(c)); }
+	bool isLowerChar(wchar_t c) { return QChar::isLower(static_cast<char32_t>(c)); }
+	wchar_t toUpperChar(wchar_t c) { return static_cast<wchar_t>(QChar::toUpper(static_cast<char32_t>(c))); }
+	wchar_t toLowerChar(wchar_t c) { return static_cast<wchar_t>(QChar::toLower(static_cast<char32_t>(c))); }
+}
+
+// Scintilla's key table has what keyTranslate makes of Windows' key codes, for which a key is the same with or without
+// Shift. Punctuation is named as on the US layout, like in Shortcut::toKeySequence.
+static int scintillaKey(const QKeyEvent* event)
+{
+	const int key = event->key();
+	if (key >= Qt::Key_F1 && key <= Qt::Key_F24)
+		return VK_F1 + (key - Qt::Key_F1);
+
+	if (event->modifiers() & Qt::KeypadModifier)
+	{
+		if (key >= Qt::Key_0 && key <= Qt::Key_9)
+			return VK_NUMPAD0 + (key - Qt::Key_0);
+
+		switch (key)
+		{
+			case Qt::Key_Asterisk: return VK_MULTIPLY;
+			case Qt::Key_Period: return VK_DECIMAL;
+			case Qt::Key_Slash: return SCK_DIVIDE;
+			default: return key;
+		}
+	}
+
+	switch (key)
+	{
+		case Qt::Key_BraceLeft: return '[';
+		case Qt::Key_BraceRight: return ']';
+		case Qt::Key_Bar: return '\\';
+		case Qt::Key_Question: return '/';
+		case Qt::Key_AsciiTilde: return '`';
+		case Qt::Key_Semicolon:
+		case Qt::Key_Colon: return VK_OEM_1;
+		case Qt::Key_Equal: return VK_OEM_PLUS;
+		case Qt::Key_Comma:
+		case Qt::Key_Less: return VK_OEM_COMMA;
+		case Qt::Key_Underscore: return VK_OEM_MINUS;
+		case Qt::Key_Period:
+		case Qt::Key_Greater: return VK_OEM_PERIOD;
+		case Qt::Key_Apostrophe:
+		case Qt::Key_QuoteDbl: return VK_OEM_7;
+		default: return key;
+	}
+}
+
+// The Scintilla widget, with the original subclass procedure's event handling
+class NppScintillaWidget final : public ScintillaEditBase
+{
+public:
+	NppScintillaWidget(ScintillaEditView* view, QWidget* parent) : ScintillaEditBase(parent), _view(view) {}
+
+	void baseKeyPress(QKeyEvent* event)
+	{
+		ScintillaEditBase::keyPressEvent(event);
+	}
+
+protected:
+	void keyPressEvent(QKeyEvent* event) override
+	{
+		if (_view->handleKeyPress(event))
+			return;
+
+		const int key = scintillaKey(event);
+		if (key == event->key())
+		{
+			ScintillaEditBase::keyPressEvent(event);
+		}
+		else
+		{
+			QKeyEvent translated(event->type(), key, event->modifiers(), event->text(), event->isAutoRepeat(), event->count());
+			ScintillaEditBase::keyPressEvent(&translated);
+			event->setAccepted(translated.isAccepted());
+		}
+
+		if (!event->isAccepted())
+			_view->typeControlCharacter(event);
+	}
+
+	void keyReleaseEvent(QKeyEvent* event) override
+	{
+		_view->handleKeyRelease(event);
+		ScintillaEditBase::keyReleaseEvent(event);
+	}
+
+	void wheelEvent(QWheelEvent* event) override
+	{
+		if (!_view->handleWheel(event))
+			ScintillaEditBase::wheelEvent(event);
+	}
+
+	void mousePressEvent(QMouseEvent* event) override
+	{
+		if (!_view->handleRightButtonPress(event))
+			ScintillaEditBase::mousePressEvent(event);
+	}
+
+	// Scintilla only announces dropped files and text goes in where it is dropped, so files have to go to the main
+	// window, which would get them by itself on Windows
+	void dropEvent(QDropEvent* event) override
+	{
+		if (!event->mimeData()->hasUrls())
+		{
+			ScintillaEditBase::dropEvent(event);
+			return;
+		}
+
+		event->acceptProposedAction();
+		std::vector<std::wstring> paths;
+		const QList<QUrl> urls = event->mimeData()->urls();
+		for (const QUrl& url : urls)
+		{
+			if (url.isLocalFile())
+				paths.push_back(url.toLocalFile().toStdWString());
+		}
+
+		// A panel that is torn off is a window of its own
+		QWidget* target = window();
+		while (target && !qobject_cast<QMainWindow*>(target) && target->parentWidget())
+			target = target->parentWidget()->window();
+		::SendMessage(target, WM_DROPFILES, reinterpret_cast<WPARAM>(&paths), 0);
+	}
+
+private:
+	ScintillaEditView* _view;
+};
+
+UserDefineDialog* ScintillaEditView::getUserDefineDlg()
+{
+	return &g_userDefineDlg;
+}
+
+void ScintillaEditView::doUserDefineDlg(bool willBeShown, bool isRTL)
+{
+	g_userDefineDlg.doDialog(willBeShown, isRTL);
+}
+
+void ScintillaEditView::getUserDefineDlgScintillaUpdate()
+{
+	g_userDefineDlg.setScintilla(this);
+}
 
 const int ScintillaEditView::_SC_MARGE_LINENUMBER = 0;
 const int ScintillaEditView::_SC_MARGE_SYMBOL = 1;
@@ -96,112 +254,6 @@ const int ScintillaEditView::_markersArray[][NB_FOLDER_STATE] = {
 
 // Array with all the names of all languages
 // The order of lang type (enum LangType) must be respected
-LanguageNameInfo ScintillaEditView::_langNameInfoArray[L_EXTERNAL + 1] = {
-	//
-	// _langName:         _shortName                 _longName                                             _langID            _lexerID
-	//
-	// link to lang.xml
-	// don't change
-	//
-	{L"normal",           L"Normal text",            L"Normal text file",                                  L_TEXT,            "null"},
-	{L"php",              L"PHP",                    L"PHP Hypertext Preprocessor file",                   L_PHP,             "phpscript"},
-	{L"c",                L"C",                      L"C source file",                                     L_C,               "cpp"},
-	{L"cpp",              L"C++",                    L"C++ source file",                                   L_CPP,             "cpp"},
-	{L"cs",               L"C#",                     L"C# source file",                                    L_CS,              "cpp"},
-	{L"objc",             L"Objective-C",            L"Objective-C source file",                           L_OBJC,            "objc"},
-	{L"java",             L"Java",                   L"Java source file",                                  L_JAVA,            "cpp"},
-	{L"rc",               L"RC",                     L"Windows Resource file",                             L_RC,              "cpp"},
-	{L"html",             L"HTML",                   L"Hyper Text Markup Language file",                   L_HTML,            "hypertext"},
-	{L"xml",              L"XML",                    L"eXtensible Markup Language file",                   L_XML,             "xml"},
-	{L"makefile",         L"Makefile",               L"Makefile",                                          L_MAKEFILE,        "makefile"},
-	{L"pascal",           L"Pascal",                 L"Pascal source file",                                L_PASCAL,          "pascal"},
-	{L"batch",            L"Batch",                  L"Batch file",                                        L_BATCH,           "batch"},
-	{L"ini",              L"ini",                    L"MS ini file",                                       L_INI,             "props"},
-	{L"nfo",              L"NFO",                    L"MSDOS Style/ASCII Art",                             L_ASCII,           "null"},
-	{L"udf",              L"udf",                    L"User Defined language file",                        L_USER,            "user"},
-	{L"asp",              L"ASP",                    L"Active Server Pages script file",                   L_ASP,             "hypertext"},
-	{L"sql",              L"SQL",                    L"Structured Query Language file",                    L_SQL,             "sql"},
-	{L"vb",               L"Visual Basic",           L"Visual Basic file",                                 L_VB,              "vb"},
-	{L"javascript",       L"Embedded JS",            L"Embedded JavaScript",                               L_JS_EMBEDDED,     "cpp"},
-	{L"css",              L"CSS",                    L"Cascade Style Sheets File",                         L_CSS,             "css"},
-	{L"perl",             L"Perl",                   L"Perl source file",                                  L_PERL,            "perl"},
-	{L"python",           L"Python",                 L"Python file",                                       L_PYTHON,          "python"},
-	{L"lua",              L"Lua",                    L"Lua source File",                                   L_LUA,             "lua"},
-	{L"tex",              L"TeX",                    L"TeX file",                                          L_TEX,             "tex"},
-	{L"fortran",          L"Fortran free form",      L"Fortran free form source file",                     L_FORTRAN,         "fortran"},
-	{L"bash",             L"Shell",                  L"Unix script file",                                  L_BASH,            "bash"},
-	{L"actionscript",     L"ActionScript",           L"Flash ActionScript file",                           L_FLASH,           "cpp"},
-	{L"nsis",             L"NSIS",                   L"Nullsoft Scriptable Install System script file",    L_NSIS,            "nsis"},
-	{L"tcl",              L"TCL",                    L"Tool Command Language file",                        L_TCL,             "tcl"},
-	{L"lisp",             L"Lisp",                   L"List Processing language file",                     L_LISP,            "lisp"},
-	{L"scheme",           L"Scheme",                 L"Scheme file",                                       L_SCHEME,          "lisp"},
-	{L"asm",              L"Assembly",               L"Assembly language source file",                     L_ASM,             "asm"},
-	{L"diff",             L"Diff",                   L"Diff file",                                         L_DIFF,            "diff"},
-	{L"props",            L"Properties file",        L"Properties file",                                   L_PROPS,           "props"},
-	{L"postscript",       L"PostScript",             L"PostScript file",                                   L_PS,              "ps"},
-	{L"ruby",             L"Ruby",                   L"Ruby file",                                         L_RUBY,            "ruby"},
-	{L"smalltalk",        L"Smalltalk",              L"Smalltalk file",                                    L_SMALLTALK,       "smalltalk"},
-	{L"vhdl",             L"VHDL",                   L"VHSIC Hardware Description Language file",          L_VHDL,            "vhdl"},
-	{L"kix",              L"KiXtart",                L"KiXtart file",                                      L_KIX,             "kix"},
-	{L"autoit",           L"AutoIt",                 L"AutoIt",                                            L_AU3,             "au3"},
-	{L"caml",             L"CAML",                   L"Categorical Abstract Machine Language",             L_CAML,            "caml"},
-	{L"ada",              L"Ada",                    L"Ada file",                                          L_ADA,             "ada"},
-	{L"verilog",          L"Verilog",                L"Verilog file",                                      L_VERILOG,         "verilog"},
-	{L"matlab",           L"MATLAB",                 L"MATrix LABoratory",                                 L_MATLAB,          "matlab"},
-	{L"haskell",          L"Haskell",                L"Haskell",                                           L_HASKELL,         "haskell"},
-	{L"inno",             L"Inno Setup",             L"Inno Setup script",                                 L_INNO,            "inno"},
-	{L"searchResult",     L"Internal Search",        L"Internal Search",                                   L_SEARCHRESULT,    "searchResult"},
-	{L"cmake",            L"CMake",                  L"CMake file",                                        L_CMAKE,           "cmake"},
-	{L"yaml",             L"YAML",                   L"YAML Ain't Markup Language",                        L_YAML,            "yaml"},
-	{L"cobol",            L"COBOL",                  L"COmmon Business Oriented Language",                 L_COBOL,           "COBOL"},
-	{L"gui4cli",          L"Gui4Cli",                L"Gui4Cli file",                                      L_GUI4CLI,         "gui4cli"},
-	{L"d",                L"D",                      L"D programming language",                            L_D,               "d"},
-	{L"powershell",       L"PowerShell",             L"Windows PowerShell",                                L_POWERSHELL,      "powershell"},
-	{L"r",                L"R",                      L"R programming language",                            L_R,               "r"},
-	{L"jsp",              L"JSP",                    L"JavaServer Pages script file",                      L_JSP,             "hypertext"},
-	{L"coffeescript",     L"CoffeeScript",           L"CoffeeScript file",                                 L_COFFEESCRIPT,    "coffeescript"},
-	{L"json",             L"json",                   L"JSON file",                                         L_JSON,            "json"},
-	{L"javascript.js",    L"JavaScript",             L"JavaScript file",                                   L_JAVASCRIPT,      "cpp"},
-	{L"fortran77",        L"Fortran fixed form",     L"Fortran fixed form source file",                    L_FORTRAN_77,      "f77"},
-	{L"baanc",            L"BaanC",                  L"BaanC File",                                        L_BAANC,           "baan"},
-	{L"srec",             L"S-Record",               L"Motorola S-Record binary data",                     L_SREC,            "srec"},
-	{L"ihex",             L"Intel HEX",              L"Intel HEX binary data",                             L_IHEX,            "ihex"},
-	{L"tehex",            L"Tektronix extended HEX", L"Tektronix extended HEX binary data",                L_TEHEX,           "tehex"},
-	{L"swift",            L"Swift",                  L"Swift file",                                        L_SWIFT,           "cpp"},
-	{L"asn1",             L"ASN.1",                  L"Abstract Syntax Notation One file",                 L_ASN1,            "asn1"},
-	{L"avs",              L"AviSynth",               L"AviSynth scripts files",                            L_AVS,             "avs"},
-	{L"blitzbasic",       L"BlitzBasic",             L"BlitzBasic file",                                   L_BLITZBASIC,      "blitzbasic"},
-	{L"purebasic",        L"PureBasic",              L"PureBasic file",                                    L_PUREBASIC,       "purebasic"},
-	{L"freebasic",        L"FreeBasic",              L"FreeBasic file",                                    L_FREEBASIC,       "freebasic"},
-	{L"csound",           L"Csound",                 L"Csound file",                                       L_CSOUND,          "csound"},
-	{L"erlang",           L"Erlang",                 L"Erlang file",                                       L_ERLANG,          "erlang"},
-	{L"escript",          L"ESCRIPT",                L"ESCRIPT file",                                      L_ESCRIPT,         "escript"},
-	{L"forth",            L"Forth",                  L"Forth file",                                        L_FORTH,           "forth"},
-	{L"latex",            L"LaTeX",                  L"LaTeX file",                                        L_LATEX,           "latex"},
-	{L"mmixal",           L"MMIXAL",                 L"MMIXAL file",                                       L_MMIXAL,          "mmixal"},
-	{L"nim",              L"Nim",                    L"Nim file",                                          L_NIM,             "nimrod"},
-	{L"nncrontab",        L"Nncrontab",              L"extended crontab file",                             L_NNCRONTAB,       "nncrontab"},
-	{L"oscript",          L"OScript",                L"OScript source file",                               L_OSCRIPT,         "oscript"},
-	{L"rebol",            L"REBOL",                  L"REBOL file",                                        L_REBOL,           "rebol"},
-	{L"registry",         L"registry",               L"registry file",                                     L_REGISTRY,        "registry"},
-	{L"rust",             L"Rust",                   L"Rust file",                                         L_RUST,            "rust"},
-	{L"spice",            L"Spice",                  L"spice file",                                        L_SPICE,           "spice"},
-	{L"txt2tags",         L"txt2tags",               L"txt2tags file",                                     L_TXT2TAGS,        "txt2tags"},
-	{L"visualprolog",     L"Visual Prolog",          L"Visual Prolog file",                                L_VISUALPROLOG,    "visualprolog"},
-	{L"typescript",       L"TypeScript",             L"TypeScript file",                                   L_TYPESCRIPT,      "cpp"},
-	{L"json5",            L"json5",                  L"JSON5 file",                                        L_JSON5,           "json"},
-	{L"mssql",            L"mssql",                  L"Microsoft Transact-SQL (SQL Server) file",          L_MSSQL,           "mssql"},
-	{L"gdscript",         L"GDScript",               L"GDScript file",                                     L_GDSCRIPT,        "gdscript"},
-	{L"hollywood",        L"Hollywood",              L"Hollywood script",                                  L_HOLLYWOOD,       "hollywood"},
-	{L"go",               L"Go",                     L"Go source file",                                    L_GOLANG,          "cpp"},
-	{L"raku",             L"Raku",                   L"Raku source file",                                  L_RAKU,            "raku"},
-	{L"toml",             L"TOML",                   L"Tom's Obvious Minimal Language file",               L_TOML,            "toml"},
-	{L"sas",              L"SAS",                    L"SAS file",                                          L_SAS,             "sas"},
-	{L"errorlist",        L"ErrorList",              L"ErrorList file",                                    L_ERRORLIST,       "errorlist"},
-	{L"escseq",           L"EscapeSequence (ANSI)",  L"Escape Sequence (ANSI) file",                       L_ESCSEQ,          "escseq"},
-	{L"fcST",             L"Structured Text",         L"IEC 61131-3 Structured Text file",                  L_STTXT,           "fcST"},
-	{L"ext",              L"External",               L"External",                                          L_EXTERNAL,        "null"}
-};
 
 static constexpr char g_ZWSP[] = "\xE2\x80\x8B";
 
@@ -341,7 +393,7 @@ size_t getNbDigits(size_t aNum, size_t base)
 	return nbDigits;
 }
 
-static bool isCharSingleQuote(__inout wchar_t const c)
+static bool isCharSingleQuote(wchar_t const c)
 {
     if (c == L'\'' || c == L'\u2019' || c == L'\u2018') return true;
     else return false;
@@ -349,38 +401,34 @@ static bool isCharSingleQuote(__inout wchar_t const c)
 
 void ScintillaEditView::init(HINSTANCE hInst, HWND hPere)
 {
-	if (!_SciInit)
-	{
-		if (!Scintilla_RegisterClasses(hInst))
-		{
-			throw std::runtime_error("ScintillaEditView::init : SCINTILLA ERROR - Scintilla_RegisterClasses failed");
-		}
-		_SciInit = true;
-	}
-
 	Window::init(hInst, hPere);
-	_hSelf = ::CreateWindowEx(
-					0,\
-					L"Scintilla",\
-					L"Notepad++",\
-					WS_CHILD | WS_VSCROLL | WS_HSCROLL | WS_CLIPCHILDREN | WS_EX_RTLREADING,\
-					0, 0, 100, 100,\
-					_hParent,\
-					NULL,\
-					_hInst,\
-					NULL);
 
-	if (!_hSelf)
+	auto* scintilla = new NppScintillaWidget(this, hPere);
+	_hSelf = scintilla;
+	_hSelf->hide(); // until display(), as some editors are never shown
+
+	// For plugins and other callers using the message interface
+	nppRegisterMessageTarget(_hSelf, [scintilla](UINT message, WPARAM wParam, LPARAM lParam)
 	{
-		throw std::runtime_error("ScintillaEditView::init : CreateWindowEx() function return null");
-	}
+		return static_cast<LRESULT>(scintilla->send(message, wParam, lParam));
+	});
 
-	NppDarkMode::setDarkScrollBar(_hSelf);
+	// As on Win32, the parent receives the notifications and commands of the editor
+	// Scintilla's Qt layer names its viewport as the sender, while the application and plugins know the editor widget.
+	QObject::connect(scintilla, &ScintillaEditBase::notify, scintilla, [this](Scintilla::NotificationData* notification)
+	{
+		notification->nmhdr.hwndFrom = _hSelf;
+		::SendMessage(_hParent, WM_NOTIFY, notification->nmhdr.idFrom, reinterpret_cast<LPARAM>(notification));
+	});
+	QObject::connect(scintilla, &ScintillaEditBase::command, scintilla, [this](Scintilla::uptr_t wParam, Scintilla::sptr_t)
+	{
+		::SendMessage(_hParent, WM_COMMAND, wParam, reinterpret_cast<LPARAM>(_hSelf));
+	});
 
-	_pScintillaFunc = (SCINTILLA_FUNC)::SendMessage(_hSelf, SCI_GETDIRECTFUNCTION, 0, 0);
-	_pScintillaPtr = (SCINTILLA_PTR)::SendMessage(_hSelf, SCI_GETDIRECTPOINTER, 0, 0);
+	_pScintillaFunc = reinterpret_cast<SCINTILLA_FUNC>(scintilla->send(SCI_GETDIRECTFUNCTION));
+	_pScintillaPtr = reinterpret_cast<SCINTILLA_PTR>(scintilla->send(SCI_GETDIRECTPOINTER));
 
-	_userDefineDlg.init(_hInst, _hParent, this);
+	g_userDefineDlg.init(_hInst, _hParent, this);
 
 	if (!_pScintillaFunc)
 	{
@@ -479,33 +527,7 @@ void ScintillaEditView::init(HINSTANCE hInst, HWND hPere)
 	NppParameters& nppParams = NppParameters::getInstance();
 	NppGUI& nppGui = nppParams.getNppGUI();
 
-	HMODULE hNtdllModule = ::GetModuleHandle(L"ntdll.dll");
-	FARPROC isWINE = nullptr;
-	if (hNtdllModule)
-		isWINE = ::GetProcAddress(hNtdllModule, "wine_get_version");
-
-	if (isWINE || // There is a performance issue under WINE when DirectWrite is ON, so we turn it off if user uses Notepad++ under WINE
-		isCoreWindows()) // In the case of Windows Server Core, DirectWrite cannot be on.
-	{
-		nppGui._writeTechnologyEngine = directWriteTechnologyUnavailable;
-	}
-	else
-	{
-		// allow IDC_COMBO_SC_TECHNOLOGY_CHOICE to be set in Preferences > MISC. again
-		if (nppGui._writeTechnologyEngine == directWriteTechnologyUnavailable)
-			nppGui._writeTechnologyEngine = defaultTechnology;
-	}
-
-	if ((nppGui._writeTechnologyEngine > defaultTechnology) && (nppGui._writeTechnologyEngine < directWriteTechnologyUnavailable))
-	{
-		execute(SCI_SETTECHNOLOGY, nppGui._writeTechnologyEngine);
-		// If useDirectWrite is turned off, leave the technology setting untouched,
-		// so that existing plugins using SCI_SETTECHNOLOGY behave like before
-	}
-
 	_codepage = nppParams.currentSystemCodepage();
-
-	::SetWindowSubclass(_hSelf, ScintillaEditView::ScintillaProc, static_cast<UINT_PTR>(SubclassID::first), reinterpret_cast<DWORD_PTR>(this));
 
 	if (_defaultCharList.empty())
 	{
@@ -528,337 +550,206 @@ void ScintillaEditView::init(HINSTANCE hInst, HWND hPere)
 	attachDefaultDoc();
 }
 
-LRESULT CALLBACK ScintillaEditView::ScintillaProc(
-	HWND hWnd,
-	UINT uMsg,
-	WPARAM wParam,
-	LPARAM lParam,
-	UINT_PTR uIdSubclass,
-	DWORD_PTR dwRefData
-)
+bool ScintillaEditView::handleKeyPress(QKeyEvent* event)
 {
-	auto* pScint = reinterpret_cast<ScintillaEditView*>(dwRefData);
+	if (_keyPressFilter && _keyPressFilter(event))
+		return true;
 
-	switch (uMsg)
+	const int key = event->key();
+
+	struct MultiCaretInfo {
+		int _len2remove;
+		size_t _selIndex;
+		MultiCaretInfo(int len, size_t n) : _len2remove(len), _selIndex(n) {}
+	};
+
+	const bool isColumnSelection = (execute(SCI_GETSELECTIONMODE) == SC_SEL_RECTANGLE) || (execute(SCI_GETSELECTIONMODE) == SC_SEL_THIN);
+	bool column2MultSelect = (NppParameters::getInstance()).getSVP()._columnSel2MultiEdit;
+
+	if (key == Qt::Key_Delete)
 	{
-		case WM_NCDESTROY:
+		if (!(event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier))) // DEL & Multi-edit
 		{
-			::RemoveWindowSubclass(hWnd, ScintillaEditView::ScintillaProc, uIdSubclass);
-			break;
-		}
-
-		case NPPM_INTERNAL_REFRESHDARKMODE:
-		{
-			NppDarkMode::setDarkScrollBar(hWnd);
-			return TRUE;
-		}
-
-		case DOCUMENTMAP_MOUSEWHEEL:
-		{
-			return ::DefSubclassProc(hWnd, WM_MOUSEWHEEL, wParam, lParam);
-		}
-
-		case WM_MOUSEWHEEL:
-		case WM_MOUSEHWHEEL:
-		{
-			POINT pt{};
-			POINTS pts = MAKEPOINTS(lParam);
-			POINTSTOPOINT(pt, pts);
-			HWND hwndOnMouse = ::WindowFromPoint(pt);
-
-			// Hack for Synaptics TouchPad Driver
-			auto className = std::string(26, '\0');
-			::GetClassNameA(hwndOnMouse, className.data(), static_cast<int>(className.size()));
-			const bool isSynaptics = (className == "SynTrackCursorWindowClass");
-			const bool makeTouchPadCompatible = NppParameters::getInstance().getSVP()._disableAdvancedScrolling;
-
-			if (isSynaptics || makeTouchPadCompatible)
-				hwndOnMouse = hWnd;
-
-			if (hwndOnMouse != hWnd)
-				return ::SendMessage(hwndOnMouse, uMsg, wParam, lParam);
-
-			if (uMsg == WM_MOUSEHWHEEL)
-				break;
-
-			if (GET_KEYSTATE_WPARAM(wParam) & MK_RBUTTON)
+			const size_t nbSelections = execute(SCI_GETSELECTIONS);
+			if (nbSelections > 1) // Multi-edit
 			{
-				::SendMessage(pScint->_hParent, uMsg, wParam, lParam);
-				return 0;
-			}
+				std::vector<MultiCaretInfo> edgeOfEol; // pair <start, end>, pair <len2remove, selN>
+				int nbCaseForScint = 0;
 
-			if (GET_KEYSTATE_WPARAM(wParam) & MK_SHIFT)
-			{
-				// move 3 columns at a time
-				for (int i = 0; i < 3; ++i)
+				for (size_t i = 0; i < nbSelections; ++i)
 				{
-					::DefSubclassProc(hWnd, WM_HSCROLL, (GET_WHEEL_DELTA_WPARAM(wParam) < 0) ? SB_LINERIGHT : SB_LINELEFT, 0);
-				}
-				return 0;
-			}
-			break;
-		}
-
-		case WM_IME_REQUEST:
-		{
-			if (wParam == IMR_RECONVERTSTRING)
-			{
-				intptr_t textLength = 0;
-				intptr_t selectSize = 0;
-				char smallTextBuffer[128] = { '\0' };
-				char* selectedStr = smallTextBuffer;
-				auto* reconvert = reinterpret_cast<RECONVERTSTRING*>(lParam);
-
-				// does nothing with a rectangular selection
-				if (pScint->execute(SCI_SELECTIONISRECTANGLE, 0, 0))
-					return 0;
-
-				// get the codepage of the text
-
-				const auto codepage = static_cast<UINT>(pScint->execute(SCI_GETCODEPAGE));
-
-				// get the current text selection
-
-				Sci_CharacterRangeFull range = pScint->getSelection();
-				if (range.cpMax == range.cpMin)
-				{
-					// no selection: select the current word instead
-
-					pScint->expandWordSelection();
-					range = pScint->getSelection();
-				}
-				selectSize = range.cpMax - range.cpMin;
-
-				// does nothing if still no luck with the selection
-
-				if (selectSize == 0)
-					return 0;
-
-				if (static_cast<size_t>(selectSize + 1) > sizeof(smallTextBuffer))
-					selectedStr = new char[selectSize + 1];
-				pScint->getText(selectedStr, range.cpMin, range.cpMax);
-
-				if (reconvert == nullptr)
-				{
-					// convert the selection to Unicode, and get the number
-					// of bytes required for the converted text
-					textLength = sizeof(wchar_t) * ::MultiByteToWideChar(codepage, 0, selectedStr, static_cast<int>(selectSize), nullptr, 0);
-				}
-				else
-				{
-					// convert the selection to Unicode, and store it at the end of the structure.
-					// Beware: For a Unicode IME, dwStrLen , dwCompStrLen, and dwTargetStrLen
-					// are wchar_t values, that is, character counts. The members dwStrOffset,
-					// dwCompStrOffset, and dwTargetStrOffset specify byte counts.
-
-					textLength = ::MultiByteToWideChar(codepage, 0,
-						selectedStr, static_cast<int>(selectSize),
-						reinterpret_cast<LPWSTR>(reinterpret_cast<std::byte*>(reconvert) + sizeof(RECONVERTSTRING)),
-						static_cast<int>(reconvert->dwSize - sizeof(RECONVERTSTRING)));
-
-					// fill the structure
-					reconvert->dwVersion = 0;
-					reconvert->dwStrLen = static_cast<DWORD>(textLength);
-					reconvert->dwStrOffset = sizeof(RECONVERTSTRING);
-					reconvert->dwCompStrLen = static_cast<DWORD>(textLength);
-					reconvert->dwCompStrOffset = 0;
-					reconvert->dwTargetStrLen = reconvert->dwCompStrLen;
-					reconvert->dwTargetStrOffset = reconvert->dwCompStrOffset;
-
-					textLength *= sizeof(wchar_t);
-				}
-
-				if (selectedStr != smallTextBuffer)
-					delete[] selectedStr;
-
-				// return the total length of the structure
-				return sizeof(RECONVERTSTRING) + textLength;
-			}
-			break;
-		}
-
-		case WM_CHAR:
-		{
-			// prevent "control characters" from being entered in text
-			// (don't need to be concerned about Tab or CR or LF etc here)
-			if ((NppParameters::getInstance()).getSVP()._npcNoInputC0 &&
-				(wParam <= 31 || wParam == 127))
-			{
-				return 0;
-			}
-			break;
-		}
-
-		case WM_KEYUP:
-		{
-			if (wParam == VK_PRIOR || wParam == VK_NEXT)
-			{
-				// find hotspots
-				SCNotification notification = {};
-				notification.nmhdr.code = SCN_PAINTED;
-				notification.nmhdr.hwndFrom = hWnd;
-				notification.nmhdr.idFrom = ::GetDlgCtrlID(hWnd);
-				::SendMessage(pScint->_hParent, WM_NOTIFY, LINKTRIGGERED, reinterpret_cast<LPARAM>(&notification));
-			}
-			break;
-		}
-
-		case WM_KEYDOWN:
-		{
-			struct MultiCaretInfo {
-				int _len2remove;
-				size_t _selIndex;
-				MultiCaretInfo(int len, size_t n) : _len2remove(len), _selIndex(n) {}
-			};
-
-			const bool isColumnSelection = (pScint->execute(SCI_GETSELECTIONMODE) == SC_SEL_RECTANGLE) || (pScint->execute(SCI_GETSELECTIONMODE) == SC_SEL_THIN);
-			bool column2MultSelect = (NppParameters::getInstance()).getSVP()._columnSel2MultiEdit;
-
-			if (wParam == VK_DELETE)
-			{
-				SHORT ctrl = GetKeyState(VK_CONTROL);
-				SHORT alt = GetKeyState(VK_MENU);
-				SHORT shift = GetKeyState(VK_SHIFT);
-
-				if (!(shift & 0x8000) && !(ctrl & 0x8000) && !(alt & 0x8000)) // DEL & Multi-edit
-				{
-					const size_t nbSelections = pScint->execute(SCI_GETSELECTIONS);
-					if (nbSelections > 1) // Multi-edit
+					const LRESULT posStart = execute(SCI_GETSELECTIONNSTART, i);
+					const LRESULT posEnd = execute(SCI_GETSELECTIONNEND, i);
+					if (posStart != posEnd)
 					{
-						std::vector<MultiCaretInfo> edgeOfEol; // pair <start, end>, pair <len2remove, selN>
-						int nbCaseForScint = 0;
+						++nbCaseForScint;
+					}
+					else // posStart == posEnd)
+					{
+						const size_t docLen = getCurrentDocLen();
 
-						for (size_t i = 0; i < nbSelections; ++i)
+						char eolStr[3] = { '\0' };
+						Sci_TextRangeFull tr{};
+						tr.chrg.cpMin = posStart;
+						tr.chrg.cpMax = posEnd + 2;
+						if (tr.chrg.cpMax > static_cast<Sci_Position>(docLen))
 						{
-							const LRESULT posStart = pScint->execute(SCI_GETSELECTIONNSTART, i);
-							const LRESULT posEnd = pScint->execute(SCI_GETSELECTIONNEND, i);
-							if (posStart != posEnd)
-							{
-								++nbCaseForScint;
-							}
-							else // posStart == posEnd)
-							{
-								const size_t docLen = pScint->getCurrentDocLen();
-
-								char eolStr[3] = { '\0' };
-								Sci_TextRangeFull tr{};
-								tr.chrg.cpMin = posStart;
-								tr.chrg.cpMax = posEnd + 2;
-								if (tr.chrg.cpMax > static_cast<Sci_Position>(docLen))
-								{
-									tr.chrg.cpMax = docLen;
-								}
-								tr.lpstrText = eolStr;
-
-								if (tr.chrg.cpMin != tr.chrg.cpMax)
-									pScint->execute(SCI_GETTEXTRANGEFULL, 0, reinterpret_cast<LPARAM>(&tr));
-
-								// Remember EOL length
-								// in the case of other characters let Scintilla do its job
-								int len2remove = -1;
-
-								if (eolStr[0] == '\r' && eolStr[1] == '\n')
-									len2remove = 2;
-								else if (eolStr[0] == '\r' || eolStr[0] == '\n')
-									len2remove = 1;
-
-								if (len2remove == -1)
-									++nbCaseForScint;
-								else
-									edgeOfEol.push_back(MultiCaretInfo(len2remove, i));
-							}
+							tr.chrg.cpMax = docLen;
 						}
+						tr.lpstrText = eolStr;
 
-						// Let Scintilla do its job, if any
-						if (nbCaseForScint > 0)
-							::DefSubclassProc(hWnd, uMsg, wParam, lParam);
+						if (tr.chrg.cpMin != tr.chrg.cpMax)
+							execute(SCI_GETTEXTRANGEFULL, 0, reinterpret_cast<LPARAM>(&tr));
 
-						// then do our job, if it's not column mode
-						if (!isColumnSelection)
-						{
-							pScint->execute(SCI_BEGINUNDOACTION);
+						// Remember EOL length
+						// in the case of other characters let Scintilla do its job
+						int len2remove = -1;
 
-							for (const auto& i : edgeOfEol)
-							{
-								// because the current caret modification will change the other caret positions,
-								// so we get them dynamically in the loop.
-								const LRESULT posStart = pScint->execute(SCI_GETSELECTIONNSTART, i._selIndex);
-								const LRESULT posEnd = pScint->execute(SCI_GETSELECTIONNEND, i._selIndex);
+						if (eolStr[0] == '\r' && eolStr[1] == '\n')
+							len2remove = 2;
+						else if (eolStr[0] == '\r' || eolStr[0] == '\n')
+							len2remove = 1;
 
-								pScint->replaceTarget(L"", posStart, posEnd + i._len2remove);
-								pScint->execute(SCI_SETSELECTIONNSTART, i._selIndex, posStart);
-								pScint->execute(SCI_SETSELECTIONNEND, i._selIndex, posStart);
-							}
-
-							pScint->execute(SCI_ENDUNDOACTION);
-						}
-
-						return 0;
+						if (len2remove == -1)
+							++nbCaseForScint;
+						else
+							edgeOfEol.push_back(MultiCaretInfo(len2remove, i));
 					}
 				}
-			}
-			else if (isColumnSelection && column2MultSelect)
-			{
-				//
-				// Transform the column selection to multi-edit
-				//
-				switch (wParam)
+
+				// Let Scintilla do its job, if any
+				if (nbCaseForScint > 0)
+					static_cast<NppScintillaWidget*>(_hSelf)->baseKeyPress(event);
+
+				// then do our job, if it's not column mode
+				if (!isColumnSelection)
 				{
-					case VK_LEFT:
-					case VK_RIGHT:
-					case VK_UP:
-					case VK_DOWN:
-					case VK_HOME:
-					case VK_END:
-					case VK_RETURN:
-					case VK_BACK:
-					{
-						// When it's rectangular selection and the arrow keys are pressed, we switch the mode for having multiple carets.
-						pScint->execute(SCI_SETSELECTIONMODE, SC_SEL_STREAM);
+					execute(SCI_BEGINUNDOACTION);
 
-						// the 2nd call for removing the unwanted selection while moving carets.
-						// Solution suggested by Neil Hodgson. See:
-						// https://sourceforge.net/p/scintilla/bugs/2412/
-						pScint->execute(SCI_SETSELECTIONMODE, SC_SEL_STREAM);
-						break;
+					for (const auto& i : edgeOfEol)
+					{
+						// because the current caret modification will change the other caret positions,
+						// so we get them dynamically in the loop.
+						const LRESULT posStart = execute(SCI_GETSELECTIONNSTART, i._selIndex);
+						const LRESULT posEnd = execute(SCI_GETSELECTIONNEND, i._selIndex);
+
+						replaceTarget(L"", posStart, posEnd + i._len2remove);
+						execute(SCI_SETSELECTIONNSTART, i._selIndex, posStart);
+						execute(SCI_SETSELECTIONNEND, i._selIndex, posStart);
 					}
 
-					case VK_ESCAPE:
-					{
-						const auto selection = static_cast<int>(pScint->execute(SCI_GETMAINSELECTION, 0, 0));
-						const auto caret = static_cast<int>(pScint->execute(SCI_GETSELECTIONNCARET, selection, 0));
-						pScint->execute(SCI_SETSELECTION, caret, caret);
-						pScint->execute(SCI_SETSELECTIONMODE, SC_SEL_STREAM);
-						break;
-					}
-
-					default:
-						break;
+					execute(SCI_ENDUNDOACTION);
 				}
-			}
-			break;
-		}
 
-		case WM_RBUTTONDOWN:
-		{
-			const bool rightClickKeepsSelection = NppParameters::getInstance().getSVP()._rightClickKeepsSelection;
-			if (rightClickKeepsSelection)
-			{
-				const LONG clickX = GET_X_LPARAM(lParam);
-				const auto marginX = static_cast<LONG>(pScint->execute(SCI_POINTXFROMPOSITION, 0, 0) + pScint->execute(SCI_GETXOFFSET, 0, 0));
-				if (clickX >= marginX)
-				{
-					// if right-click in the editing area (not the margins!),
-					// don't let this go to Scintilla because it will 
-					// move the caret to the right-clicked location,
-					// cancelling any selection made by the user
-					return 0;
-				}
+				return true;
 			}
-			break;
 		}
 	}
-	return ::DefSubclassProc(hWnd, uMsg, wParam, lParam);
+	else if (isColumnSelection && column2MultSelect)
+	{
+		//
+		// Transform the column selection to multi-edit
+		//
+		switch (key)
+		{
+			case Qt::Key_Left:
+			case Qt::Key_Right:
+			case Qt::Key_Up:
+			case Qt::Key_Down:
+			case Qt::Key_Home:
+			case Qt::Key_End:
+			case Qt::Key_Return:
+				case Qt::Key_Enter:
+			case Qt::Key_Backspace:
+			{
+				// When it's rectangular selection and the arrow keys are pressed, we switch the mode for having multiple carets.
+				execute(SCI_SETSELECTIONMODE, SC_SEL_STREAM);
+
+				// the 2nd call for removing the unwanted selection while moving carets.
+				// Solution suggested by Neil Hodgson. See:
+				// https://sourceforge.net/p/scintilla/bugs/2412/
+				execute(SCI_SETSELECTIONMODE, SC_SEL_STREAM);
+				break;
+			}
+
+			case Qt::Key_Escape:
+			{
+				const auto selection = static_cast<int>(execute(SCI_GETMAINSELECTION, 0, 0));
+				const auto caret = static_cast<int>(execute(SCI_GETSELECTIONNCARET, selection, 0));
+				execute(SCI_SETSELECTION, caret, caret);
+				execute(SCI_SETSELECTIONMODE, SC_SEL_STREAM);
+				break;
+			}
+
+			default:
+				break;
+		}
+	}
+	return false;
+}
+
+// The original stops control characters in WM_CHAR, which only comes for a key that Scintilla did not use. Scintilla's
+// Qt layer never types them, so it is the option being off that needs code here.
+void ScintillaEditView::typeControlCharacter(QKeyEvent* event)
+{
+	if (NppParameters::getInstance().getSVP()._npcNoInputC0 || event->text().isEmpty())
+		return;
+
+	if ((event->modifiers() & (Qt::ControlModifier | Qt::AltModifier)) != Qt::ControlModifier)
+		return;
+
+	const char16_t typed = event->text().at(0).unicode();
+	if ((typed > 0 && typed <= 31) || typed == 127)
+	{
+		const char text[2]{ static_cast<char>(typed), '\0' };
+		execute(SCI_REPLACESEL, 0, reinterpret_cast<LPARAM>(text));
+		event->accept();
+	}
+}
+
+void ScintillaEditView::handleKeyRelease(const QKeyEvent* event) const
+{
+	if (event->key() == Qt::Key_PageUp || event->key() == Qt::Key_PageDown)
+	{
+		// find hotspots
+		SCNotification notification = {};
+		notification.nmhdr.code = SCN_PAINTED;
+		notification.nmhdr.hwndFrom = _hSelf;
+		::SendMessage(_hParent, WM_NOTIFY, LINKTRIGGERED, reinterpret_cast<LPARAM>(&notification));
+	}
+}
+
+bool ScintillaEditView::handleWheel(const QWheelEvent* event)
+{
+	const int delta = event->angleDelta().y();
+	if (delta == 0)
+		return false;
+
+	// Right button held while wheeling: the main window switches documents
+	if (event->buttons() & Qt::RightButton)
+	{
+		::SendMessage(_hParent, WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(delta)), 0);
+		return true;
+	}
+
+	// Shift moves 3 columns at a time
+	if (event->modifiers() & Qt::ShiftModifier)
+	{
+		execute(SCI_LINESCROLL, (delta < 0) ? 3 : -3, 0);
+		return true;
+	}
+	return false;
+}
+
+bool ScintillaEditView::handleRightButtonPress(const QMouseEvent* event) const
+{
+	if (event->button() != Qt::RightButton || !NppParameters::getInstance().getSVP()._rightClickKeepsSelection)
+		return false;
+
+	// if right-click in the editing area (not the margins!), don't let this go to Scintilla because
+	// it will move the caret to the right-clicked location, cancelling any selection made by the user
+	const auto marginX = static_cast<int>(execute(SCI_POINTXFROMPOSITION, 0, 0) + execute(SCI_GETXOFFSET));
+	return event->position().x() >= marginX;
 }
 
 #define DEFAULT_FONT_NAME "Courier New"
@@ -1101,7 +992,7 @@ void ScintillaEditView::setUserLexer(const wchar_t* userLangName) const
 	int setKeywordsCounter = 0;
 	setLexerFromLangID(L_USER);
 
-	const UserLangContainer* userLangContainer = userLangName ? NppParameters::getInstance().getULCFromName(userLangName) : _userDefineDlg._pCurrentUserLang.get();
+	const UserLangContainer* userLangContainer = userLangName ? NppParameters::getInstance().getULCFromName(userLangName) : g_userDefineDlg._pCurrentUserLang.get();
 
 	if (!userLangContainer)
 		return;
@@ -1114,7 +1005,7 @@ void ScintillaEditView::setUserLexer(const wchar_t* userLangName) const
     char name[] = "userDefine.prefixKeywords0";
 	for (int i=0 ; i<SCE_USER_TOTAL_KEYWORD_GROUPS ; ++i)
 	{
-		itoa(i+1, (name+25), 10);
+		std::snprintf(name + 25, sizeof(name) - 25, "%d", i + 1);
 		execute(SCI_SETPROPERTY, reinterpret_cast<WPARAM>(name), reinterpret_cast<LPARAM>(userLangContainer->_isPrefix[i] ? "1" : "0"));
 	}
 
@@ -1302,7 +1193,7 @@ void ScintillaEditView::setJsLexer() const
 		execute(SCI_SETKEYWORDS, 2, reinterpret_cast<LPARAM>(doxygenKeyWords));
 	}
 
-	const wchar_t *newLexerName = ScintillaEditView::_langNameInfoArray[L_JAVASCRIPT]._langName;
+	const wchar_t *newLexerName = g_langNameInfoArray[L_JAVASCRIPT]._langName;
 	const LexerStyler* pNewStyler = NppParameters::getInstance().getLStylerArray().getLexerStylerByName(newLexerName);
 	if (pNewStyler) // New js styler is available, so we can use it do more modern styling
 	{
@@ -1328,7 +1219,7 @@ void ScintillaEditView::setJsLexer() const
 	}
 	else // New js styler is not available, we use the old styling for the sake of retro-compatibility
 	{
-		const wchar_t *lexerName = ScintillaEditView::_langNameInfoArray[L_JS_EMBEDDED]._langName;
+		const wchar_t *lexerName = g_langNameInfoArray[L_JS_EMBEDDED]._langName;
 		const LexerStyler* pOldStyler = NppParameters::getInstance().getLStylerArray().getLexerStylerByName(lexerName);
 
 		if (pOldStyler)
@@ -1589,7 +1480,7 @@ void ScintillaEditView::setLexer(LangType langType, int whichList, int baseStyle
 
 void ScintillaEditView::makeStyle(LangType langType, const char** keywordArray) const
 {
-	const wchar_t * lexerName = ScintillaEditView::_langNameInfoArray[langType]._langName;
+	const wchar_t * lexerName = g_langNameInfoArray[langType]._langName;
 	const LexerStyler* pStyler = NppParameters::getInstance().getLStylerArray().getLexerStylerByName(lexerName);
 	if (pStyler)
 	{
@@ -2337,7 +2228,7 @@ bool ScintillaEditView::setLexerFromLangID(int langID) const // Internal lexer o
 	if (langID >= L_EXTERNAL)
 		return false;
 
-	const char* lexerNameID = _langNameInfoArray[langID]._lexerID;
+	const char* lexerNameID = g_langNameInfoArray[langID]._lexerID;
 	execute(SCI_SETILEXER, 0, reinterpret_cast<LPARAM>(CreateLexer(lexerNameID)));
 	return true;
 }
@@ -2436,7 +2327,7 @@ void ScintillaEditView::syncFoldStateWith(const std::vector<size_t> & lineStateV
 	if (nbLineState > 0)
 	{
 		if (nbLineState > MAX_FOLD_LINES_MORE_THAN) // Block WM_SETREDRAW messages
-			::SendMessage(_hSelf, WM_SETREDRAW, FALSE, 0);
+			_hSelf->setUpdatesEnabled(false);
 
 		for (size_t i = 0; i < nbLineState; ++i)
 		{
@@ -2446,9 +2337,9 @@ void ScintillaEditView::syncFoldStateWith(const std::vector<size_t> & lineStateV
 
 		if (nbLineState > MAX_FOLD_LINES_MORE_THAN)
 		{
-			::SendMessage(_hSelf, WM_SETREDRAW, TRUE, 0);
+			_hSelf->setUpdatesEnabled(true);
 			execute(SCI_SCROLLCARET);
-			::InvalidateRect(_hSelf, nullptr, TRUE);
+			_hSelf->update();
 		}
 	}
 }
@@ -2548,7 +2439,7 @@ void ScintillaEditView::foldIndentationBasedLevel(int level2Collapse, bool mode)
 
 	if (maxLine > MAX_FOLD_LINES_MORE_THAN)
 	{
-		::SendMessage(_hSelf, WM_SETREDRAW, FALSE, 0);
+		_hSelf->setUpdatesEnabled(false);
 	}
 
 	while (line < maxLine)
@@ -2574,9 +2465,9 @@ void ScintillaEditView::foldIndentationBasedLevel(int level2Collapse, bool mode)
 
 	if (maxLine > MAX_FOLD_LINES_MORE_THAN)
 	{
-		::SendMessage(_hSelf, WM_SETREDRAW, TRUE, 0);
+		_hSelf->setUpdatesEnabled(true);
 		execute(SCI_SCROLLCARET);
-		::InvalidateRect(_hSelf, nullptr, TRUE);
+		_hSelf->update();
 	}
 
 	if (mode == fold_expand)
@@ -2597,7 +2488,7 @@ void ScintillaEditView::foldLevel(int level2Collapse, bool mode)
 
 	if (maxLine > MAX_FOLD_LINES_MORE_THAN)
 	{
-		::SendMessage(_hSelf, WM_SETREDRAW, FALSE, 0);
+		_hSelf->setUpdatesEnabled(false);
 	}
 
 	for (int line = 0; line < maxLine; ++line)
@@ -2616,9 +2507,9 @@ void ScintillaEditView::foldLevel(int level2Collapse, bool mode)
 
 	if (maxLine > MAX_FOLD_LINES_MORE_THAN)
 	{
-		::SendMessage(_hSelf, WM_SETREDRAW, TRUE, 0);
+		_hSelf->setUpdatesEnabled(true);
 		execute(SCI_SCROLLCARET);
-		::InvalidateRect(_hSelf, nullptr, TRUE);
+		_hSelf->update();
 	}
 
 	if (mode == fold_expand)
@@ -2975,7 +2866,6 @@ intptr_t ScintillaEditView::replaceTargetRegExMode(const wchar_t * re, intptr_t 
 void ScintillaEditView::showAutoCompletion(size_t lenEntered, const std::string& list) const
 {
 	execute(SCI_AUTOCSHOW, lenEntered, reinterpret_cast<LPARAM>(list.c_str()));
-	NppDarkMode::setDarkAutoCompletion();
 }
 
 void ScintillaEditView::showCallTip(size_t startPos, const std::string& def) const
@@ -3698,36 +3588,34 @@ intptr_t ScintillaEditView::caseConvertRange(intptr_t start, intptr_t end, TextC
 	unsigned codepage = getCurrentBuffer()->getUnicodeMode() == uni8Bit ? _codepage : CP_UTF8;
 
 	int mbLen = int(end - start);
-	const int mbLenMax = 2 * mbLen + 1;  // allow final NUL + substantial expansion
 
-	char *mbStr = new char[mbLenMax];
-	getText(mbStr, start, end);
+	std::string mbStr(static_cast<size_t>(mbLen) + 1, '\0');
+	getText(mbStr.data(), start, end);
+	mbStr.resize(mbLen);
 
-	if (int wideLen = ::MultiByteToWideChar(codepage, 0, mbStr, mbLen, NULL, 0))
+	WcharMbcsConvertor& wmc = WcharMbcsConvertor::getInstance();
+	int wideLen = 0;
+	const wchar_t* converted = wmc.char2wchar(mbStr.c_str(), codepage, mbLen, &wideLen);
+	if (wideLen > 0)
 	{
-		wchar_t *wideStr = new wchar_t[wideLen];  // not NUL terminated
-		::MultiByteToWideChar(codepage, 0, mbStr, mbLen, wideStr, wideLen);
+		std::wstring wideStr(converted, wideLen);
+		changeCase(wideStr.data(), wideLen, caseToConvert);
 
-		changeCase(wideStr, wideLen, caseToConvert);
-
-		if (int mbLenOut = ::WideCharToMultiByte(codepage, 0, wideStr, wideLen, mbStr, mbLenMax, NULL, NULL))
+		int mbLenOut = 0;
+		const char* result = wmc.wchar2char(wideStr.c_str(), codepage, wideLen, &mbLenOut);
+		if (mbLenOut > 0)
 		{
-			// mbStr isn't NUL terminated either at this point
 			mbLen = mbLenOut;
 
 			execute(SCI_SETTARGETRANGE, start, end);
-			execute(SCI_REPLACETARGET, mbLen, reinterpret_cast<LPARAM>(mbStr));
+			execute(SCI_REPLACETARGET, mbLen, reinterpret_cast<LPARAM>(result));
 		}
-
-		delete [] wideStr;
 	}
-
-	delete [] mbStr;
 
 	return (start + mbLen) - end;
 }
 
-void ScintillaEditView::changeCase(__inout wchar_t* const strWToConvert, const int& nbChars, const TextCase& caseToConvert)
+void ScintillaEditView::changeCase(wchar_t* const strWToConvert, const int& nbChars, const TextCase& caseToConvert)
 {
 	if (strWToConvert == nullptr || nbChars == 0)
 		return;
@@ -3738,7 +3626,7 @@ void ScintillaEditView::changeCase(__inout wchar_t* const strWToConvert, const i
 		{
 			for (int i = 0; i < nbChars; ++i)
 			{
-				strWToConvert[i] = (wchar_t)(UINT_PTR)::CharUpperW(reinterpret_cast<LPWSTR>(strWToConvert[i]));
+				strWToConvert[i] = toUpperChar(strWToConvert[i]);
 			}
 			break; 
 		} //case UPPERCASE
@@ -3746,7 +3634,7 @@ void ScintillaEditView::changeCase(__inout wchar_t* const strWToConvert, const i
 		{
 			for (int i = 0; i < nbChars; ++i)
 			{
-				strWToConvert[i] = (wchar_t)(UINT_PTR)::CharLowerW(reinterpret_cast<LPWSTR>(strWToConvert[i]));
+				strWToConvert[i] = toLowerChar(strWToConvert[i]);
 			}
 			break; 
 		} //case LOWERCASE
@@ -3755,19 +3643,19 @@ void ScintillaEditView::changeCase(__inout wchar_t* const strWToConvert, const i
 		{
 			for (int i = 0; i < nbChars; ++i)
 			{
-				if (::IsCharAlphaW(strWToConvert[i]))
+				if (isAlphaChar(strWToConvert[i]))
 				{
 					// Exception for single quote and smart single quote
 					if ((i < 2) ? false :
-						(isCharSingleQuote(strWToConvert[i - 1]) && ::IsCharAlphaNumericW(strWToConvert[i - 2])))
+						(isCharSingleQuote(strWToConvert[i - 1]) && isAlphaNumericChar(strWToConvert[i - 2])))
 					{
 						if (caseToConvert == PROPERCASE_FORCE)
-							strWToConvert[i] = (wchar_t)(UINT_PTR)::CharLowerW(reinterpret_cast<LPWSTR>(strWToConvert[i]));
+							strWToConvert[i] = toLowerChar(strWToConvert[i]);
 					}
-					else if ((i < 1) ? true : !::IsCharAlphaNumericW(strWToConvert[i - 1]))
-						strWToConvert[i] = (wchar_t)(UINT_PTR)::CharUpperW(reinterpret_cast<LPWSTR>(strWToConvert[i]));
+					else if ((i < 1) ? true : !isAlphaNumericChar(strWToConvert[i - 1]))
+						strWToConvert[i] = toUpperChar(strWToConvert[i]);
 					else if (caseToConvert == PROPERCASE_FORCE)
-						strWToConvert[i] = (wchar_t)(UINT_PTR)::CharLowerW(reinterpret_cast<LPWSTR>(strWToConvert[i]));
+						strWToConvert[i] = toLowerChar(strWToConvert[i]);
 				}
 			}
 			break;
@@ -3780,16 +3668,16 @@ void ScintillaEditView::changeCase(__inout wchar_t* const strWToConvert, const i
 			bool wasEolN = false;
 			for (int i = 0; i < nbChars; ++i)
 			{
-				if (::IsCharAlphaW(strWToConvert[i]))
+				if (isAlphaChar(strWToConvert[i]))
 				{
 					if (isNewSentence)
 					{
-						strWToConvert[i] = (wchar_t)(UINT_PTR)::CharUpperW(reinterpret_cast<LPWSTR>(strWToConvert[i]));
+						strWToConvert[i] = toUpperChar(strWToConvert[i]);
 						isNewSentence = false;
 					}
 					else if (caseToConvert == SENTENCECASE_FORCE)
 					{
-						strWToConvert[i] = (wchar_t)(UINT_PTR)::CharLowerW(reinterpret_cast<LPWSTR>(strWToConvert[i]));
+						strWToConvert[i] = toLowerChar(strWToConvert[i]);
 					}
 					wasEolR = false;
 					wasEolN = false;
@@ -3803,7 +3691,7 @@ void ScintillaEditView::changeCase(__inout wchar_t* const strWToConvert, const i
 				}
 				else if (strWToConvert[i] == L'.' || strWToConvert[i] == L'!' || strWToConvert[i] == L'?')
 				{
-					if ((i + 1 == nbChars) ? true : ::IsCharAlphaNumericW(strWToConvert[i + 1]))
+					if ((i + 1 == nbChars) ? true : isAlphaNumericChar(strWToConvert[i + 1]))
 						isNewSentence = false;
 					else
 						isNewSentence = true;
@@ -3829,10 +3717,10 @@ void ScintillaEditView::changeCase(__inout wchar_t* const strWToConvert, const i
 		{
 			for (int i = 0; i < nbChars; ++i)
 			{
-				if (::IsCharLowerW(strWToConvert[i]))
-					strWToConvert[i] = (wchar_t)(UINT_PTR)::CharUpperW(reinterpret_cast<LPWSTR>(strWToConvert[i]));
+				if (isLowerChar(strWToConvert[i]))
+					strWToConvert[i] = toUpperChar(strWToConvert[i]);
 				else
-					strWToConvert[i] = (wchar_t)(UINT_PTR)::CharLowerW(reinterpret_cast<LPWSTR>(strWToConvert[i]));
+					strWToConvert[i] = toLowerChar(strWToConvert[i]);
 			}
 			break; 
 		} //case INVERTCASE
@@ -3840,12 +3728,12 @@ void ScintillaEditView::changeCase(__inout wchar_t* const strWToConvert, const i
 		{
 			for (int i = 0; i < nbChars; ++i)
 			{
-				if (::IsCharAlphaW(strWToConvert[i]))
+				if (isAlphaChar(strWToConvert[i]))
 				{
 					if (std::rand() & true)
-						strWToConvert[i] = (wchar_t)(UINT_PTR)::CharUpperW(reinterpret_cast<LPWSTR>(strWToConvert[i]));
+						strWToConvert[i] = toUpperChar(strWToConvert[i]);
 					else
-						strWToConvert[i] = (wchar_t)(UINT_PTR)::CharLowerW(reinterpret_cast<LPWSTR>(strWToConvert[i]));
+						strWToConvert[i] = toLowerChar(strWToConvert[i]);
 				}
 			}
 			break; 
@@ -4535,8 +4423,7 @@ void ScintillaEditView::sortLines(size_t fromLine, size_t toLine, ISorter* pSort
 
 bool ScintillaEditView::isTextDirectionRTL() const
 {
-	long exStyle = static_cast<long>(::GetWindowLongPtr(_hSelf, GWL_EXSTYLE));
-	return (exStyle & WS_EX_LAYOUTRTL) != 0;
+	return _hSelf->layoutDirection() == Qt::RightToLeft;
 }
 
 void ScintillaEditView::changeTextDirection(bool isRTL)
@@ -4563,9 +4450,7 @@ void ScintillaEditView::changeTextDirection(bool isRTL)
 		return;
 	}
 
-	long exStyle = static_cast<long>(::GetWindowLongPtr(_hSelf, GWL_EXSTYLE));
-	exStyle = isRTL ? (exStyle | WS_EX_LAYOUTRTL) : (exStyle & (~WS_EX_LAYOUTRTL));
-	::SetWindowLongPtr(_hSelf, GWL_EXSTYLE, exStyle);
+	_hSelf->setLayoutDirection(isRTL ? Qt::RightToLeft : Qt::LeftToRight);
 
 	if (isRTL)
 	{
@@ -4619,31 +4504,7 @@ wstring ScintillaEditView::getEOLString() const
 
 void ScintillaEditView::setBorderEdge(bool doWithBorderEdge)
 {
-	long style = static_cast<long>(::GetWindowLongPtr(_hSelf, GWL_STYLE));
-	long exStyle = static_cast<long>(::GetWindowLongPtr(_hSelf, GWL_EXSTYLE));
-
-	if (NppDarkMode::isEnabled())
-	{
-		exStyle &= ~WS_EX_CLIENTEDGE;
-
-		if (doWithBorderEdge)
-			style |= WS_BORDER;
-		else
-			style &= ~WS_BORDER;
-	}
-	else
-	{
-		style &= ~WS_BORDER;
-
-		if (doWithBorderEdge)
-			exStyle |= WS_EX_CLIENTEDGE;
-		else
-			exStyle &= ~WS_EX_CLIENTEDGE;
-	}
-
-	::SetWindowLongPtr(_hSelf, GWL_STYLE, style);
-	::SetWindowLongPtr(_hSelf, GWL_EXSTYLE, exStyle);
-	::SetWindowPos(_hSelf, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+	static_cast<QFrame*>(_hSelf)->setFrameShape(doWithBorderEdge ? QFrame::StyledPanel : QFrame::NoFrame);
 }
 
 void ScintillaEditView::getFoldColor(COLORREF& fgColor, COLORREF& bgColor, COLORREF& activeFgColor)
@@ -4895,28 +4756,12 @@ bool ScintillaEditView::pasteToMultiSelection() const
 	if (nbSelections <= 1)
 		return false;
 
-	// "MSDEVColumnSelect" is column format from Scintilla 
-	CLIPFORMAT cfColumnSelect = static_cast<CLIPFORMAT>(::RegisterClipboardFormat(L"MSDEVColumnSelect"));
-	if (!::IsClipboardFormatAvailable(cfColumnSelect) || !::OpenClipboard(NULL))
+	// Scintilla marks a column selection copied to the clipboard with this format
+	const QMimeData* clipboardData = QGuiApplication::clipboard()->mimeData();
+	if (!clipboardData || !clipboardData->hasFormat(QStringLiteral("text/x-qt-windows-mime;value=\"MSDEVColumnSelect\"")))
 		return false;
 
-	HANDLE clipboardData = ::GetClipboardData(CF_UNICODETEXT);
-	if (!clipboardData)
-	{
-		::CloseClipboard();
-		return false;
-	}
-
-	LPVOID clipboardDataPtr = ::GlobalLock(clipboardData);
-	if (!clipboardDataPtr)
-	{
-		::CloseClipboard();
-		return false;
-	}
-
-	wstring clipboardStr = static_cast<const wchar_t*>(clipboardDataPtr);
-	::GlobalUnlock(clipboardData);
-	::CloseClipboard();
+	const wstring clipboardStr = clipboardData->text().toStdWString();
 
 	vector<wstring> clipboardStrings;
 

@@ -51,6 +51,7 @@
 #endif
 #include <boost/regex.hpp>
 #include <boost/throw_exception.hpp>
+#include "NppRegexTraits.h"
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
@@ -219,7 +220,11 @@ private:
 
 	public:
 		typedef CharT Char;
+		#ifdef _WIN32
 		typedef basic_regex<CharT> Regex;
+#else
+		typedef basic_regex<CharT, NppRegexTraits<CharT>> Regex; // reproduces the Win32 traits semantics
+#endif
 		typedef match_results<CharacterIterator> MatchResults;
 
 		MatchResults _match;
@@ -473,7 +478,7 @@ const char *BoostRegexSearch::SubstituteByPosition(Document* doc, const char *te
 
 template <class CharT, class CharacterIterator>
 char *BoostRegexSearch::EncodingDependent<CharT, CharacterIterator>::SubstituteByPosition(const char *text, Sci::Position *length) {
-	char *substituted = stringToCharPtr(_match.format(static_cast<const CharT*>(CharTPtr(text)), boost::format_all));
+	char *substituted = stringToCharPtr(_match.format(static_cast<const CharT*>(CharTPtr(text)), boost::format_all, _regex));
 	*length = static_cast<int>(strlen(substituted));
 	return substituted;
 }

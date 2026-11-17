@@ -1,5 +1,5 @@
 // This file is part of Notepad++ project
-// Copyright (C)2021 Don HO <don.h@free.fr>
+// Copyright (c) 2021 adzm / Adam D. Walling
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,14 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
 #pragma once
 
-#include <windows.h>
+#include <QLabel>
+#include <QStatusBar>
 
-#include <uxtheme.h>
-
-#include <string>
 #include <vector>
 
 #include "Window.h"
@@ -29,35 +26,19 @@
 class StatusBar final : public Window
 {
 public:
-	virtual ~StatusBar();
+	~StatusBar() override = default;
 
 	void init(HINSTANCE hInst, HWND hPere, int nbParts);
-
 	bool setPartWidth(int whichPart, int width);
-
 	void destroy() override;
-
 	int getHeight() const override;
 
 	bool setText(const wchar_t* str, int whichPart);
 	bool setOwnerDrawText(const wchar_t* str);
-	void adjustParts(int clientWidth);
-
-	void setFontAndHeight() noexcept;
+	void adjustParts(int) {} // the status bar lays out its parts
 
 private:
-	std::vector<int> _partWidthArray;
-	std::vector<int> _parts;
-	std::wstring _lastSetText;
-	HTHEME _hTheme = nullptr;
-	HFONT _hFont = nullptr;
+	std::vector<QLabel*> _parts;
 
 	using Window::init;
-
-	static LRESULT CALLBACK StatusBarSubclass(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
-
-	bool ensureTheme() noexcept;
-	void closeTheme() noexcept;
-	void resetFont(UINT dpi) noexcept;
-	void destroyFont() noexcept;
 };

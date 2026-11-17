@@ -166,3 +166,13 @@ PowerEditor/src/MISC/md5/RCa06792
 *.db
 *.sln
 *.opendb
+
+# CMake build tree (Qt port)
+/build/
+
+# AppImage build (build-appimage.sh) and makepkg (PKGBUILD)
+/build-appimage/
+/pkg/
+/src/
+/notepad-plus-plus/
+/*.pkg.tar.zst

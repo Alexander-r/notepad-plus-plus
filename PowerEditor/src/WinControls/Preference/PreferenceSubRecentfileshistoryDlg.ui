@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubRecentfileshistoryDlg</class>
+ <widget class="QWidget" name="PreferenceSubRecentfileshistoryDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QGroupBox" name="historyGbStatic">
+     <property name="nppId" stdset="0"><number>6304</number></property>
+     <property name="title"><string>Recent Files History</string></property>
+     <layout class="QVBoxLayout" name="layout2">
+      <item>
+       <widget class="QCheckBox" name="checkDontcheckhistory">
+        <property name="nppId" stdset="0"><number>6305</number></property>
+        <property name="text"><string>Don't check at launch time</string></property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="layout3">
+        <item>
+         <widget class="QLabel" name="maxnbfileStatic">
+          <property name="nppId" stdset="0"><number>6306</number></property>
+          <property name="text"><string>Max. number of entries:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="editMaxnbfileval">
+          <property name="nppId" stdset="0"><number>6461</number></property>
+          <property name="alignment"><set>Qt::AlignCenter</set></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="maxnbfileRangeStatic">
+          <property name="nppId" stdset="0"><number>6462</number></property>
+          <property name="text"><string>(0 – 30)</string></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer4">
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="displayStatic">
+        <property name="nppId" stdset="0"><number>6429</number></property>
+        <property name="title"><string>Display</string></property>
+        <layout class="QVBoxLayout" name="layout5">
+         <item>
+          <widget class="QCheckBox" name="checkInsubmenu">
+           <property name="nppId" stdset="0"><number>6424</number></property>
+           <property name="text"><string>In Submenu</string></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QRadioButton" name="radioOnlyfilename">
+           <property name="nppId" stdset="0"><number>6425</number></property>
+           <property name="text"><string>Only File Name</string></property>
+           <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+          </widget>
+         </item>
+         <item>
+          <widget class="QRadioButton" name="radioFullfilenamepath">
+           <property name="nppId" stdset="0"><number>6426</number></property>
+           <property name="text"><string>Full File Name Path</string></property>
+           <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="layout6">
+           <item>
+            <widget class="QRadioButton" name="radioCustomizelenth">
+             <property name="nppId" stdset="0"><number>6427</number></property>
+             <property name="text"><string>Customize Maximum Length:</string></property>
+             <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLineEdit" name="editCustomizelengthval">
+             <property name="nppId" stdset="0"><number>6463</number></property>
+             <property name="alignment"><set>Qt::AlignCenter</set></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="customizelengthRangeStatic">
+             <property name="nppId" stdset="0"><number>6464</number></property>
+             <property name="text"><string>(1 – 259)</string></property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="spacer7">
+             <property name="orientation"><enum>Qt::Horizontal</enum></property>
+             <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+             <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+            </spacer>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer8">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+ </buttongroups>
+</ui>

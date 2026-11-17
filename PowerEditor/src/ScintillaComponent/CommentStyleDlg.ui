@@ -1,0 +1,360 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>CommentStyleDlg</class>
+ <widget class="QWidget" name="CommentStyleDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>699</width><height>674</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <layout class="QHBoxLayout" name="layout2">
+     <item>
+      <widget class="QGroupBox" name="commentlinePositionStatic">
+       <property name="nppId" stdset="0"><number>23003</number></property>
+       <property name="title"><string>Line comment position</string></property>
+       <layout class="QVBoxLayout" name="layout3">
+        <item>
+         <widget class="QRadioButton" name="allowAnywhere">
+          <property name="nppId" stdset="0"><number>23004</number></property>
+          <property name="text"><string>Allow anywhere</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="forceAtBol">
+          <property name="nppId" stdset="0"><number>23005</number></property>
+          <property name="text"><string>Force at beginning of line</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="allowWhitespace">
+          <property name="nppId" stdset="0"><number>23006</number></property>
+          <property name="text"><string>Allow preceding whitespace</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="layout4">
+       <item>
+        <spacer name="spacer5">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="foldingOfComments">
+         <property name="nppId" stdset="0"><number>23001</number></property>
+         <property name="text"><string>Allow folding of comments</string></property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <spacer name="spacer6">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="layout7">
+     <item>
+      <widget class="QGroupBox" name="commentlineDescgroupStatic">
+       <property name="nppId" stdset="0"><number>23301</number></property>
+       <property name="title"><string>Comment line style</string></property>
+       <layout class="QVBoxLayout" name="layout8">
+        <item>
+         <layout class="QHBoxLayout" name="layout9">
+          <item>
+           <widget class="QPushButton" name="commentlineStyler">
+            <property name="nppId" stdset="0"><number>23326</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer10">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QGridLayout" name="layout11">
+          <item row="0" column="0">
+           <widget class="QLabel" name="commentlineOpenStatic">
+            <property name="nppId" stdset="0"><number>23323</number></property>
+            <property name="text"><string>Open:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLabel" name="commentlineContinueStatic">
+            <property name="nppId" stdset="0"><number>23324</number></property>
+            <property name="text"><string>Continue character:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="2">
+           <widget class="QLabel" name="commentlineCloseStatic">
+            <property name="nppId" stdset="0"><number>23325</number></property>
+            <property name="text"><string>Close:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QPlainTextEdit" name="commentlineOpenEdit">
+            <property name="nppId" stdset="0"><number>23320</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QPlainTextEdit" name="commentlineContinueEdit">
+            <property name="nppId" stdset="0"><number>23321</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QPlainTextEdit" name="commentlineCloseEdit">
+            <property name="nppId" stdset="0"><number>23322</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <widget class="QGroupBox" name="commentDescgroupStatic">
+       <property name="nppId" stdset="0"><number>23101</number></property>
+       <property name="title"><string>Comment style</string></property>
+       <layout class="QVBoxLayout" name="layout12">
+        <item>
+         <layout class="QHBoxLayout" name="layout13">
+          <item>
+           <widget class="QPushButton" name="commentStyler">
+            <property name="nppId" stdset="0"><number>23124</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer14">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QGridLayout" name="layout15">
+          <item row="0" column="0">
+           <widget class="QLabel" name="commentOpenStatic">
+            <property name="nppId" stdset="0"><number>23122</number></property>
+            <property name="text"><string>Open:</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLabel" name="commentCloseStatic">
+            <property name="nppId" stdset="0"><number>23123</number></property>
+            <property name="text"><string>Close:</string></property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QPlainTextEdit" name="commentOpenEdit">
+            <property name="nppId" stdset="0"><number>23120</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QPlainTextEdit" name="commentCloseEdit">
+            <property name="nppId" stdset="0"><number>23121</number></property>
+            <property name="tabChangesFocus"><bool>true</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="numberDescgroupStatic">
+     <property name="nppId" stdset="0"><number>23201</number></property>
+     <property name="title"><string>Number style</string></property>
+     <layout class="QVBoxLayout" name="layout16">
+      <item>
+       <layout class="QHBoxLayout" name="layout17">
+        <item>
+         <widget class="QPushButton" name="numberStyler">
+          <property name="nppId" stdset="0"><number>23220</number></property>
+          <property name="text"><string>Styler</string></property>
+          <property name="autoDefault"><bool>false</bool></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer18">
+          <property name="orientation"><enum>Qt::Horizontal</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="layout19">
+        <item row="0" column="0">
+         <widget class="QLabel" name="numberPrefix1Static">
+          <property name="nppId" stdset="0"><number>23230</number></property>
+          <property name="text"><string>Prefix 1:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QPlainTextEdit" name="numberPrefix1Edit">
+          <property name="nppId" stdset="0"><number>23231</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QLabel" name="numberPrefix2Static">
+          <property name="nppId" stdset="0"><number>23232</number></property>
+          <property name="text"><string>Prefix 2:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="0" column="3">
+         <widget class="QPlainTextEdit" name="numberPrefix2Edit">
+          <property name="nppId" stdset="0"><number>23233</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="numberExtras1Static">
+          <property name="nppId" stdset="0"><number>23234</number></property>
+          <property name="text"><string>Extras 1:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QPlainTextEdit" name="numberExtras1Edit">
+          <property name="nppId" stdset="0"><number>23235</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QLabel" name="numberExtras2Static">
+          <property name="nppId" stdset="0"><number>23236</number></property>
+          <property name="text"><string>Extras 2:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="1" column="3">
+         <widget class="QPlainTextEdit" name="numberExtras2Edit">
+          <property name="nppId" stdset="0"><number>23237</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="numberSuffix1Static">
+          <property name="nppId" stdset="0"><number>23238</number></property>
+          <property name="text"><string>Suffix 1:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QPlainTextEdit" name="numberSuffix1Edit">
+          <property name="nppId" stdset="0"><number>23239</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="2" column="2">
+         <widget class="QLabel" name="numberSuffix2Static">
+          <property name="nppId" stdset="0"><number>23240</number></property>
+          <property name="text"><string>Suffix 2:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="2" column="3">
+         <widget class="QPlainTextEdit" name="numberSuffix2Edit">
+          <property name="nppId" stdset="0"><number>23241</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="3" column="0">
+         <widget class="QLabel" name="numberRangeStatic">
+          <property name="nppId" stdset="0"><number>23242</number></property>
+          <property name="text"><string>Range:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="3" column="1">
+         <widget class="QPlainTextEdit" name="numberRangeEdit">
+          <property name="nppId" stdset="0"><number>23243</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+        <item row="3" column="2" colspan="2">
+         <widget class="QGroupBox" name="decimalSeparatorStatic">
+          <property name="nppId" stdset="0"><number>23244</number></property>
+          <property name="title"><string>Decimal separator</string></property>
+          <layout class="QHBoxLayout" name="layout20">
+           <item>
+            <widget class="QRadioButton" name="dotRadio">
+             <property name="nppId" stdset="0"><number>23245</number></property>
+             <property name="text"><string>Dot</string></property>
+             <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+            </widget>
+           </item>
+           <item>
+            <widget class="QRadioButton" name="commaRadio">
+             <property name="nppId" stdset="0"><number>23246</number></property>
+             <property name="text"><string>Comma</string></property>
+             <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+            </widget>
+           </item>
+           <item>
+            <widget class="QRadioButton" name="bothRadio">
+             <property name="nppId" stdset="0"><number>23247</number></property>
+             <property name="text"><string>Both</string></property>
+             <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+            </widget>
+           </item>
+           <item>
+            <spacer name="spacer21">
+             <property name="orientation"><enum>Qt::Horizontal</enum></property>
+             <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+             <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer22">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+  <buttongroup name="radioGroup2"/>
+ </buttongroups>
+</ui>

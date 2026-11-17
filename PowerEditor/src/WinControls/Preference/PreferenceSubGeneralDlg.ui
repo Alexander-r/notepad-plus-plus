@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubGeneralDlg</class>
+ <widget class="QWidget" name="PreferenceSubGeneralDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QGroupBox" name="localizationGbStatic">
+     <property name="nppId" stdset="0"><number>6123</number></property>
+     <property name="title"><string>&amp;Localization</string></property>
+     <layout class="QHBoxLayout" name="layout2">
+      <item>
+       <widget class="QComboBox" name="comboLocalization">
+        <property name="nppId" stdset="0"><number>6124</number></property>
+        <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="spacer3">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+        <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+        <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="menuGbStatic">
+     <property name="nppId" stdset="0"><number>6131</number></property>
+     <property name="title"><string>Menu</string></property>
+     <layout class="QVBoxLayout" name="layout4">
+      <item>
+       <widget class="QCheckBox" name="checkHidemenubar">
+        <property name="nppId" stdset="0"><number>6122</number></property>
+        <property name="text"><string>&amp;Hide (use Alt or F10 key to toggle)</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkHiderightshortcutsofmenubar">
+        <property name="nppId" stdset="0"><number>6132</number></property>
+        <property name="text"><string>Hide &amp;right shortcuts ＋ ▼ ✕</string></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="statusbarGbStatic">
+     <property name="nppId" stdset="0"><number>6133</number></property>
+     <property name="title"><string>Status Bar</string></property>
+     <layout class="QVBoxLayout" name="layout5">
+      <item>
+       <widget class="QCheckBox" name="checkHidestatusbar">
+        <property name="nppId" stdset="0"><number>6134</number></property>
+        <property name="text"><string>Hi&amp;de</string></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="dialogFontGbStatic">
+     <property name="nppId" stdset="0"><number>7165</number></property>
+     <property name="title"><string>Dialog Font (Need to restart Notepad++)</string></property>
+     <layout class="QHBoxLayout" name="layout6">
+      <item>
+       <layout class="QGridLayout" name="layout7">
+        <item row="0" column="0">
+         <widget class="QLabel" name="staticDialogFontSize">
+          <property name="nppId" stdset="0"><number>7166</number></property>
+          <property name="text"><string>&amp;Size:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+          <property name="buddy"><cstring>comboDialogFontSize</cstring></property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QComboBox" name="comboDialogFontSize">
+          <property name="nppId" stdset="0"><number>7167</number></property>
+          <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="staticDialogFontName">
+          <property name="nppId" stdset="0"><number>7168</number></property>
+          <property name="text"><string>Name:</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QComboBox" name="comboDialogFontName">
+          <property name="nppId" stdset="0"><number>7169</number></property>
+          <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <spacer name="spacer8">
+        <property name="orientation"><enum>Qt::Horizontal</enum></property>
+        <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+        <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer9">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

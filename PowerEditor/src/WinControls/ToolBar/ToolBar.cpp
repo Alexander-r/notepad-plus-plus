@@ -17,864 +17,551 @@
 
 #include "ToolBar.h"
 
-#include <windows.h>
+#include <cstdlib>
+#include <QToolButton>
+#include <QMenu>
+#include <QImage>
+#include <QLayout>
+#include <QMainWindow>
+#include <QAction>
+#include <QPixmap>
+#include <QVBoxLayout>
 
 #include <cstring>
 #include <filesystem>
-#include <memory>
-#include <stdexcept>
-#include <string>
 #include <string_view>
-#include <vector>
 
-#include "Common.h"
-#include "FindReplaceDlg_rc.h"
-#include "ImageListSet.h"
+#include "NppDarkMode.h"
 #include "Notepad_plus_msgs.h"
 #include "NppConstants.h"
-#include "NppDarkMode.h"
-#include "NppXml.h"
+#include "NppResources.h"
 #include "Parameters.h"
-#include "Window.h"
 #include "menuCmdID.h"
 #include "resource.h"
-#include "shortcut.h"
-#include "AboutDlg.h"
-#include "localization.h"
 
-static constexpr DWORD WS_TOOLBARSTYLE = WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | TBSTYLE_TOOLTIPS | TBSTYLE_FLAT | TBSTYLE_TRANSPARENT | CCS_TOP | CCS_NOPARENTALIGN | CCS_NORESIZE | CCS_NODIVIDER;
-
-static constexpr int REBAR_BAR_EXTERNAL = 10;
-
-struct ToolbarIconIdUnit
+namespace
 {
-	constexpr ToolbarIconIdUnit(const std::wstring_view& id, bool hasDisabledIcon) noexcept
-		: _id(id), _hasDisabledIcon(hasDisabledIcon)
-	{}
-
-	std::wstring_view _id;
-	bool _hasDisabledIcon = false;
-};
-
-static constexpr ToolbarIconIdUnit toolbarIconIDs[]{
-	{ L"new", false },
-	{ L"open", false },
-	{ L"save", true },
-	{ L"save-all", true },
-	{ L"close", false },
-	{ L"close-all", false },
-	{ L"print", false },
-	{ L"cut", true },
-	{ L"copy", true },
-	{ L"paste", true },
-	{ L"undo", true },
-	{ L"redo", true },
-	{ L"find", false },
-	{ L"replace", false },
-	{ L"zoom-in", false },
-	{ L"zoom-out", false },
-	{ L"sync-vertical", false },
-	{ L"sync-horizontal", false },
-	{ L"word-wrap", false },
-	{ L"all-chars", false },
-	{ L"indent-guide", false },
-	{ L"udl-dlg", false },
-	{ L"doc-map", false },
-	{ L"doc-list", false },
-	{ L"function-list", false },
-	{ L"folder-as-workspace", false },
-	{ L"monitoring", true },
-	{ L"record", true },
-	{ L"stop-record", true },
-	{ L"playback", true },
-	{ L"playback-multiple", true },
-	{ L"save-macro", true }
-};
-
-static void destroyHBmpElementsInVector(std::vector<HBITMAP>& vectorHBmp)
-{
-	for (auto& hBmp : vectorHBmp)
+	struct ToolbarIconIdUnit
 	{
-		if (hBmp)
+		std::wstring_view _id;
+		bool _hasDisabledIcon = false;
+	};
+
+	// In the order of the buttons without the separators, as listed in toolbarButtonsConf_example.xml
+	constexpr ToolbarIconIdUnit toolbarIconIDs[]{
+		{ L"new", false },
+		{ L"open", false },
+		{ L"save", true },
+		{ L"save-all", true },
+		{ L"close", false },
+		{ L"close-all", false },
+		{ L"print", false },
+		{ L"cut", true },
+		{ L"copy", true },
+		{ L"paste", true },
+		{ L"undo", true },
+		{ L"redo", true },
+		{ L"find", false },
+		{ L"replace", false },
+		{ L"zoom-in", false },
+		{ L"zoom-out", false },
+		{ L"sync-vertical", false },
+		{ L"sync-horizontal", false },
+		{ L"word-wrap", false },
+		{ L"all-chars", false },
+		{ L"indent-guide", false },
+		{ L"udl-dlg", false },
+		{ L"doc-map", false },
+		{ L"doc-list", false },
+		{ L"function-list", false },
+		{ L"folder-as-workspace", false },
+		{ L"monitoring", true },
+		{ L"record", true },
+		{ L"stop-record", true },
+		{ L"playback", true },
+		{ L"playback-multiple", true },
+		{ L"save-macro", true }
+	};
+
+	// The path if the file is there. Whether it is a usable icon shows when it is loaded.
+	QString existingFile(const std::filesystem::path& path)
+	{
+		const std::wstring file = path.wstring();
+		return doesFileExist(file.c_str()) ? QString::fromStdWString(file) : QString();
+	}
+
+	QIcon iconFromResource(int id, int disabledId)
+	{
+		QIcon icon;
+		if (const char* path = nppImageResourcePath(id))
+			icon.addFile(QString::fromLatin1(path));
+		if (disabledId != id)
 		{
-			::DeleteObject(hBmp);
-			hBmp = nullptr;
+			if (const char* path = nppImageResourcePath(disabledId))
+				icon.addFile(QString::fromLatin1(path), QSize(), QIcon::Disabled);
+		}
+		return icon;
+	}
+
+	// The colour the settings put on the fluent icons, in place of a colour in the icon or of everything when that is 0
+	bool fluentColours(COLORREF& from, COLORREF& to)
+	{
+		const bool isDark = NppDarkMode::usesDarkWidgets();
+		const COLORREF main = isDark ? g_cDefaultMainDark : g_cDefaultMainLight;
+		const COLORREF secondary = isDark ? g_cDefaultSecondaryDark : g_cDefaultSecondaryLight;
+		const TbIconInfo& info = NppParameters::getInstance().getNppGUI()._tbIconInfo;
+
+		from = info._tbUseMono ? 0 : secondary;
+		switch (info._tbColor)
+		{
+			case FluentColor::accent:
+				to = NppDarkMode::getAccentColor();
+				return true;
+			case FluentColor::red:
+				to = RGB(0xE8, 0x11, 0x23);
+				return true;
+			case FluentColor::green:
+				to = RGB(0x00, 0x8B, 0x00);
+				return true;
+			case FluentColor::blue:
+				to = RGB(0x00, 0x78, 0xD4);
+				return true;
+			case FluentColor::purple:
+				to = RGB(0xB1, 0x46, 0xC2);
+				return true;
+			case FluentColor::cyan:
+				to = RGB(0x00, 0xB7, 0xC3);
+				return true;
+			case FluentColor::olive:
+				to = RGB(0x49, 0x82, 0x05);
+				return true;
+			case FluentColor::yellow:
+				to = RGB(0xFF, 0xB9, 0x00);
+				return true;
+			case FluentColor::custom:
+				if (info._tbCustomColor != 0)
+				{
+					to = info._tbCustomColor;
+					return true;
+				}
+				[[fallthrough]];
+			case FluentColor::defaultColor:
+				if (info._tbUseMono)
+				{
+					to = main;
+					return true;
+				}
+				[[fallthrough]];
+			default:
+				return false;
 		}
 	}
+
+	QPixmap recoloured(const QPixmap& pixmap, COLORREF from, COLORREF to)
+	{
+		constexpr int tolerance = 3;
+		QImage image = pixmap.toImage().convertToFormat(QImage::Format_ARGB32);
+		const QRgb target = qRgb(GetRValue(to), GetGValue(to), GetBValue(to));
+		for (int y = 0; y < image.height(); ++y)
+		{
+			auto* line = reinterpret_cast<QRgb*>(image.scanLine(y));
+			for (int x = 0; x < image.width(); ++x)
+			{
+				if (qAlpha(line[x]) == 0)
+					continue;
+
+				const bool isChanged = (from == 0)
+					|| (std::abs(qRed(line[x]) - static_cast<int>(GetRValue(from))) <= tolerance
+						&& std::abs(qGreen(line[x]) - static_cast<int>(GetGValue(from))) <= tolerance
+						&& std::abs(qBlue(line[x]) - static_cast<int>(GetBValue(from))) <= tolerance);
+				if (isChanged)
+					line[x] = (target & 0x00FFFFFF) | (static_cast<QRgb>(qAlpha(line[x])) << 24);
+			}
+		}
+		return QPixmap::fromImage(image);
+	}
+
+	// A fluent icon in the colour of the settings. The disabled one stays as it is.
+	QIcon fluentIcon(int id, int disabledId)
+	{
+		COLORREF from = 0;
+		COLORREF to = 0;
+		const QIcon original = iconFromResource(id, disabledId);
+		if (!fluentColours(from, to))
+			return original;
+
+		QIcon icon;
+		const QList<QSize> sizes = original.availableSizes();
+		for (const QSize& size : sizes)
+		{
+			icon.addPixmap(recoloured(original.pixmap(size), from, to));
+			icon.addPixmap(original.pixmap(size, QIcon::Disabled), QIcon::Disabled);
+		}
+		return icon;
+	}
+}
+
+void ToolBar::setButtonMenus(int cmdID, QMenu* dropDown, QMenu* contextMenu)
+{
+	auto* button = qobject_cast<QToolButton*>(static_cast<QToolBar*>(_hSelf)->widgetForAction(findAction(cmdID)));
+	if (!button)
+		return;
+
+	button->setMenu(dropDown);
+	button->setPopupMode(QToolButton::MenuButtonPopup);
+	button->setContextMenuPolicy(Qt::CustomContextMenu);
+	QObject::connect(button, &QWidget::customContextMenuRequested, button, [button, contextMenu](const QPoint& position)
+	{
+		contextMenu->exec(button->mapToGlobal(position));
+	});
+}
+
+void ToolBar::initTheme(NppXml::Document toolIconsDocRoot)
+{
+	NppXml::Element toolIcons = NppXml::firstChildElement(toolIconsDocRoot, "NotepadPlus");
+	if (toolIcons)
+		toolIcons = NppXml::firstChildElement(toolIcons, "ToolBarIcons");
+	if (!toolIcons)
+		return;
+
+	namespace fs = std::filesystem;
+	fs::path iconFolderDir = NppParameters::getInstance().getUserPath();
+	iconFolderDir /= L"toolbarIcons";
+
+	const char* folderName = NppXml::attribute(toolIcons, "icoFolderName");
+	iconFolderDir /= (folderName && folderName[0] ? string2wstring(folderName, CP_UTF8) : L"default"); // as toolbarButtonsConf_example.xml says
+
+	_customIcons.clear();
+	bool hasCustomIcon = false;
+	for (const ToolbarIconIdUnit& icoUnit : toolbarIconIDs)
+	{
+		CustomIconFiles files;
+		fs::path locator = iconFolderDir;
+		locator /= icoUnit._id;
+		locator += L".ico";
+		files._normal = existingFile(locator);
+
+		if (icoUnit._hasDisabledIcon)
+		{
+			fs::path locatorDisabled = iconFolderDir;
+			locatorDisabled /= icoUnit._id;
+			locatorDisabled += L"_disabled.ico";
+			files._disabled = existingFile(locatorDisabled);
+		}
+
+		hasCustomIcon = hasCustomIcon || !files._normal.isEmpty() || !files._disabled.isEmpty();
+		_customIcons.push_back(files);
+	}
+
+	if (!hasCustomIcon)
+		_customIcons.clear();
+}
+
+// A file of the set takes the place of the same state of the built-in icon. As on Windows these keep their own
+// colours, and a file that cannot be read leaves the built-in one.
+QIcon ToolBar::withCustomIcons(const QIcon& builtIn, size_t iconIndex) const
+{
+	if (iconIndex >= _customIcons.size())
+		return builtIn;
+
+	const QIcon normal(_customIcons[iconIndex]._normal);
+	const QIcon disabled(_customIcons[iconIndex]._disabled);
+	const QList<QSize> normalSizes = normal.availableSizes();
+	const QList<QSize> disabledSizes = disabled.availableSizes();
+	if (normalSizes.isEmpty() && disabledSizes.isEmpty())
+		return builtIn;
+
+	const QList<QSize> builtInSizes = builtIn.availableSizes();
+	QIcon icon;
+	for (const QSize& size : normalSizes.isEmpty() ? builtInSizes : normalSizes)
+		icon.addPixmap((normalSizes.isEmpty() ? builtIn : normal).pixmap(size));
+	for (const QSize& size : disabledSizes.isEmpty() ? builtInSizes : disabledSizes)
+		icon.addPixmap((disabledSizes.isEmpty() ? builtIn.pixmap(size, QIcon::Disabled) : disabled.pixmap(size)), QIcon::Disabled);
+	return icon;
 }
 
 void ToolBar::initHideButtonsConf(NppXml::Document toolButtonsDocRoot, const ToolBarButtonUnit* buttonUnitArray, int arraySize)
 {
 	NppXml::Element toolButtons = NppXml::firstChildElement(toolButtonsDocRoot, "NotepadPlus");
 	if (toolButtons)
-	{
 		toolButtons = NppXml::firstChildElement(toolButtons, "ToolbarButtons");
-		if (toolButtons)
+	if (!toolButtons)
+		return;
+
+	// Standard toolbar button
+	if (NppXml::Element standard = NppXml::firstChildElement(toolButtons, "Standard"))
+	{
+		const char* isHideAll = NppXml::attribute(standard, "hideAll");
+		const bool hideAll = isHideAll && (std::strcmp(isHideAll, "yes") == 0);
+		_stdButtonsVisible.assign(static_cast<size_t>(arraySize), !hideAll);
+
+		if (!hideAll)
 		{
-			// Standard toolbar button
-			NppXml::Element standardToolButtons = NppXml::firstChildElement(toolButtons, "Standard");
-			if (standardToolButtons)
+			for (NppXml::Element button = NppXml::firstChildElement(standard, "Button"); button; button = NppXml::nextSiblingElement(button, "Button"))
 			{
-				_toolbarStdButtonsConfArray = std::make_unique<bool[]>(arraySize);
-
-				const char* isHideAll = NppXml::attribute(standardToolButtons, "hideAll");
-				if (isHideAll && (std::strcmp(isHideAll, "yes") == 0))
-				{
-					for (int i = 0; i < arraySize; ++i)
-						_toolbarStdButtonsConfArray[i] = false;
-				}
-				else
-				{
-					for (int i = 0; i < arraySize; ++i)
-						_toolbarStdButtonsConfArray[i] = true;
-
-					for (NppXml::Element childNode = NppXml::firstChildElement(standardToolButtons, "Button");
-						childNode;
-						childNode = NppXml::nextSiblingElement(childNode, "Button"))
-					{
-						int cmdID = NppXml::intAttribute(childNode, "id", -1);
-
-						int index = NppXml::intAttribute(childNode, "index", -1);
-
-						const char* isHide = NppXml::attribute(childNode, "hide");
-
-						if (cmdID > -1 && index > -1 && isHide && (std::strcmp(isHide, "yes") == 0))
-						{
-							if (index < arraySize && buttonUnitArray[index]._cmdID == cmdID)
-								_toolbarStdButtonsConfArray[index] = false;
-						}
-					}
-				}
+				const int cmdID = NppXml::intAttribute(button, "id", -1);
+				const int index = NppXml::intAttribute(button, "index", -1);
+				const char* isHide = NppXml::attribute(button, "hide");
+				if (cmdID > -1 && index > -1 && index < arraySize && isHide && (std::strcmp(isHide, "yes") == 0) && buttonUnitArray[index]._cmdID == cmdID)
+					_stdButtonsVisible[index] = false;
 			}
+		}
+	}
 
-			// Plugin toolbar button
-			NppXml::Element pluginToolButtons = NppXml::firstChildElement(toolButtons, "Plugin");
-			if (pluginToolButtons)
+	// Plugin toolbar button
+	if (NppXml::Element plugin = NppXml::firstChildElement(toolButtons, "Plugin"))
+	{
+		const char* isHideAll = NppXml::attribute(plugin, "hideAll");
+		_toolbarPluginButtonsConf._isHideAll = isHideAll && (std::strcmp(isHideAll, "yes") == 0);
+
+		for (NppXml::Element button = NppXml::firstChildElement(plugin, "Button"); button; button = NppXml::nextSiblingElement(button, "Button"))
+		{
+			const int index = NppXml::intAttribute(button, "index", -1);
+			const char* isHide = NppXml::attribute(button, "hide");
+			if (index > -1)
 			{
-				const char* isHideAll = NppXml::attribute(pluginToolButtons, "hideAll");
-				if (isHideAll && (std::strcmp(isHideAll, "yes") == 0))
-				{
-					_toolbarPluginButtonsConf._isHideAll = true;
-					return;
-				}
-
-				for (NppXml::Element childNode = NppXml::firstChildElement(pluginToolButtons, "Button");
-					childNode;
-					childNode = NppXml::nextSiblingElement(childNode, "Button"))
-				{
-					bool doShow = true;
-					const char* isHide = NppXml::attribute(childNode, "hide");
-
-					doShow = !isHide || (std::strcmp(isHide, "yes") != 0);
-					_toolbarPluginButtonsConf._showPluginButtonsArray.push_back(doShow);
-				}
+				if (static_cast<size_t>(index) >= _toolbarPluginButtonsConf._showPluginButtonsArray.size())
+					_toolbarPluginButtonsConf._showPluginButtonsArray.resize(static_cast<size_t>(index) + 1, true);
+				_toolbarPluginButtonsConf._showPluginButtonsArray[index] = !(isHide && std::strcmp(isHide, "yes") == 0);
 			}
 		}
 	}
 }
 
-void ToolBar::initTheme(NppXml::Document toolIconsDocRoot)
+QAction* ToolBar::addCommand(int cmdID)
 {
-	_toolIcons = NppXml::firstChildElement(toolIconsDocRoot, "NotepadPlus");
-	if (_toolIcons)
+	auto* toolbar = static_cast<QToolBar*>(_hSelf);
+	QAction* action = toolbar->addAction(QString());
+	const HWND target = _hParent;
+	QObject::connect(action, &QAction::triggered, action, [target, cmdID]()
 	{
-		_toolIcons = NppXml::firstChildElement(_toolIcons, "ToolBarIcons");
-		if (_toolIcons)
-		{
-			namespace fs = ::std::filesystem;
-			NppParameters& nppParams = NppParameters::getInstance();
-			fs::path iconFolderDir = nppParams.getUserPath();
-			iconFolderDir /= L"toolbarIcons";
-
-			const char* folderName = NppXml::attribute(_toolIcons, "icoFolderName");
-			iconFolderDir /= (folderName ? string2wstring(folderName, CP_UTF8) : L"default");
-
-			if (isUncPath(iconFolderDir))
-			{
-				const std::string iconFolderDirUTF8 = wstring2string(iconFolderDir, CP_UTF8);
-				if (!nppParams.isServerAllowed(iconFolderDirUTF8.c_str())) // is in the serverWhiteList.xml ?
-				{
-					if (nppParams.networkPathAlwaysAction() == NppParameters::networkPathAlwaysAsk)
-					{
-						const NativeLangSpeaker* pNativeLangSpeaker = nppParams.getNativeLangSpeaker();
-
-						NetworkPathWarningBox networkPathWarningBox;
-						networkPathWarningBox.init(_hInst, _hParent, iconFolderDir, "title3");
-						networkPathWarningBox.doDialog(pNativeLangSpeaker ? pNativeLangSpeaker->isRTL() : false);
-						int buttonID = networkPathWarningBox.getClickedButtonId();
-						networkPathWarningBox.destroy();
-
-						if (buttonID == IDCANCEL || buttonID == IDNO) // Skip once or Always skip
-						{
-							return;
-						}
-					}
-					else if (nppParams.networkPathAlwaysAction() == NppParameters::networkPathAlwaysSkip)
-					{
-						return;
-					}
-					else if (nppParams.networkPathAlwaysAction() == NppParameters::networkPathAlwaysLoad)
-					{
-						// do nothing, continue to load the file
-					}
-				}
-			}
-
-			size_t i = 0;
-			fs::path disabled_suffix = L"_disabled";
-			fs::path ext = L".ico";
-			for (const ToolbarIconIdUnit& icoUnit : toolbarIconIDs)
-			{
-				fs::path locator = iconFolderDir;
-				locator /= icoUnit._id;
-				locator.replace_extension(ext);
-				if (doesFileExist(locator.c_str()))
-				{
-					_customIconVect.push_back(iconLocator(HLIST_DEFAULT, i, locator));
-					_customIconVect.push_back(iconLocator(HLIST_DEFAULT2, i, locator));
-					_customIconVect.push_back(iconLocator(HLIST_DEFAULT_DM, i, locator));
-					_customIconVect.push_back(iconLocator(HLIST_DEFAULT_DM2, i, locator));
-				}
-
-				if (icoUnit._hasDisabledIcon)
-				{
-					fs::path locator_dis = iconFolderDir;
-					locator_dis /= icoUnit._id;
-					locator_dis += disabled_suffix;
-					locator_dis.replace_extension(ext);
-					if (doesFileExist(locator_dis.c_str()))
-					{
-						_customIconVect.push_back(iconLocator(HLIST_DISABLE, i, locator_dis));
-						_customIconVect.push_back(iconLocator(HLIST_DISABLE2, i, locator_dis));
-						_customIconVect.push_back(iconLocator(HLIST_DISABLE_DM, i, locator_dis));
-						_customIconVect.push_back(iconLocator(HLIST_DISABLE_DM2, i, locator_dis));
-					}
-				}
-				++i;
-			}
-		}
-	}
+		::SendMessage(target, WM_COMMAND, MAKEWPARAM(static_cast<WORD>(cmdID), 0), 0);
+	});
+	action->setCheckable(false);
+	_actions[cmdID] = action;
+	return action;
 }
 
 bool ToolBar::init(HINSTANCE hInst, HWND hPere, toolBarStatusType type, const ToolBarButtonUnit* buttonUnitArray, int arraySize)
 {
 	Window::init(hInst, hPere);
-	
-	_state = type;
 
-	_dpiManager.setDpi(hPere);
+	auto* toolbar = new QToolBar(hPere);
+	toolbar->setObjectName(QStringLiteral("mainToolBar"));
+	toolbar->setFloatable(false);
+	_hSelf = toolbar;
 
-	int iconSize = _dpiManager.scale(_state == TB_LARGE || _state == TB_LARGE2 ? 32 : 16);
-
-	_toolBarIcons.init(buttonUnitArray, arraySize, _vDynBtnReg);
-	_toolBarIcons.create(_hInst, iconSize);
-	
-	INITCOMMONCONTROLSEX icex{};
-	icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-	icex.dwICC  = ICC_WIN95_CLASSES|ICC_COOL_CLASSES|ICC_BAR_CLASSES|ICC_USEREX_CLASSES;
-	InitCommonControlsEx(&icex);
-
-	//Create the list of buttons
+	_buttonUnits = buttonUnitArray;
 	_nbButtons = arraySize;
-	_vStdBtnBmp = std::vector<HBITMAP>(_nbButtons, nullptr);
-	_nbDynButtons = _vDynBtnReg.size();
-	_vDynBtnBmp = std::vector<HBITMAP>(_nbDynButtons, nullptr);
-	_nbTotalButtons = _nbButtons + (_nbDynButtons ? _nbDynButtons + 1 : 0);
-	_pTBB = std::make_unique<TBBUTTON[]>(_nbTotalButtons); //add one for the extra separator
 
-	int cmd = 0;
-	int bmpIndex = -1;
-	BYTE style = 0;
-	size_t i = 0;
-
-	for (; i < _nbButtons && i < _nbTotalButtons; ++i)
+	for (int i = 0; i < arraySize; ++i)
 	{
-		cmd = buttonUnitArray[i]._cmdID;
-		switch (cmd)
-		{
-			case 0:
-			{
-				style = BTNS_SEP;
-			}
-			break;
-
-			case IDM_VIEW_ALL_CHARACTERS:
-			{
-				++bmpIndex;
-				style = BTNS_DROPDOWN;
-			}
-			break;
-
-			default:
-			{
-				++bmpIndex;
-				style = BTNS_BUTTON;
-			}
-		}
-
-		_pTBB[i].iBitmap = (cmd != 0 ? bmpIndex : 0);
-		_pTBB[i].idCommand = cmd;
-		_pTBB[i].fsState = TBSTATE_ENABLED | (_toolbarStdButtonsConfArray ? (_toolbarStdButtonsConfArray[i] ? 0 : TBSTATE_HIDDEN) : 0);
-		_pTBB[i].fsStyle = style;
-		_pTBB[i].dwData = 0; 
-		_pTBB[i].iString = 0;
+		if (!_stdButtonsVisible.empty() && !_stdButtonsVisible[i])
+			continue;
+		const int cmdID = buttonUnitArray[i]._cmdID;
+		if (cmdID == 0)
+			toolbar->addSeparator();
+		else
+			addCommand(cmdID);
 	}
 
-	bool doHideAllPluginButtons = _toolbarPluginButtonsConf._isHideAll;
-	size_t nbPluginButtonsConf = _toolbarPluginButtonsConf._showPluginButtonsArray.size();
-
-	if (_nbDynButtons > 0 && i < _nbTotalButtons)
+	if (!_dynamicButtons.empty() && !_toolbarPluginButtonsConf._isHideAll)
 	{
-		unsigned char addedStateFlag = doHideAllPluginButtons ? TBSTATE_HIDDEN : (nbPluginButtonsConf > 0 ? (_toolbarPluginButtonsConf._showPluginButtonsArray[0] ? 0 : TBSTATE_HIDDEN) : 0);
-
-		//add separator
-		_pTBB[i].iBitmap = 0;
-		_pTBB[i].idCommand = 0;
-		_pTBB[i].fsState = TBSTATE_ENABLED | addedStateFlag;
-		_pTBB[i].fsStyle = BTNS_SEP;
-		_pTBB[i].dwData = 0; 
-		_pTBB[i].iString = 0;
-		++i;
-
-		//add plugin buttons
-		for (size_t j = 0; j < _nbDynButtons && i < _nbTotalButtons; ++j, ++i)
+		toolbar->addSeparator();
+		for (size_t i = 0; i < _dynamicButtons.size(); ++i)
 		{
-			cmd = _vDynBtnReg[j]._message;
-			++bmpIndex;
-
-			addedStateFlag = doHideAllPluginButtons ? TBSTATE_HIDDEN : (nbPluginButtonsConf > j + 1 ? (_toolbarPluginButtonsConf._showPluginButtonsArray[j + 1] ? 0 : TBSTATE_HIDDEN) : 0);
-
-			_pTBB[i].iBitmap = bmpIndex;
-			_pTBB[i].idCommand = cmd;
-			_pTBB[i].fsState = TBSTATE_ENABLED | addedStateFlag;
-			_pTBB[i].fsStyle = BTNS_BUTTON; 
-			_pTBB[i].dwData = 0; 
-			_pTBB[i].iString = 0;
+			const auto& conf = _toolbarPluginButtonsConf._showPluginButtonsArray;
+			if (i >= conf.size() || conf[i])
+				addCommand(static_cast<int>(_dynamicButtons[i]._message));
 		}
 	}
 
-	reset(true);	//load icons etc
-
+	setState(type);
 	return true;
 }
 
 void ToolBar::destroy()
 {
-	if (_pRebar)
-	{
-		_pRebar->removeBand(_rbBand.wID);
-		_pRebar = nullptr;
-	}
-	_pTBB.reset(nullptr);
-	_toolbarStdButtonsConfArray.reset(nullptr);
-	::DestroyWindow(_hSelf);
+	delete _hSelf;
 	_hSelf = nullptr;
-	_toolBarIcons.destroy();
-	destroyHBmpElementsInVector(_vStdBtnBmp);
-	if (_nbDynButtons > 0)
-	{
-		destroyHBmpElementsInVector(_vDynBtnBmp);
-	}
+	_actions.clear();
 }
 
-int ToolBar::getWidth() const
+QAction* ToolBar::findAction(int cmdID) const
 {
-	RECT btnRect{};
-	int totalWidth = 0;
-	for (size_t i = 0; i < _nbCurrentButtons; ++i)
-	{
-		::SendMessage(_hSelf, TB_GETITEMRECT, i, reinterpret_cast<LPARAM>(&btnRect));
-		totalWidth += btnRect.right - btnRect.left;
-	}
-	return totalWidth;
+	const auto it = _actions.find(cmdID);
+	return it == _actions.end() ? nullptr : it->second;
 }
 
-int ToolBar::getHeight() const
+void ToolBar::enable(int cmdID, bool doEnable) const
 {
-	DWORD size = static_cast<DWORD>(SendMessage(_hSelf, TB_GETBUTTONSIZE, 0, 0));
-	DWORD padding = static_cast<DWORD>(SendMessage(_hSelf, TB_GETPADDING, 0, 0));
-	int totalHeight = HIWORD(size) + HIWORD(padding) - 3;
-	return totalHeight;
+	if (QAction* action = findAction(cmdID))
+		action->setEnabled(doEnable);
 }
 
-void ToolBar::reduce() 
+bool ToolBar::getCheckState(int ID2Check) const
 {
-	int iconDpiDynamicalSize = _dpiManager.scale(16);
-	_toolBarIcons.resizeIcon(iconDpiDynamicalSize);
-	setState(TB_SMALL);
-	reset(true);	//recreate toolbar if previous state was Std icons or Big icons
-	Window::redraw();
+	const QAction* action = findAction(ID2Check);
+	return action && action->isChecked();
 }
 
-void ToolBar::enlarge()
+void ToolBar::setCheck(int ID2Check, bool willBeChecked) const
 {
-	int iconDpiDynamicalSize = _dpiManager.scale(32);
-	_toolBarIcons.resizeIcon(iconDpiDynamicalSize);
-	setState(TB_LARGE);
-	reset(true);	//recreate toolbar if previous state was Std icons or Small icons
-	Window::redraw();
-}
-
-void ToolBar::reduceToSet2()
-{
-	int iconDpiDynamicalSize = _dpiManager.scale(16);
-	_toolBarIcons.resizeIcon(iconDpiDynamicalSize);
-
-	setState(TB_SMALL2);
-	reset(true);
-	Window::redraw();
-}
-
-void ToolBar::enlargeToSet2()
-{
-	int iconDpiDynamicalSize = _dpiManager.scale(32);
-	_toolBarIcons.resizeIcon(iconDpiDynamicalSize);
-	setState(TB_LARGE2);
-	reset(true);	//recreate toolbar if previous state was Std icons or Small icons
-	Window::redraw();
-}
-
-void ToolBar::setToBmpIcons()
-{
-	bool recreate = true;
-	setState(TB_STANDARD);
-	reset(recreate);	//must recreate toolbar if setting to internal bitmaps
-	Window::redraw();
-}
-
-void ToolBar::reset(bool create)
-{
-	if (create && _hSelf)
+	if (QAction* action = findAction(ID2Check))
 	{
-		//Store current button state information
-		TBBUTTON tempBtn{};
-		for (size_t i = 0; i < _nbCurrentButtons; ++i)
-		{
-			::SendMessage(_hSelf, TB_GETBUTTON, i, reinterpret_cast<LPARAM>(&tempBtn));
-			_pTBB[i].fsState = tempBtn.fsState;
-		}
-		::DestroyWindow(_hSelf);
-		_hSelf = NULL;
-	}
-
-	if (!_hSelf)
-	{
-		DWORD dwExtraStyle = 0;
-		if (NppDarkMode::isEnabled())
-		{
-			dwExtraStyle = TBSTYLE_CUSTOMERASE;
-		}
-
-		_hSelf = ::CreateWindowEx(
-			WS_EX_PALETTEWINDOW,
-			TOOLBARCLASSNAME,
-			L"",
-			WS_TOOLBARSTYLE | dwExtraStyle,
-			0, 0,
-			0, 0,
-			_hParent,
-			NULL,
-			_hInst,
-			0);
-
-		NppDarkMode::setDarkTooltips(_hSelf, NppDarkMode::ToolTipsType::toolbar);
-
-		// Send the TB_BUTTONSTRUCTSIZE message, which is required for 
-		// backward compatibility.
-		::SendMessage(_hSelf, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
-		::SendMessage(_hSelf, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_DRAWDDARROWS | TBSTYLE_EX_HIDECLIPPEDBUTTONS | TBSTYLE_EX_DOUBLEBUFFER);
-		
-		change2CustomIconsIfAny();
-	}
-
-	if (!_hSelf)
-	{
-		throw std::runtime_error("ToolBar::reset : CreateWindowEx() function return null");
-	}
-
-	bool doOverrideToolbarIcons = _customIconVect.size() > 0;
-	if (doOverrideToolbarIcons)
-	{
-		if (_state == TB_STANDARD)
-			_state = TB_SMALL;
-	}
-
-	if (_state != TB_STANDARD) //If non standard icons, use custom imagelists
-	{
-		if (_state == TB_SMALL || _state == TB_LARGE)
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				setDefaultImageListDM();
-				setDisableImageListDM();
-			}
-			else
-			{
-				setDefaultImageList();
-				setDisableImageList();
-			}
-		}
-		else
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				setDefaultImageListDM2();
-				setDisableImageListDM2();
-			}
-			else
-			{
-				setDefaultImageList2();
-				setDisableImageList2();
-			}
-		}
-	}
-	else
-	{
-		//Else set the internal imagelist with standard bitmaps
-		int iconDpiDynamicalSize = _dpiManager.scale(16);
-		::SendMessage(_hSelf, TB_SETBITMAPSIZE, 0, MAKELPARAM(iconDpiDynamicalSize, iconDpiDynamicalSize));
-
-		TBADDBITMAP addbmp = { 0, 0 };
-		TBADDBITMAP addbmpdyn = { 0, 0 };
-		for (size_t i = 0; i < _nbButtons; ++i)
-		{
-			const int icoID = _toolBarIcons.getStdIconAt(static_cast<int>(i));
-			auto& hBmp = _vStdBtnBmp.at(i);
-			if (hBmp != nullptr)
-			{
-				::DeleteObject(hBmp);
-				hBmp = nullptr;
-			}
-			hBmp = static_cast<HBITMAP>(::LoadImage(_hInst, MAKEINTRESOURCE(icoID), IMAGE_BITMAP, iconDpiDynamicalSize, iconDpiDynamicalSize, LR_LOADMAP3DCOLORS | LR_LOADTRANSPARENT));
-
-			addbmp.nID = reinterpret_cast<UINT_PTR>(hBmp);
-			::SendMessage(_hSelf, TB_ADDBITMAP, 1, reinterpret_cast<LPARAM>(&addbmp));
-		}
-
-		if (_nbDynButtons > 0)
-		{
-			destroyHBmpElementsInVector(_vDynBtnBmp);
-			
-			for (size_t j = 0; j < _nbDynButtons; ++j)
-			{
-				auto& hBmp = _vDynBtnBmp.at(j);
-				hBmp = ToolBarIcons::resizeHBitmap(_vDynBtnReg.at(j)._hBmp, iconDpiDynamicalSize, iconDpiDynamicalSize);
-
-				addbmpdyn.nID = reinterpret_cast<UINT_PTR>(hBmp ? hBmp : _vDynBtnReg.at(j)._hBmp);
-				::SendMessage(_hSelf, TB_ADDBITMAP, 1, reinterpret_cast<LPARAM>(&addbmpdyn));
-			}
-		}
-	}
-
-	if (create)
-	{	//if the toolbar has been recreated, readd the buttons
-		_nbCurrentButtons = _nbTotalButtons;
-		WORD btnSize = static_cast<WORD>(_dpiManager.scale((_state == TB_LARGE || _state == TB_LARGE2) ? 32 : 16));
-		::SendMessage(_hSelf, TB_SETBUTTONSIZE , 0, MAKELONG(btnSize, btnSize));
-		::SendMessage(_hSelf, TB_ADDBUTTONS, _nbTotalButtons, reinterpret_cast<LPARAM>(_pTBB.get()));
-	}
-	::SendMessage(_hSelf, TB_AUTOSIZE, 0, 0);
-
-	if (_pRebar)
-	{
-		_rbBand.hwndChild	= getHSelf();
-		_rbBand.cxMinChild	= 0;
-		_rbBand.cyIntegral	= 1;
-		_rbBand.cyMinChild	= _rbBand.cyMaxChild = getHeight();
-		_rbBand.cxIdeal		= getWidth();
-
-		_pRebar->reNew(REBAR_BAR_TOOLBAR, &_rbBand);
+		action->setCheckable(true);
+		action->setChecked(willBeChecked);
 	}
 }
 
 void ToolBar::setState(toolBarStatusType state)
 {
-	_state = state;
-	HWND hRoot = ::GetAncestor(_hSelf, GA_ROOTOWNER);
-	::SendMessage(hRoot, NPPM_INTERNAL_TOOLBARICONSCHANGED, 0, 0);
+	// The standard set has no place for custom icons
+	_state = (state == TB_STANDARD && !_customIcons.empty()) ? TB_SMALL : state;
+	state = _state;
+	static_cast<QToolBar*>(_hSelf)->setIconSize((state == TB_LARGE || state == TB_LARGE2) ? QSize(32, 32) : QSize(16, 16));
+	refreshIcons();
+	::SendMessage(_hParent, NPPM_INTERNAL_TOOLBARICONSCHANGED, 0, 0); // for the panels, whose icons follow the set
+}
+
+void ToolBar::refreshIcons()
+{
+	const bool isDark = NppDarkMode::usesDarkWidgets();
+	size_t iconIndex = 0;
+	for (int i = 0; i < _nbButtons; ++i)
+	{
+		const ToolBarButtonUnit& unit = _buttonUnits[i];
+		if (unit._cmdID == 0)
+			continue;
+
+		// A hidden button still counts for the icon files
+		const size_t thisIcon = iconIndex++;
+		QAction* action = findAction(unit._cmdID);
+		if (!action)
+			continue;
+
+		switch (_state)
+		{
+			case TB_STANDARD:
+				action->setIcon(iconFromResource(unit._stdIcon, unit._stdIcon));
+				break;
+			case TB_SMALL2:
+			case TB_LARGE2:
+				action->setIcon(withCustomIcons(isDark ? fluentIcon(unit._defaultDarkModeIcon2, unit._grayDarkModeIcon2) : fluentIcon(unit._defaultIcon2, unit._grayIcon2), thisIcon));
+				break;
+			default:
+				action->setIcon(withCustomIcons(isDark ? fluentIcon(unit._defaultDarkModeIcon, unit._grayDarkModeIcon) : fluentIcon(unit._defaultIcon, unit._grayIcon), thisIcon));
+				break;
+		}
+	}
+
+	for (const DynamicButton& button : _dynamicButtons)
+	{
+		if (QAction* action = findAction(static_cast<int>(button._message)))
+			action->setIcon(isDark && !button._iconDarkMode.isNull() ? button._iconDarkMode : button._icon);
+	}
 }
 
 void ToolBar::registerDynBtn(UINT message, toolbarIcons* iconHandles, HICON absentIco)
 {
-	// Note: Register of buttons only possible before init!
-	if ((_hSelf == nullptr) && (message != 0) && (iconHandles->hToolbarBmp != nullptr))
-	{
-		DynamicCmdIcoBmp dynList{};
-		dynList._message = message;
-		dynList._hBmp = iconHandles->hToolbarBmp;
+	// Before the toolbar exists, as on Windows
+	if (_hSelf)
+		return;
 
-		if (iconHandles->hToolbarIcon)
-		{
-			dynList._hIcon = iconHandles->hToolbarIcon;
-		}
-		else
-		{
-			BITMAP bmp{};
-			int nbByteBmp = ::GetObject(dynList._hBmp, sizeof(BITMAP), &bmp);
-			if (!nbByteBmp)
-			{
-				dynList._hIcon = absentIco;
-			}
-			else
-			{
-				HDC hdcScreen = ::GetDC(nullptr);
-				HBITMAP hbmMask = ::CreateCompatibleBitmap(hdcScreen, bmp.bmWidth, bmp.bmHeight);
-				::ReleaseDC(nullptr, hdcScreen);
-
-				ICONINFO iconinfoDest = {};
-				iconinfoDest.fIcon = TRUE;
-				iconinfoDest.hbmColor = iconHandles->hToolbarBmp;
-				iconinfoDest.hbmMask = hbmMask;
-
-				dynList._hIcon = ::CreateIconIndirect(&iconinfoDest);
-				::DeleteObject(hbmMask);
-			}
-		}
-
-		dynList._hIcon_DM = dynList._hIcon;
-
-		_vDynBtnReg.push_back(dynList);
-	}
+	DynamicButton button;
+	button._message = message;
+	if (iconHandles->hToolbarIcon)
+		button._icon = *iconHandles->hToolbarIcon;
+	else if (iconHandles->hToolbarBmp)
+		button._icon = QIcon(*iconHandles->hToolbarBmp);
+	else if (absentIco)
+		button._icon = *absentIco;
+	_dynamicButtons.push_back(button);
 }
 
 void ToolBar::registerDynBtnDM(UINT message, toolbarIconsWithDarkMode* iconHandles)
 {
-	// Note: Register of buttons only possible before init!
-	if ((_hSelf == nullptr) && (message != 0) && (iconHandles->hToolbarBmp != nullptr) &&
-		(iconHandles->hToolbarIcon != nullptr) && (iconHandles->hToolbarIconDarkMode != nullptr))
-	{
-		DynamicCmdIcoBmp dynList{};
-		dynList._message = message;
-		dynList._hBmp = iconHandles->hToolbarBmp;
-		dynList._hIcon = iconHandles->hToolbarIcon;
-		dynList._hIcon_DM = iconHandles->hToolbarIconDarkMode;
-		_vDynBtnReg.push_back(dynList);
-	}
-}
-
-void ToolBar::doPopup(POINT chevPoint)
-{
-	//first find hidden buttons
-	int width = Window::getWidth();
-
-	size_t start = 0;
-	RECT btnRect = {0,0,0,0};
-	while (start < _nbCurrentButtons)
-	{
-		::SendMessage(_hSelf, TB_GETITEMRECT, start, reinterpret_cast<LPARAM>(&btnRect));
-		if (btnRect.right > width)
-			break;
-		++start;
-	}
-
-	if (start < _nbCurrentButtons)
-	{	//some buttons are hidden
-		HMENU menu = ::CreatePopupMenu();
-		std::wstring text;
-		while (start < _nbCurrentButtons)
-		{
-			int cmd = _pTBB[start].idCommand;
-			getNameStrFromCmd(cmd, text);
-			if (_pTBB[start].idCommand != 0)
-			{
-				if (::SendMessage(_hSelf, TB_ISBUTTONENABLED, cmd, 0) != 0)
-					AppendMenu(menu, MF_ENABLED, cmd, text.c_str());
-				else
-					AppendMenu(menu, MF_DISABLED|MF_GRAYED, cmd, text.c_str());
-			} else
-				AppendMenu(menu, MF_SEPARATOR, 0, L"");
-			
-			++start;
-		}
-		TrackPopupMenu(menu, 0, chevPoint.x, chevPoint.y, 0, _hSelf, NULL);
-	}
-}
-
-void ToolBar::resizeIconsDpi(UINT dpi)
-{
-	_dpiManager.setDpi(dpi);
-	const int iconDpiDynamicalSize = _dpiManager.scale((_state == TB_LARGE || _state == TB_LARGE2) ? 32 : 16);
-	_toolBarIcons.resizeIcon(iconDpiDynamicalSize);
-	reset(true);
-}
-
-void ToolBar::addToRebar(ReBar* rebar)
-{
-	if (_pRebar)
+	if (_hSelf)
 		return;
-	_pRebar = rebar;
-	ZeroMemory(&_rbBand, REBARBAND_SIZE);
-	_rbBand.cbSize  = REBARBAND_SIZE;
 
-
-	_rbBand.fMask   = RBBIM_STYLE | RBBIM_CHILD | RBBIM_CHILDSIZE |
-					  RBBIM_SIZE | RBBIM_IDEALSIZE | RBBIM_ID;
-
-	_rbBand.fStyle		= RBBS_VARIABLEHEIGHT | RBBS_USECHEVRON | RBBS_NOGRIPPER;
-	_rbBand.hwndChild	= getHSelf();
-	_rbBand.wID			= REBAR_BAR_TOOLBAR;	//ID REBAR_BAR_TOOLBAR for toolbar
-	_rbBand.cxMinChild	= 0;
-	_rbBand.cyIntegral	= 1;
-	_rbBand.cyMinChild	= _rbBand.cyMaxChild	= getHeight();
-	_rbBand.cxIdeal		= _rbBand.cx			= getWidth();
-
-	_pRebar->addBand(&_rbBand, true);
-
-	_rbBand.fMask   = RBBIM_CHILD | RBBIM_CHILDSIZE | RBBIM_IDEALSIZE | RBBIM_SIZE;
+	DynamicButton button;
+	button._message = message;
+	if (iconHandles->hToolbarIcon)
+		button._icon = *iconHandles->hToolbarIcon;
+	else if (iconHandles->hToolbarBmp)
+		button._icon = QIcon(*iconHandles->hToolbarBmp);
+	if (iconHandles->hToolbarIconDarkMode)
+		button._iconDarkMode = *iconHandles->hToolbarIconDarkMode;
+	_dynamicButtons.push_back(button);
 }
 
 void ReBar::init(HINSTANCE hInst, HWND hPere)
 {
 	Window::init(hInst, hPere);
-	_hSelf = CreateWindowEx(WS_EX_TOOLWINDOW,
-							REBARCLASSNAME,
-							NULL,
-							WS_CHILD|WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | RBS_VARHEIGHT | CCS_NODIVIDER | CCS_NOPARENTALIGN,
-							0,0,0,0, _hParent, NULL, _hInst, NULL);
+	auto* holder = new QToolBar(hPere);
+	holder->setMovable(false);
+	holder->setFloatable(false);
+	holder->toggleViewAction()->setVisible(false);
+	holder->setContextMenuPolicy(Qt::PreventContextMenu);
 
-	NppDarkMode::autoSubclassCtlColor(_hSelf);
+	// Not with a style sheet: a widget with one does not follow the application's palette when dark mode changes
+	holder->layout()->setContentsMargins(0, 0, 0, 0);
+	holder->layout()->setSpacing(0);
 
-	REBARINFO rbi{};
-	ZeroMemory(&rbi, sizeof(REBARINFO));
-	rbi.cbSize = sizeof(REBARINFO);
-	rbi.fMask  = 0;
-	rbi.himl   = nullptr;
-	::SendMessage(_hSelf, RB_SETBARINFO, 0, reinterpret_cast<LPARAM>(&rbi));
+	_bandArea = new QWidget(holder);
+	auto* layout = new QVBoxLayout(_bandArea);
+	layout->setContentsMargins(0, 0, 0, 0);
+	layout->setSpacing(0);
+	holder->addWidget(_bandArea);
+
+	_hSelf = holder;
+	_hSelf->hide();
 }
 
-bool ReBar::addBand(REBARBANDINFO * rBand, bool useID) 
+void ReBar::attachTo(QMainWindow* window, Qt::ToolBarArea area)
 {
-	if (rBand->fMask & RBBIM_STYLE)
+	window->addToolBar(area, static_cast<QToolBar*>(_hSelf));
+}
+
+void ReBar::destroy()
+{
+	delete _hSelf;
+	_hSelf = nullptr;
+	_bandArea = nullptr;
+	_bands.clear();
+}
+
+void ReBar::addBand(int id, QWidget* band)
+{
+	static_cast<QVBoxLayout*>(_bandArea->layout())->addWidget(band);
+	_bands[id] = band;
+	_hSelf->show();
+}
+
+void ReBar::setIDVisible(int id, bool show)
+{
+	const auto it = _bands.find(id);
+	if (it != _bands.end())
+		it->second->setVisible(show);
+
+	bool anyVisible = false;
+	for (const auto& band : _bands)
+		anyVisible = anyVisible || !band.second->isHidden();
+	_hSelf->setVisible(anyVisible);
+}
+
+bool ReBar::getIDVisible(int id) const
+{
+	const auto it = _bands.find(id);
+	return it != _bands.end() && !it->second->isHidden();
+}
+
+bool ReBar::hasBand(const QWidget* band) const
+{
+	for (const auto& entry : _bands)
 	{
-		if (!(rBand->fStyle & RBBS_NOGRIPPER))
-			rBand->fStyle |= RBBS_GRIPPERALWAYS;
-	}
-	else
-		rBand->fStyle = RBBS_GRIPPERALWAYS;
-
-	rBand->fMask |= RBBIM_ID | RBBIM_STYLE;
-	if (useID)
-	{
-		if (isIDTaken(rBand->wID))
-			return false;
-	}
-	else
-	{
-		rBand->wID = getNewID();
-	}
-	::SendMessage(_hSelf, RB_INSERTBAND, static_cast<WPARAM>(-1), reinterpret_cast<LPARAM>(rBand));	//add to end of list
-	return true;
-}
-
-void ReBar::reNew(int id, REBARBANDINFO* rBand)
-{
-	auto index = SendMessage(_hSelf, RB_IDTOINDEX, id, 0);
-	::SendMessage(_hSelf, RB_SETBANDINFO, index, reinterpret_cast<LPARAM>(rBand));
-}
-
-void ReBar::removeBand(int id)
-{
-	auto index = SendMessage(_hSelf, RB_IDTOINDEX, id, 0);
-	if (id >= REBAR_BAR_EXTERNAL)
-		releaseID(id);
-	::SendMessage(_hSelf, RB_DELETEBAND, index, 0);
-}
-
-void ReBar::setIDVisible(int id, bool show) 
-{
-	auto index = SendMessage(_hSelf, RB_IDTOINDEX, id, 0);
-	if (index == -1 )
-		return;	//error
-
-	REBARBANDINFO rbBand;
-	ZeroMemory(&rbBand, REBARBAND_SIZE);
-	rbBand.cbSize  = REBARBAND_SIZE;
-
-
-	rbBand.fMask = RBBIM_STYLE;
-	::SendMessage(_hSelf, RB_GETBANDINFO, index, reinterpret_cast<LPARAM>(&rbBand));
-	if (show)
-		rbBand.fStyle &= (RBBS_HIDDEN ^ -1);
-	else
-		rbBand.fStyle |= RBBS_HIDDEN;
-	::SendMessage(_hSelf, RB_SETBANDINFO, index, reinterpret_cast<LPARAM>(&rbBand));
-}
-
-bool ReBar::getIDVisible(int id)
-{
-	auto index = SendMessage(_hSelf, RB_IDTOINDEX, id, 0);
-	if (index == -1 )
-		return false;	//error
-	REBARBANDINFO rbBand;
-	ZeroMemory(&rbBand, REBARBAND_SIZE);
-	rbBand.cbSize  = REBARBAND_SIZE;
-
-	rbBand.fMask = RBBIM_STYLE;
-	::SendMessage(_hSelf, RB_GETBANDINFO, index, reinterpret_cast<LPARAM>(&rbBand));
-	return ((rbBand.fStyle & RBBS_HIDDEN) == 0);
-}
-
-
-void ReBar::setGrayBackground(int id) 
-{
-	auto index = SendMessage(_hSelf, RB_IDTOINDEX, id, 0);
-	if (index == -1 )
-		return;	//error
-	REBARBANDINFO rbBand;
-	ZeroMemory(&rbBand, REBARBAND_SIZE);
-	rbBand.cbSize  = REBARBAND_SIZE;
-	rbBand.fMask = RBBIM_BACKGROUND;
-	rbBand.hbmBack = ::LoadBitmapW(::GetModuleHandleW(nullptr), MAKEINTRESOURCE(IDB_INCREMENTAL_BG));
-	::SendMessage(_hSelf, RB_SETBANDINFO, index, reinterpret_cast<LPARAM>(&rbBand));
-}
-
-int ReBar::getNewID()
-{
-	int idToUse = REBAR_BAR_EXTERNAL;
-	size_t size = usedIDs.size();
-	for (size_t i = 0; i < size; ++i)
-	{
-		int curVal = usedIDs.at(i);
-		if (curVal < idToUse)
-		{
-			continue;
-		}
-		else if (curVal == idToUse)
-		{
-			++idToUse;
-		}
-		else
-		{
-			break;		//found gap
-		}
-	}
-
-	usedIDs.push_back(idToUse);
-	return idToUse;
-}
-
-void ReBar::releaseID(int id)
-{
-	size_t size = usedIDs.size();
-	for (size_t i = 0; i < size; ++i)
-	{
-		if (usedIDs.at(i) == id)
-		{
-			usedIDs.erase(usedIDs.begin()+i);
-			break;
-		}
-	}
-}
-
-bool ReBar::isIDTaken(int id)
-{
-	size_t size = usedIDs.size();
-	for (size_t i = 0; i < size; ++i)
-	{
-		if (usedIDs.at(i) == id)
-		{
+		if (entry.second == band)
 			return true;
-		}
 	}
 	return false;
 }

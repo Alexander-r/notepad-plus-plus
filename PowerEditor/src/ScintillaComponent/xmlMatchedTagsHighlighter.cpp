@@ -22,7 +22,6 @@
 
 #include "xmlMatchedTagsHighlighter.h"
 #include "ScintillaEditView.h"
-#include <shlwapi.h>
 
 using namespace std;
 

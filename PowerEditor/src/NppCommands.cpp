@@ -15,7 +15,25 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-#include <windows.h>
+#include <QAction>
+#include <QApplication>
+#include <QDateTime>
+#include <QLocale>
+#include <QMetaMethod>
+#include <QStringList>
+#include <QClipboard>
+#include <QDesktopServices>
+#include <QDir>
+#include <QFileInfo>
+#include <QMainWindow>
+#include <QMenu>
+#include <QMenuBar>
+#include <QMimeData>
+#include <QProcess>
+#include <QSignalBlocker>
+#include <QStandardPaths>
+#include <QThread>
+#include <QUrl>
 
 #include <algorithm>
 #include <cctype>
@@ -74,9 +92,18 @@
 #include "sha512.h"
 #include "shortcut.h"
 #include "trayIconControler.h"
-#include "verifySignedfile.h"
 
 using namespace std;
+
+namespace
+{
+	// Sends an edit command to a line edit or similar control that has the focus
+	void invokeEditCommand(QWidget* target, const char* method)
+	{
+		if (target && target->metaObject()->indexOfMethod(method) >= 0)
+			QMetaObject::invokeMethod(target, QByteArray(method).chopped(2).constData());
+	}
+}
 
 std::mutex command_mutex;
 
@@ -168,15 +195,10 @@ void Notepad_plus::command(int id)
 		case IDM_EDIT_INSERT_DATETIME_SHORT:
 		case IDM_EDIT_INSERT_DATETIME_LONG:
 		{
-			SYSTEMTIME currentTime = {};
-			::GetLocalTime(&currentTime);
-
-			wchar_t dateStr[128] = { '\0' };
-			wchar_t timeStr[128] = { '\0' };
-
-			int dateFlag = (id == IDM_EDIT_INSERT_DATETIME_SHORT) ? DATE_SHORTDATE : DATE_LONGDATE;
-			GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, dateFlag, &currentTime, NULL, dateStr, sizeof(dateStr) / sizeof(dateStr[0]), NULL);
-			GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &currentTime, NULL, timeStr, sizeof(timeStr) / sizeof(timeStr[0]));
+			const QDateTime now = QDateTime::currentDateTime();
+			const QLocale locale;
+			const wstring dateStr = locale.toString(now.date(), id == IDM_EDIT_INSERT_DATETIME_SHORT ? QLocale::ShortFormat : QLocale::LongFormat).toStdWString();
+			const wstring timeStr = locale.toString(now.time(), QLocale::ShortFormat).toStdWString();
 
 			wstring dateTimeStr;
 			if (NppParameters::getInstance().getNppGUI()._dateTimeReverseDefaultOrder)
@@ -204,8 +226,16 @@ void Notepad_plus::command(int id)
 
 		case IDM_EDIT_INSERT_DATETIME_CUSTOMIZED:
 		{
+			const QDateTime now = QDateTime::currentDateTime();
 			SYSTEMTIME currentTime = {};
-			::GetLocalTime(&currentTime);
+			currentTime.wYear = static_cast<WORD>(now.date().year());
+			currentTime.wMonth = static_cast<WORD>(now.date().month());
+			currentTime.wDayOfWeek = static_cast<WORD>(now.date().dayOfWeek() % 7);
+			currentTime.wDay = static_cast<WORD>(now.date().day());
+			currentTime.wHour = static_cast<WORD>(now.time().hour());
+			currentTime.wMinute = static_cast<WORD>(now.time().minute());
+			currentTime.wSecond = static_cast<WORD>(now.time().second());
+			currentTime.wMilliseconds = static_cast<WORD>(now.time().msec());
 
 			NppGUI& nppGUI = NppParameters::getInstance().getNppGUI();
 			wstring dateTimeStr = getDateTimeStrFrom(nppGUI._dateTimeFormat, currentTime);
@@ -228,44 +258,24 @@ void Notepad_plus::command(int id)
 		case IDM_FILE_OPEN_FOLDER:
 		{
 			const wchar_t* fullPath = _pEditView->getCurrentBuffer()->getFullPathName();
-			HRESULT hr = openInExplorerAndSelect(fullPath);
-			if (hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND))
+			if (openInExplorerAndSelect(fullPath) != 0)
 			{
 				// fallback (but without selecting the current file)
-				::ShellExecuteW(_pPublicInterface->getHSelf(), L"explore",
-					std::filesystem::path(fullPath).parent_path().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+				openWithDesktop(std::filesystem::path(fullPath).parent_path().wstring());
 			}
 			break;
 		}
 
 		case IDM_FILE_OPEN_CMD:
 		{
-			Command cmd(L"%COMSPEC%");
+			Command cmd(findTerminal());
 			cmd.run(_pPublicInterface->getHSelf(), L"$(CURRENT_DIRECTORY)");
 		}
 		break;
 
 		case IDM_FILE_OPEN_POWERSHELL:
 		{
-			static wchar_t psPath[512] = {L'\0'};
-			if (psPath[0] == L'\0')
-			{
-				const wchar_t* subkey = L"SOFTWARE\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell";
-				const wchar_t* valueName = L"Path";
-				HKEY hKey = nullptr;
-
-				LONG status = ::RegOpenKeyExW(HKEY_LOCAL_MACHINE, subkey, 0, KEY_READ, &hKey);
-
-				if (status != ERROR_SUCCESS) return; // key not found
-
-				DWORD bufSize = sizeof(psPath);
-
-				status = ::RegGetValueW(hKey, nullptr, valueName, RRF_RT_REG_SZ, nullptr, psPath, &bufSize);
-				::RegCloseKey(hKey);
-
-				if (status != ERROR_SUCCESS) return; // value not found
-			}
-			Command powerShell(psPath);
+			Command powerShell(L"pwsh");
 			powerShell.run(_pPublicInterface->getHSelf(), L"$(CURRENT_DIRECTORY)");
 		}
 		break;
@@ -299,22 +309,13 @@ void Notepad_plus::command(int id)
 			// Opens file in its default viewer. 
             // Has the same effect as double–clicking this file in Windows Explorer.
             BufferID buf = _pEditView->getCurrentBufferID();
-			HINSTANCE res = ::ShellExecute(NULL, L"open", buf->getFullPathName(), NULL, NULL, SW_SHOW);
-
-			// As per MSDN (https://msdn.microsoft.com/en-us/library/windows/desktop/bb762153(v=vs.85).aspx)
-			// If the function succeeds, it returns a value greater than 32.
-			// If the function fails, it returns an error value that indicates the cause of the failure.
-			int retResult = static_cast<int>(reinterpret_cast<intptr_t>(res));
-			if (retResult <= 32)
+			if (!openWithDesktop(buf->getFullPathName()))
 			{
 				wstring errorMsg;
-				errorMsg += GetLastErrorAsString(retResult);
 				errorMsg += L"An attempt was made to execute the below command.";
 				errorMsg += L"\n----------------------------------------------------------";
 				errorMsg += L"\nCommand: ";
 				errorMsg += buf->getFullPathName();
-				errorMsg += L"\nError Code: ";
-				errorMsg += std::to_wstring(retResult);
 				errorMsg += L"\n----------------------------------------------------------";
 				
 				NppDarkMode::darkMessageBoxW(_pPublicInterface->getHSelf(), errorMsg.c_str(), L"ShellExecute - ERROR", MB_ICONINFORMATION | MB_APPLMODAL);
@@ -477,7 +478,7 @@ void Notepad_plus::command(int id)
 		case IDM_EDIT_UNDO:
 		{
 			std::lock_guard<std::mutex> lock(command_mutex);
-			_pEditView->execute(WM_UNDO);
+			_pEditView->execute(SCI_UNDO);
 			checkClipboard();
 			checkUndoState();
 			break;
@@ -494,12 +495,12 @@ void Notepad_plus::command(int id)
 		
 		case IDM_EDIT_CUT:
 		{
-			HWND focusedHwnd = ::GetFocus();
+			HWND focusedHwnd = QApplication::focusWidget();
 			if (focusedHwnd == _pEditView->getHSelf())
 			{
 				if (_pEditView->hasSelection()) // Cut normally
 				{
-					_pEditView->execute(WM_CUT);
+					_pEditView->execute(SCI_CUT);
 				}
 				else if (NppParameters::getInstance().getSVP()._lineCopyCutWithoutSelection) // Cut the entire line with EOL
 				{
@@ -509,19 +510,19 @@ void Notepad_plus::command(int id)
 			}
 			else
 			{
-				::SendMessage(focusedHwnd, WM_CUT, 0, 0);
+				invokeEditCommand(focusedHwnd, "cut()");
 			}
 			break;
 		}
 
 		case IDM_EDIT_COPY:
 		{
-			HWND focusedHwnd = ::GetFocus();
+			HWND focusedHwnd = QApplication::focusWidget();
 			if (focusedHwnd == _pEditView->getHSelf())
 			{
 				if (_pEditView->hasSelection())
 				{
-					_pEditView->execute(WM_COPY);
+					_pEditView->execute(SCI_COPY);
 				}
 				else if (NppParameters::getInstance().getSVP()._lineCopyCutWithoutSelection)
 				{
@@ -532,9 +533,9 @@ void Notepad_plus::command(int id)
 			{
 				Finder* finder = _findReplaceDlg.getFinderFrom(focusedHwnd);
 				if (finder)  // Search result
-					finder->scintillaExecute(WM_COPY);
+					finder->scintillaExecute(SCI_COPY);
 				else
-					::SendMessage(focusedHwnd, WM_COPY, 0, 0);
+					invokeEditCommand(focusedHwnd, "copy()");
 			}
 			break;
 		}
@@ -545,7 +546,7 @@ void Notepad_plus::command(int id)
 			if (_pEditView->getIndicatorRange(URL_INDIC, &startPos, &endPos, &curPos))
 			{
 				_pEditView->execute(SCI_SETSEL, startPos, endPos);
-				_pEditView->execute(WM_COPY);
+				_pEditView->execute(SCI_COPY);
 				checkClipboard();
 				_pEditView->execute(SCI_SETSEL, curPos, curPos);
 			}
@@ -565,70 +566,12 @@ void Notepad_plus::command(int id)
 
 			_pEditView->getSelectedTextToMultiChar(pBinText.get(), textLen + 1);
 
-			// Open the clipboard and empty it.
-			if (!::OpenClipboard(NULL))
-				return;
-			if (!::EmptyClipboard())
-			{
-				::CloseClipboard();
-				return;
-			}
-
-			// Allocate a global memory object for the text.
-			HGLOBAL hglbCopy = ::GlobalAlloc(GMEM_MOVEABLE, (textLen + 1) * sizeof(unsigned char));
-			if (!hglbCopy)
-			{
-				::CloseClipboard();
-				return;
-			}
-
-			// Lock the handle and copy the text to the buffer.
-			unsigned char *lpucharCopy = (unsigned char *)::GlobalLock(hglbCopy);
-			if (!lpucharCopy)
-			{
-				::GlobalFree(hglbCopy);
-				::CloseClipboard();
-				return;
-			}
-			memcpy(lpucharCopy, pBinText.get(), textLen * sizeof(unsigned char));
-			lpucharCopy[textLen] = 0;    // null character
-
-			::GlobalUnlock(hglbCopy);
-
-			pBinText.reset(nullptr); // free possible big membuf ASAP
-
-			// Place the handle on the clipboard.
-			if (!::SetClipboardData(CF_TEXT, hglbCopy))
-			{
-				::GlobalFree(hglbCopy);
-				::CloseClipboard();
-				return;
-			}
-
-			// Allocate a global memory object for the text length.
-			HGLOBAL hglbLenCopy = ::GlobalAlloc(GMEM_MOVEABLE, sizeof(unsigned long));
-			if (!hglbLenCopy)
-			{
-				::CloseClipboard();
-				return;
-			}
-
-			// Lock the handle and copy the text to the buffer.
-			unsigned long *lpLenCopy = (unsigned long *)::GlobalLock(hglbLenCopy);
-			if (!lpLenCopy)
-			{
-				::CloseClipboard();
-				return;
-			}
-			*lpLenCopy = static_cast<unsigned long>(textLen);
-
-			::GlobalUnlock(hglbLenCopy);
-
-			// Place the handle on the clipboard.
-			UINT cf_nppTextLen = ::RegisterClipboardFormat(CF_NPPTEXTLEN);
-			::SetClipboardData(cf_nppTextLen, hglbLenCopy);
-
-			::CloseClipboard();
+			// The exact bytes, in a format of our own, and for other applications the best text that can be made of them
+			auto* mimeData = new QMimeData;
+			const QByteArray binaryText(pBinText.get(), static_cast<qsizetype>(textLen));
+			mimeData->setData(QString::fromWCharArray(CF_NPPBINARY), binaryText);
+			mimeData->setText(QString::fromUtf8(binaryText));
+			QApplication::clipboard()->setMimeData(mimeData);
 
 			if (id == IDM_EDIT_CUT_BINARY)
 				_pEditView->execute(SCI_REPLACESEL, 0, reinterpret_cast<LPARAM>(""));
@@ -639,7 +582,7 @@ void Notepad_plus::command(int id)
 		case IDM_EDIT_PASTE:
 		{
 			std::lock_guard<std::mutex> lock(command_mutex);
-			HWND focusedHwnd = ::GetFocus();
+			HWND focusedHwnd = QApplication::focusWidget();
 			if (focusedHwnd == _pEditView->getHSelf())
 			{
 				size_t nbSelections = _pEditView->execute(SCI_GETSELECTIONS);
@@ -657,7 +600,7 @@ void Notepad_plus::command(int id)
 			}
 			else
 			{
-				::SendMessage(focusedHwnd, WM_PASTE, 0, 0);
+				invokeEditCommand(focusedHwnd, "paste()");
 			}
 		}
 		break;
@@ -665,46 +608,22 @@ void Notepad_plus::command(int id)
 		case IDM_EDIT_PASTE_BINARY:
 		{
 			std::lock_guard<std::mutex> lock(command_mutex);
-			if (!IsClipboardFormatAvailable(CF_TEXT))
+			const QMimeData* clipboardContent = QApplication::clipboard()->mimeData();
+			if (!clipboardContent)
 				return;
 
-			if (!OpenClipboard(NULL))
-				return;
-
-			HGLOBAL hglb = GetClipboardData(CF_TEXT);
-			if (hglb != NULL)
+			const QString binaryFormat = QString::fromWCharArray(CF_NPPBINARY);
+			if (clipboardContent->hasFormat(binaryFormat))
 			{
-				char *lpchar = (char *)GlobalLock(hglb);
-				if (lpchar != NULL)
-				{
-					UINT cf_nppTextLen = RegisterClipboardFormat(CF_NPPTEXTLEN);
-					if (IsClipboardFormatAvailable(cf_nppTextLen))
-					{
-						HGLOBAL hglbLen = GetClipboardData(cf_nppTextLen);
-						if (hglbLen != NULL)
-						{
-							unsigned long *lpLen = (unsigned long *)GlobalLock(hglbLen);
-							if (lpLen != NULL)
-							{
-								SIZE_T actualSize = GlobalSize(hglb);
-								unsigned long safeLen = (*lpLen <= actualSize) ? *lpLen : static_cast<unsigned long>(actualSize);
-
-								_pEditView->execute(SCI_REPLACESEL, 0, reinterpret_cast<LPARAM>(""));
-								_pEditView->execute(SCI_ADDTEXT, safeLen, reinterpret_cast<LPARAM>(lpchar));
-
-								GlobalUnlock(hglbLen);
-							}
-						}
-					}
-					else
-					{
-						_pEditView->execute(SCI_REPLACESEL, 0, reinterpret_cast<LPARAM>(lpchar));
-					}
-					GlobalUnlock(hglb);
-				}
+				const QByteArray binaryText = clipboardContent->data(binaryFormat);
+				_pEditView->execute(SCI_REPLACESEL, 0, reinterpret_cast<LPARAM>(""));
+				_pEditView->execute(SCI_ADDTEXT, binaryText.size(), reinterpret_cast<LPARAM>(binaryText.constData()));
 			}
-			CloseClipboard();
-
+			else if (clipboardContent->hasText())
+			{
+				const QByteArray text = clipboardContent->text().toUtf8();
+				_pEditView->execute(SCI_REPLACESEL, 0, reinterpret_cast<LPARAM>(text.constData()));
+			}
 		}
 		break;
 
@@ -713,7 +632,7 @@ void Notepad_plus::command(int id)
 			_pEditView->execute(SCI_BEGINUNDOACTION);
 
 			const int selCount = static_cast<int>(_pEditView->execute(SCI_GETSELECTIONS));
-			const bool useBullet = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+			const bool useBullet = (QApplication::queryKeyboardModifiers() & Qt::ShiftModifier) != 0;
 
 			const int codePage = static_cast<int>(_pEditView->execute(SCI_GETCODEPAGE));
 			const bool isUnicode = (codePage == SC_CP_UTF8);
@@ -772,20 +691,8 @@ void Notepad_plus::command(int id)
 
 			::SendMessage(hwnd, NPPM_GETFILENAMEATCURSOR, CURRENTWORD_MAXLENGTH, reinterpret_cast<LPARAM>(currentWord.get()));
 
-			std::wstring fullTargetPath;
-			DWORD dwRequiredSize = ::ExpandEnvironmentStringsW(currentWord.get(), nullptr, 0);
-			if (dwRequiredSize > 0)
-			{
-				// Try to expand environment strings, nevertheless currentWord is copied with or without expansion
-				auto targetPath = std::make_unique<wchar_t[]>(dwRequiredSize);
-				::ExpandEnvironmentStringsW(currentWord.get(), targetPath.get(), dwRequiredSize);
-				fullTargetPath = targetPath.get();
-			}
-			else
-			{
-				// Fallback: Copy currentWord
-				fullTargetPath = currentWord.get();
-			}
+			// Try to expand environment strings, nevertheless currentWord is copied with or without expansion
+			std::wstring fullTargetPath = expandEnvironmentStrs(currentWord.get());
 
 			if (!doesPathExist(fullTargetPath.c_str()))
 			{
@@ -795,7 +702,7 @@ void Notepad_plus::command(int id)
 				::SendMessage(hwnd, NPPM_GETCURRENTDIRECTORY, CURRENTWORD_MAXLENGTH, reinterpret_cast<LPARAM>(currentDir.get()));
 
 				fullTargetPath = currentDir.get();
-				fullTargetPath += L"\\";
+				fullTargetPath += nppPathSepStr;
 				fullTargetPath += currentWord.get();
 			}
 
@@ -814,11 +721,10 @@ void Notepad_plus::command(int id)
 				std::filesystem::path canonicalPath(fullTargetPath.c_str());
 				canonicalPath = canonicalPath.lexically_normal();
 
-				HRESULT hr = openInExplorerAndSelect(canonicalPath.c_str());
-				if (hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND))
+				if (openInExplorerAndSelect(canonicalPath.wstring().c_str()) != 0)
 				{
 					// Fallback: open parent folder
-					::ShellExecuteW(hwnd, L"explore", canonicalPath.parent_path().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+					openWithDesktop(canonicalPath.parent_path().wstring());
 				}
 			}
 			else // IDM_EDIT_OPENSELECTEDFILETOEDIT
@@ -833,11 +739,7 @@ void Notepad_plus::command(int id)
 					return;
 				}
 
-				wchar_t npp2Exec[CURRENTWORD_MAXLENGTH] = { '\0' };
-				::SendMessage(hwnd, NPPM_GETNPPFULLFILEPATH, CURRENTWORD_MAXLENGTH, reinterpret_cast<LPARAM>(npp2Exec));
-
-				fullTargetPath = L"\"" + fullTargetPath + L"\"";
-				::ShellExecute(hwnd, L"open", npp2Exec, fullTargetPath.c_str(), L".", SW_SHOW);
+				QProcess::startDetached(QCoreApplication::applicationFilePath(), { QString::fromStdWString(fullTargetPath) }, QStringLiteral("."));
 			}
 			break;
 		}
@@ -896,29 +798,14 @@ void Notepad_plus::command(int id)
 		case IDM_EDIT_PASTE_AS_HTML:
 		{
 			std::lock_guard<std::mutex> lock(command_mutex);
-			UINT f = RegisterClipboardFormat(id==IDM_EDIT_PASTE_AS_HTML?CF_HTML:CF_RTF);
-
-			if (!IsClipboardFormatAvailable(f))
+			const QMimeData* clipboardContent = QApplication::clipboard()->mimeData();
+			const QString format = (id == IDM_EDIT_PASTE_AS_HTML) ? QStringLiteral("text/html") : QStringLiteral("text/rtf");
+			if (!clipboardContent || !clipboardContent->hasFormat(format))
 				return;
 
-			if (!OpenClipboard(NULL))
-				return;
-
-			HGLOBAL hglb = GetClipboardData(f);
-			if (hglb != NULL)
-			{
-				LPSTR lptstr = (LPSTR)GlobalLock(hglb);
-				if (lptstr != NULL)
-				{
-					// Call the application-defined ReplaceSelection
-					// function to insert the text and repaint the
-					// window.
-					_pEditView->execute(SCI_REPLACESEL, 0, reinterpret_cast<LPARAM>(lptstr));
-
-					GlobalUnlock(hglb);
-				}
-			}
-			CloseClipboard();
+			// Insert the text and repaint the window
+			const QByteArray text = clipboardContent->data(format);
+			_pEditView->execute(SCI_REPLACESEL, 0, reinterpret_cast<LPARAM>(text.constData()));
 		}
 		break;
 
@@ -927,9 +814,9 @@ void Notepad_plus::command(int id)
 		{
 			_pEditView->beginOrEndSelect(id == IDM_EDIT_BEGINENDSELECT_COLUMNMODE);
 			bool isStarted = _pEditView->beginEndSelectedIsStarted();
-			::CheckMenuItem(_mainMenuHandle, id, MF_BYCOMMAND | (isStarted ? MF_CHECKED : MF_UNCHECKED));
+			nppCheckMenuCommand(_mainMenuHandle, id, isStarted);
 			int otherId = (id == IDM_EDIT_BEGINENDSELECT) ? IDM_EDIT_BEGINENDSELECT_COLUMNMODE : IDM_EDIT_BEGINENDSELECT;
-			::EnableMenuItem(_mainMenuHandle, otherId, MF_BYCOMMAND | (isStarted ? (MF_DISABLED | MF_GRAYED) : MF_ENABLED));
+			nppEnableMenuCommand(_mainMenuHandle, otherId, !isStarted);
 		}
 		break;
 
@@ -1181,8 +1068,8 @@ void Notepad_plus::command(int id)
 				{
 					if ((*pp[idx])->checkIfNeedSave())
 					{
-						if (::IsChild((*pp[idx])->getHSelf(), ::GetFocus()))
-							::SetFocus(_pEditView->getHSelf());
+						if ((*pp[idx])->getHSelf()->isAncestorOf(QApplication::focusWidget()))
+							_pEditView->getHSelf()->setFocus();
 						(*pp[idx])->display(false);
 						(*pp[idx])->setClosed(true);
 						checkMenuItem(id, false);
@@ -1410,27 +1297,10 @@ void Notepad_plus::command(int id)
 				--newTabIndex;
 			}
 
-			TCITEM tciMove{}, tciShift{};
-			tciMove.mask = tciShift.mask = TCIF_IMAGE | TCIF_TEXT | TCIF_PARAM;
-
-			const int strSizeMax = 256;
-			wchar_t strMove[strSizeMax] = { '\0' };
-			wchar_t strShift[strSizeMax] = { '\0' };
-
-			tciMove.pszText = strMove;
-			tciMove.cchTextMax = strSizeMax;
-
-			tciShift.pszText = strShift;
-			tciShift.cchTextMax = strSizeMax;
-
-			::SendMessage(_pDocTab->getHSelf(), TCM_GETITEM, currentTabIndex, reinterpret_cast<LPARAM>(&tciMove));
-
-			::SendMessage(_pDocTab->getHSelf(), TCM_GETITEM, newTabIndex, reinterpret_cast<LPARAM>(&tciShift));
-			::SendMessage(_pDocTab->getHSelf(), TCM_SETITEM, currentTabIndex, reinterpret_cast<LPARAM>(&tciShift));
-
-			::SendMessage(_pDocTab->getHSelf(), TCM_SETITEM, newTabIndex, reinterpret_cast<LPARAM>(&tciMove));
-
-			::SendMessage(_pDocTab->getHSelf(), TCM_SETCURSEL, newTabIndex, 0);
+			{
+				const QSignalBlocker silent(_pDocTab->tabs());
+				_pDocTab->tabs()->moveTab(currentTabIndex, newTabIndex);
+			}
 
 			// Notify plugins that the document order has changed
 			::SendMessage(_pDocTab->getHParent(), NPPM_INTERNAL_DOCORDERCHANGED, 0, newTabIndex);
@@ -1438,7 +1308,7 @@ void Notepad_plus::command(int id)
 		break;
 
 		case IDM_EDIT_DELETE:
-			_pEditView->execute(WM_CLEAR);
+			_pEditView->execute(SCI_CLEAR);
 			break;
 
 		case IDM_MACRO_STARTRECORDINGMACRO:
@@ -1682,7 +1552,7 @@ void Notepad_plus::command(int id)
 
 		case IDM_FOCUS_ON_FOUND_RESULTS:
 		{
-			if (GetFocus() == _findReplaceDlg.getHFindResults())
+			if (QApplication::focusWidget() == _findReplaceDlg.getHFindResults())
 				// focus already on found results, switch to current edit view
 				switchEditViewTo(currentView());
 			else
@@ -1998,7 +1868,7 @@ void Notepad_plus::command(int id)
 			    _pEditView->doUserDefineDlg(true, _nativeLangSpeaker.isRTL());
 				_nativeLangSpeaker.changeUserDefineLang(udd);
 				if (_isUDDocked)
-					::SendMessage(udd->getHSelf(), WM_COMMAND, IDC_DOCK_BUTTON, 0);
+					udd->toggleDock();
 
 		    }
 			else
@@ -2008,7 +1878,7 @@ void Notepad_plus::command(int id)
 
 				if ((isUDDlgDocked)&&(isUDDlgVisible))
 				{
-					::ShowWindow(_pMainSplitter->getHSelf(), SW_HIDE);
+					_pMainSplitter->getHSelf()->hide();
 
 					if (bothActive())
 						_pMainWindow = &_subSplitter;
@@ -2022,7 +1892,7 @@ void Notepad_plus::command(int id)
 				}
 				else if ((isUDDlgDocked)&&(!isUDDlgVisible))
 				{
-					auto* pWindow = bothActive() ? &_subSplitter : dynamic_cast<Window*>(_pDocTab);
+					Window* pWindow = &_subSplitter; // it holds both panes, shown or not
 
 					if (!_pMainSplitter)
 					{
@@ -2036,6 +1906,8 @@ void Notepad_plus::command(int id)
 					_pMainWindow = _pMainSplitter;
 
 					_pMainSplitter->setWin0(pWindow);
+					_pMainSplitter->setWin1(udd);
+					udd->display();
 
 					::SendMessage(_pPublicInterface->getHSelf(), WM_SIZE, 0, 0);
 					_pMainWindow->display();
@@ -2411,9 +2283,10 @@ void Notepad_plus::command(int id)
 
 	    case IDM_VIEW_ALWAYSONTOP:
 		{
-			int check = (::GetMenuState(_mainMenuHandle, id, MF_BYCOMMAND) == MF_CHECKED)?MF_UNCHECKED:MF_CHECKED;
-			::CheckMenuItem(_mainMenuHandle, id, MF_BYCOMMAND | check);
-			SetWindowPos(_pPublicInterface->getHSelf(), check == MF_CHECKED?HWND_TOPMOST:HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE|SWP_NOSIZE);
+			const bool check = !nppIsMenuCommandChecked(_mainMenuHandle, id);
+			nppCheckMenuCommand(_mainMenuHandle, id, check);
+
+			setMainWindowFlag(Qt::WindowStaysOnTopHint, check);
 		}
 		break;
 
@@ -2504,55 +2377,29 @@ void Notepad_plus::command(int id)
 			auto currentBuf = _pEditView->getCurrentBuffer();
 			if (!currentBuf->isUntitled())
 			{
-				wstring appPathsEntryName;
+				// The programs a browser can be installed as, preferred first
+				QStringList browsers;
 
 				if (id == IDM_VIEW_IN_FIREFOX)
-				{
-					appPathsEntryName = L"firefox.exe";
-				}
+					browsers = { QStringLiteral("firefox"), QStringLiteral("firefox-esr"), QStringLiteral("firefox-developer-edition") };
 				else if (id == IDM_VIEW_IN_CHROME)
-				{
-					appPathsEntryName = L"chrome.exe";
-				}
+					browsers = { QStringLiteral("google-chrome"), QStringLiteral("google-chrome-stable"), QStringLiteral("chromium"), QStringLiteral("chromium-browser") };
 				else if (id == IDM_VIEW_IN_EDGE)
+					browsers = { QStringLiteral("microsoft-edge"), QStringLiteral("microsoft-edge-stable") };
+
+				QString browserPath;
+				for (const QString& browser : browsers)
 				{
-					appPathsEntryName = L"msedge.exe";
+					browserPath = QStandardPaths::findExecutable(browser);
+					if (!browserPath.isEmpty())
+						break;
 				}
-				else // if (id == IDM_VIEW_IN_IE)
+
+				if (!browserPath.isEmpty())
 				{
-					appPathsEntryName = L"IEXPLORE.EXE";
+					QProcess::startDetached(browserPath, { QString::fromStdWString(currentBuf->getFullPathName()) });
 				}
-
-				wchar_t valData[MAX_PATH] = {'\0'};
-				DWORD valDataLen = MAX_PATH * sizeof(wchar_t);
-				DWORD valType = 0;
-				HKEY hKey2Check = nullptr;
-				wstring appEntry = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\";
-				appEntry += appPathsEntryName;
-				::RegOpenKeyEx(HKEY_LOCAL_MACHINE, appEntry.c_str(), 0, KEY_READ, &hKey2Check);
-				::RegQueryValueEx(hKey2Check, L"", nullptr, &valType, reinterpret_cast<LPBYTE>(valData), &valDataLen);
-
-
-				wstring fullCurrentPath = L"\"";
-				fullCurrentPath += currentBuf->getFullPathName();
-				fullCurrentPath += L"\"";
-
-				if (hKey2Check && valData[0] != '\0')
-				{
-					::ShellExecute(NULL, L"open", valData, fullCurrentPath.c_str(), NULL, SW_SHOWNORMAL);
-				}
-				else if (id == IDM_VIEW_IN_EDGE)
-				{
-					// Try the Legacy version
-
-					// Don't put the quotes for Edge, otherwise it doesn't work
-					//fullCurrentPath = L"\"";
-					fullCurrentPath = currentBuf->getFullPathName();
-					//fullCurrentPath += L"\"";
-
-					::ShellExecute(NULL, L"open", L"shell:Appsfolder\\Microsoft.MicrosoftEdge_8wekyb3d8bbwe!MicrosoftEdge", fullCurrentPath.c_str(), NULL, SW_SHOW);
-				} 
-				else 
+				else
 				{
 					_nativeLangSpeaker.messageBox("ViewInBrowser",
 						_pPublicInterface->getHSelf(),
@@ -2560,14 +2407,13 @@ void Notepad_plus::command(int id)
 						L"View Current File in Browser",
 						MB_OK);
 				}
-				::RegCloseKey(hKey2Check);
 			}
 		}
 		break;
 
 		case IDM_VIEW_TAB_SPACE:
 		{
-			const bool isChecked = !(::GetMenuState(_mainMenuHandle, id, MF_BYCOMMAND) == MF_CHECKED);
+			const bool isChecked = !nppIsMenuCommandChecked(_mainMenuHandle, id);
 			checkMenuItem(id, isChecked);
 
 			_mainEditView.showWSAndTab(isChecked);
@@ -2586,7 +2432,7 @@ void Notepad_plus::command(int id)
 
 		case IDM_VIEW_EOL:
 		{
-			const bool isChecked = !(::GetMenuState(_mainMenuHandle, id, MF_BYCOMMAND) == MF_CHECKED);
+			const bool isChecked = !nppIsMenuCommandChecked(_mainMenuHandle, id);
 			checkMenuItem(id, isChecked);
 
 			_mainEditView.showEOL(isChecked);
@@ -2605,7 +2451,7 @@ void Notepad_plus::command(int id)
 
 		case IDM_VIEW_NPC:
 		{
-			const bool isChecked = !(::GetMenuState(_mainMenuHandle, id, MF_BYCOMMAND) == MF_CHECKED);
+			const bool isChecked = !nppIsMenuCommandChecked(_mainMenuHandle, id);
 			checkMenuItem(id, isChecked);
 
 			auto& svp1 = const_cast<ScintillaViewParams&>(NppParameters::getInstance().getSVP());
@@ -2627,7 +2473,7 @@ void Notepad_plus::command(int id)
 
 		case IDM_VIEW_NPC_CCUNIEOL:
 		{
-			const bool isChecked = !(::GetMenuState(_mainMenuHandle, id, MF_BYCOMMAND) == MF_CHECKED);
+			const bool isChecked = !nppIsMenuCommandChecked(_mainMenuHandle, id);
 			checkMenuItem(id, isChecked);
 
 			auto& svp1 = const_cast<ScintillaViewParams&>(NppParameters::getInstance().getSVP());
@@ -2665,7 +2511,7 @@ void Notepad_plus::command(int id)
 
 		case IDM_VIEW_ALL_CHARACTERS:
 		{
-			const bool isChecked = !(::GetMenuState(_mainMenuHandle, id, MF_BYCOMMAND) == MF_CHECKED);
+			const bool isChecked = !nppIsMenuCommandChecked(_mainMenuHandle, id);
 			checkMenuItem(id, isChecked);
 			checkMenuItem(IDM_VIEW_TAB_SPACE, isChecked);
 			checkMenuItem(IDM_VIEW_EOL, isChecked);
@@ -3325,36 +3171,10 @@ void Notepad_plus::command(int id)
 			if (idEncoding != -1)
 			{
 				// try to save the current clipboard text content 1st
-				HGLOBAL hglbClipboardCopy = NULL;
-				if (::OpenClipboard(_pPublicInterface->getHSelf()))
-				{
-					HANDLE hClipboardData = ::GetClipboardData(CF_UNICODETEXT); // system itself ensures possible CF_TEXT or CF_OEMTEXT conversion
-					if (hClipboardData) // NULL if there is no previous text data in
-					{
-						LPVOID pClipboardData = ::GlobalLock(hClipboardData);
-						if (pClipboardData)
-						{
-							size_t clipboardDataSize = ::GlobalSize(hClipboardData);
-							hglbClipboardCopy = ::GlobalAlloc(GMEM_MOVEABLE, clipboardDataSize);
-							if (hglbClipboardCopy)
-							{
-								LPVOID pClipboardCopy = ::GlobalLock(hglbClipboardCopy);
-								if (pClipboardCopy)
-								{
-									::memcpy(pClipboardCopy, pClipboardData, clipboardDataSize);
-									::GlobalUnlock(hglbClipboardCopy);
-								}
-								else
-								{
-									::GlobalFree(hglbClipboardCopy);
-									hglbClipboardCopy = NULL;
-								}
-							}
-							::GlobalUnlock(hClipboardData);
-						}
-					}
-					::CloseClipboard();
-				}
+				QClipboard* clipboard = QApplication::clipboard();
+				const QMimeData* previousContent = clipboard->mimeData();
+				const bool hadClipboardText = previousContent && previousContent->hasText();
+				const QString previousClipboardText = hadClipboardText ? previousContent->text() : QString{};
 
 				_pEditView->saveCurrentPos();
 
@@ -3379,45 +3199,11 @@ void Notepad_plus::command(int id)
 				_pEditView->restoreCurrentPosPreStep();
 
 				// Restore the previous Clipboard data if any
-				if (hglbClipboardCopy)
-				{
-					bool bAllOk = false;
-					if (::OpenClipboard(_pPublicInterface->getHSelf()))
-					{
-						LPVOID pClipboardCopy = ::GlobalLock(hglbClipboardCopy);
-						if (pClipboardCopy)
-						{
-							if (::EmptyClipboard())
-							{
-								if (::SetClipboardData(CF_UNICODETEXT, pClipboardCopy))
-								{
-									// system takes ownership of our new HGLOBAL heap memory
-									bAllOk = true;
-								}
-							}
-							::GlobalUnlock(hglbClipboardCopy);
-						}
-						::CloseClipboard();
-					}
-					if (!bAllOk)
-					{
-						// when we failed to pass the data back to the Clipboard,
-						// we have to free our copy here otherwise there will be memory leak
-						::GlobalFree(hglbClipboardCopy);
-						hglbClipboardCopy = NULL;
-					}
-				}
-				else
-				{
-					// no previous Clipboard data, clear the ones used by the Scintilla's conversion
-					if (::OpenClipboard(_pPublicInterface->getHSelf()))
-					{
-						::EmptyClipboard();
-						::CloseClipboard();
-					}
-				}
+				if (hadClipboardText)
+					clipboard->setText(previousClipboardText);
+				else // no previous Clipboard data, clear the ones used by the Scintilla's conversion
+					clipboard->clear();
 
-				//Do not free anything, EmptyClipboard does that
 				_pEditView->execute(SCI_EMPTYUNDOBUFFER);
 
 				// The "save" point is on dirty state, so let's memorize it
@@ -3473,24 +3259,12 @@ void Notepad_plus::command(int id)
             break;
         }
 
-		case IDM_SETTING_PLUGINADM:
-		{
-			bool isFirstTime = !_pluginsAdminDlg.isCreated();
-			_pluginsAdminDlg.doDialog(_nativeLangSpeaker.isRTL());
-			if (isFirstTime)
-			{
-				_nativeLangSpeaker.changePluginsAdminDlgLang(_pluginsAdminDlg);
-				_pluginsAdminDlg.updateList();
-			}
-			break;
-		}
-
 		case IDM_SETTING_OPENPLUGINSDIR:
 		{
 			const wchar_t* pluginHomePath = NppParameters::getInstance().getPluginRootDir();
 			if (pluginHomePath && pluginHomePath[0])
 			{
-				::ShellExecute(NULL, NULL, pluginHomePath, NULL, NULL, SW_SHOWNORMAL);
+				openWithDesktop(pluginHomePath);
 			}
 			break;
 		}
@@ -3563,7 +3337,7 @@ void Notepad_plus::command(int id)
 		case IDM_VIEW_SWITCHTO_OTHER_VIEW:
 		{
 			int view_to_focus;
-			HWND wnd = GetFocus();
+			HWND wnd = QApplication::focusWidget();
 			if (_pEditView->getHSelf() == wnd)
 			{
 				view_to_focus = otherView();
@@ -3722,7 +3496,7 @@ void Notepad_plus::command(int id)
 							return;
 					}
 					for (int i = 0; i < hashLen; i++)
-						wsprintf(hashStr + i * 2, L"%02x", hash[i]);
+						swprintf(hashStr + i * 2, 3, L"%02x", hash[i]);
 
 					str2Clipboard(hashStr, _pPublicInterface->getHSelf());
 
@@ -3786,18 +3560,18 @@ void Notepad_plus::command(int id)
 
 		case IDM_HOMESWEETHOME :
 		{
-			::ShellExecute(NULL, L"open", L"https://notepad-plus-plus.org/", NULL, NULL, SW_SHOWNORMAL);
+			openWithDesktop(L"https://notepad-plus-plus.org/");
 			break;
 		}
 		case IDM_PROJECTPAGE :
 		{
-			::ShellExecute(NULL, L"open", L"https://github.com/notepad-plus-plus/notepad-plus-plus/", NULL, NULL, SW_SHOWNORMAL);
+			openWithDesktop(L"https://github.com/notepad-plus-plus/notepad-plus-plus/");
 			break;
 		}
 
 		case IDM_ONLINEDOCUMENT:
 		{
-			::ShellExecute(NULL, L"open", L"https://npp-user-manual.org/", NULL, NULL, SW_SHOWNORMAL);
+			openWithDesktop(L"https://npp-user-manual.org/");
 			break;
 		}
 
@@ -3809,65 +3583,7 @@ void Notepad_plus::command(int id)
 
 		case IDM_FORUM:
 		{
-			::ShellExecute(NULL, L"open", L"https://community.notepad-plus-plus.org/", NULL, NULL, SW_SHOWNORMAL);
-			break;
-		}
-
-		case IDM_UPDATE_NPP :
-		case IDM_CONFUPDATERPROXY :
-		{
-			// wingup doesn't work with the obsolete security layer (API) under xp since downloads are secured with SSL on notepad_plus_plus.org
-			const NppParameters& nppParams = NppParameters::getInstance();
-			winVer ver = nppParams.getWinVersion();
-			if (ver <= WV_XP)
-			{
-				long res = _nativeLangSpeaker.messageBox("XpUpdaterProblem",
-					_pPublicInterface->getHSelf(),
-					L"Notepad++ updater is not compatible with XP due to the obsolete security layer under XP.\rDo you want to go to Notepad++ page to download the latest version?",
-					L"Notepad++ Updater",
-					MB_YESNO);
-
-				if (res == IDYES)
-				{
-					::ShellExecute(NULL, L"open", L"https://notepad-plus-plus.org/downloads/", NULL, NULL, SW_SHOWNORMAL);
-				}
-			}
-			else
-			{
-				wstring updaterDir = nppParams.getNppPath();
-				pathAppend(updaterDir, L"updater");
-
-				wstring updaterFullPath = updaterDir;
-				pathAppend(updaterFullPath, L"gup.exe");
-
-
-#if !defined(NDEBUG)  // if not debug, then it's release
-				bool isCertifVerified = true;
-#else //RELEASE
-				// check the signature on updater
-				SecurityGuard securityGuard;
-				bool isCertifVerified = securityGuard.checkModule(updaterFullPath, nm_gup);
-#endif
-				if (isCertifVerified)
-				{
-					wstring param;
-					bool isElevationRequired = false;
-
-					if (id == IDM_CONFUPDATERPROXY)
-					{
-						param = L"-options";
-						isElevationRequired = needsElevation4Access(updaterDir, true); // proxy settings storage is ".\updater\gupOptions.xml"
-					}
-					else
-					{
-						nppParams.buildGupParams(param);
-						param += L" -verbose";
-					}
-
-					Process updater(updaterFullPath.c_str(), param.c_str(), updaterDir.c_str());
-					updater.run(isElevationRequired);
-				}
-			}
+			openWithDesktop(L"https://community.notepad-plus-plus.org/");
 			break;
 		}
 
@@ -4024,13 +3740,13 @@ void Notepad_plus::command(int id)
 		case IDM_LANG_OPENUDLDIR:
 		{
 			wstring userDefineLangFolderPath = NppParameters::getInstance().getUserDefineLangFolderPath();
-			::ShellExecute(_pPublicInterface->getHSelf(), L"open", userDefineLangFolderPath.c_str(), NULL, NULL, SW_SHOW);
+			openWithDesktop(userDefineLangFolderPath.c_str());
 			break;
 		}
 
 		case IDM_LANG_UDLCOLLECTION_PROJECT_SITE:
 		{
-			::ShellExecute(NULL, L"open", L"https://github.com/notepad-plus-plus/userDefinedLanguages", NULL, NULL, SW_SHOWNORMAL);
+			openWithDesktop(L"https://github.com/notepad-plus-plus/userDefinedLanguages");
 			break;
 		}
 
@@ -4055,9 +3771,7 @@ void Notepad_plus::command(int id)
 					{
 						TaskListDlg tld;
 						const int tabIconSet = NppDarkMode::getTabIconSet(NppDarkMode::isEnabled());
-						HIMAGELIST hImgLst = _mainDocTab.getImgLst(tabIconSet);
-
-						tld.init(_pPublicInterface->getHinst(), _pPublicInterface->getHSelf(), hImgLst, direction);
+						tld.init(_pPublicInterface->getHinst(), _pPublicInterface->getHSelf(), _mainDocTab.iconList(tabIconSet), direction);
 						tld.doDialog(_nativeLangSpeaker.isRTL());
 					}
 				}
@@ -4098,7 +3812,7 @@ void Notepad_plus::command(int id)
 			if ((toRTL && isRTL) || (!toRTL && !isRTL))
 			{
 				if (! ((NppParameters::getInstance()).getNppGUI())._muteSounds)
-					::MessageBeep(MB_OK);
+					QApplication::beep();
 
 				return;
 			}
@@ -4218,7 +3932,7 @@ void Notepad_plus::command(int id)
 		case IDM_SYSTRAYPOPUP_NEWDOC:
 		{
 			NppGUI & nppGUI = (NppParameters::getInstance()).getNppGUI();
-			::ShowWindow(_pPublicInterface->getHSelf(), nppGUI._isMaximized?SW_MAXIMIZE:SW_SHOW);
+			showMainWindow(nppGUI._isMaximized);
 			_dockingManager.showFloatingContainers(true);
 			restoreMinimizeDialogs();
 			fileNew();
@@ -4228,7 +3942,7 @@ void Notepad_plus::command(int id)
 		case IDM_SYSTRAYPOPUP_ACTIVATE :
 		{
 			NppGUI & nppGUI = (NppParameters::getInstance()).getNppGUI();
-			::ShowWindow(_pPublicInterface->getHSelf(), nppGUI._isMaximized?SW_MAXIMIZE:SW_SHOW);
+			showMainWindow(nppGUI._isMaximized);
 			_dockingManager.showFloatingContainers(true);
 			restoreMinimizeDialogs();
 
@@ -4240,7 +3954,7 @@ void Notepad_plus::command(int id)
 		case IDM_SYSTRAYPOPUP_NEW_AND_PASTE:
 		{
 			NppGUI & nppGUI = (NppParameters::getInstance()).getNppGUI();
-			::ShowWindow(_pPublicInterface->getHSelf(), nppGUI._isMaximized?SW_MAXIMIZE:SW_SHOW);
+			showMainWindow(nppGUI._isMaximized);
 			_dockingManager.showFloatingContainers(true);
 			restoreMinimizeDialogs();
 
@@ -4257,7 +3971,7 @@ void Notepad_plus::command(int id)
 		case IDM_SYSTRAYPOPUP_OPENFILE:
 		{
 			NppGUI & nppGUI = (NppParameters::getInstance()).getNppGUI();
-			::ShowWindow(_pPublicInterface->getHSelf(), nppGUI._isMaximized?SW_MAXIMIZE:SW_SHOW);
+			showMainWindow(nppGUI._isMaximized);
 			_dockingManager.showFloatingContainers(true);
 			restoreMinimizeDialogs();
 
@@ -4271,7 +3985,7 @@ void Notepad_plus::command(int id)
 		{
 			_pPublicInterface->setIsPrelaunch(false);
 			_pTrayIco->doTrayIcon(REMOVE);
-			if (!::IsWindowVisible(_pPublicInterface->getHSelf()))
+			if (!_pPublicInterface->getHSelf()->isVisible())
 				::SendMessage(_pPublicInterface->getHSelf(), WM_CLOSE, 0,0);
 		}
 		break;
@@ -4311,9 +4025,8 @@ void Notepad_plus::command(int id)
 			}
 			else if ((id > IDM_LANG_USER) && (id < IDM_LANG_USER_LIMIT))
 			{
-				wchar_t langName[menuItemStrLenMax];
-				::GetMenuString(_mainMenuHandle, id, langName, menuItemStrLenMax, MF_BYCOMMAND);
-				_pEditView->getCurrentBuffer()->setLangType(L_USER, langName);
+				const wstring langName = nppMenuCommandText(_mainMenuHandle, id);
+				_pEditView->getCurrentBuffer()->setLangType(L_USER, langName.c_str());
 				if (_pDocMap)
 				{
 					_pDocMap->setSyntaxHiliting();

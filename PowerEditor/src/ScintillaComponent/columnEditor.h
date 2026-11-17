@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <windows.h>
-
 #include <string>
 
 #include "NppConstants.h"
@@ -36,30 +34,23 @@ public :
 	ColumnEditorDlg() = default;
 	void init(HINSTANCE hInst, HWND hPere, ScintillaEditView **ppEditView);
 
-	void doDialog(bool isRTL = false) {
-		if (!isCreated())
-			create(IDD_COLUMNEDIT, isRTL);
-		const bool isTextMode = isCheckedOrNot(IDC_COL_TEXT_RADIO);
-		display();
-		::SetFocus(::GetDlgItem(_hSelf, isTextMode?IDC_COL_TEXT_EDIT:IDC_COL_INITNUM_EDIT));
-	}
+	void doDialog(bool isRTL = false);
 
-	void display(bool toShow = true) const override;
 	void switchTo(bool toText);
 	NumBase getFormat();
 	ColumnEditorParam::leadingChoice getLeading();
 	NumBase getHexCase();
 
-protected :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-
 private :
 	ScintillaEditView **_ppEditView = nullptr;
-	HWND _hCurrentBalloonTip = nullptr;
 
 	using Window::init;
 
+	void setupControls();
+	void onOk();
+	void onFormatChosen(int id);
+	void onNumericFieldEdited(int id);
 	void setNumericFields(const ColumnEditorParam& colEditParam);
 	int getNumericFieldValueFromText(NumBase formatChoice, const std::wstring& str);
-	int sendValidationErrorMessage(int whichFlashRed, NumBase formatChoice, wchar_t str[]);
+	void showValidationError(int field, NumBase formatChoice, const std::wstring& str);
 };

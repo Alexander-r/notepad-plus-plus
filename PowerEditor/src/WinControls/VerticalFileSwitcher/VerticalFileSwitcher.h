@@ -17,36 +17,34 @@
 
 #pragma once
 
-#include <windows.h>
+#include <memory>
 
-#include <shlwapi.h>
-
-#include <algorithm>
-#include <string>
-#include <vector>
-
-#include "Buffer.h"
 #include "DockingDlgInterface.h"
-#include "TaskListDlg.h"
-#include "VerticalFileSwitcher_rc.h"
 #include "VerticalFileSwitcherListView.h"
+#include "VerticalFileSwitcher_rc.h"
 
 #define FS_PROJECTPANELTITLE		L"Document List"
 
-struct sortCompareData {
-  HWND hListView = nullptr;
-  int columnIndex = 0;
-  int sortDirection = 0;
-};
+class QMenu;
 
 class VerticalFileSwitcher : public DockingDlgInterface {
 public:
-	VerticalFileSwitcher() : DockingDlgInterface(IDD_DOCLIST) {}
+	VerticalFileSwitcher();
+	~VerticalFileSwitcher() override;
 
-	void init(HINSTANCE hInst, HWND hPere, HIMAGELIST hImaLst) {
+	void init(HINSTANCE hInst, HWND hPere, const IconList* icons) {
 		DockingDlgInterface::init(hInst, hPere);
-		_hImaLst = hImaLst;
+		_icons = icons;
 	}
+
+	void setIcons(const IconList* icons) {
+		_icons = icons;
+		_fileListView.setIcons(icons);
+		reload();
+	}
+
+	using DockingDlgInterface::create;
+	void create(DockedWidgetData* data, bool isRTL = false) override;
 
 	void display(bool toShow = true) const override;
 
@@ -55,9 +53,9 @@ public:
 	}
 
 	//Activate document in scintilla by using the internal index
-	void activateDoc(TaskLstFnStatus *tlfs) const;
+	void activateDoc(BufferID bufferID, int view) const;
 
-	void closeDoc(TaskLstFnStatus *tlfs) const;
+	void closeDoc(BufferID bufferID) const;
 
 	int newItem(BufferID bufferID, int iView) {
 		return _fileListView.newItem(bufferID, iView);
@@ -83,9 +81,6 @@ public:
 		return _fileListView.getFullFilePath(i);
 	}
 
-	int setHeaderOrder(int columnIndex);
-	void updateHeaderArrow();
-
 	int nbSelectedFiles() const {
 		return _fileListView.nbSelectedFiles();
 	}
@@ -108,55 +103,32 @@ public:
 	}
 
 	void setBackgroundColor(COLORREF bgColour) override {
-		_fileListView.setBackgroundColor(bgColour);
-		
-		auto r = GetRValue(bgColour);
-		auto g = GetGValue(bgColour);
-		auto b = GetBValue(bgColour);
-
-		static constexpr int luminenceIncrementBy = 333; // 33.3 %
-
-		// main color is blue
-		// but difference must be high
-		// can have similar blue color as header
-		static constexpr int difference = 12;
-		const auto bAdjusted = static_cast<BYTE>(std::max<int>(0, static_cast<int>(b) - difference));
-		if (bAdjusted > r && bAdjusted > g)
-		{
-			// using values from NppDarkMode.cpp
-			// from double calculatePerceivedLighness(COLORREF c)
-			// double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-			// values multiplied by 1024 and then shift result by 10 - "fake" divide by 1024
-			// for performance
-			const auto grayscale = static_cast<BYTE>((r * 218 + g * 732 + b * 74) >> 10);
-			_bgColor = ::ColorAdjustLuma(RGB(grayscale, grayscale, grayscale), luminenceIncrementBy, TRUE);
-		}
-		else
-		{
-			_bgColor = ::ColorAdjustLuma(bgColour, luminenceIncrementBy, TRUE);
-		}
+		_bgColour = bgColour;
+		_fileListView.setColours(_bgColour, _fgColour);
 	}
 
 	void setForegroundColor(COLORREF fgColour) override {
-		_fileListView.setForegroundColor(fgColour);
+		_fgColour = fgColour;
+		_fileListView.setColours(_bgColour, _fgColour);
 	}
+
 protected:
-	HMENU _hGlobalMenu = nullptr;
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-	void initPopupMenus();
-	void popupMenuCmd(int cmdID);
+	void onDockingNotify(const NMHDR& notification) override;
 
 private:
-	bool colHeaderRClick = false;
+	void onHeaderClicked(int column);
+	void onRightClick(const QPoint& position);
+	void showColumnsMenu(const QPoint& globalPosition);
+	void storeColumnWidth(int column, int width);
+	bool handleViewportEvent(QEvent* event);
+
+	std::unique_ptr<QMenu> _hGlobalMenu;
 	int _lastSortingColumn = 0;
 	int _lastSortingDirection = SORT_DIRECTION_NONE;
 	VerticalFileSwitcherListView _fileListView;
-	HIMAGELIST _hImaLst = nullptr;
+	const IconList* _icons = nullptr;
+	COLORREF _bgColour = RGB(0xFF, 0xFF, 0xFF);
+	COLORREF _fgColour = RGB(0, 0, 0);
 
-	using DockingDlgInterface::init;
-
-	static COLORREF _bgColor;
-	static LRESULT listViewNotifyCustomDraw(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-	static LRESULT CALLBACK FileSwitcherNotifySubclass(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
-	static LRESULT CALLBACK ListViewParentNotifyProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+	friend class FileSwitcherEvents;
 };

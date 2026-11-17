@@ -138,7 +138,8 @@ public:
 		}
 		else
 		{
-			std::sort(lines.begin(), lines.end(), [this](const std::wstring& a, const std::wstring& b)
+			// Qt port: stable, so that lines that compare equal keep their order as with MSVC, whose std::sort is an insertion sort up to 32 lines
+			std::stable_sort(lines.begin(), lines.end(), [this](const std::wstring& a, const std::wstring& b)
 				{
 					if (isDescending())
 					{
@@ -507,18 +508,11 @@ class NumericSorter : public ISorter
 public:
 	NumericSorter(bool isDescending, size_t fromColumn, size_t toColumn) : ISorter(isDescending, fromColumn, toColumn)
 	{
-#ifdef __MINGW32__
-		_usLocale = NULL;
-#else
-		_usLocale = ::_create_locale(LC_NUMERIC, "en-US");
-#endif
+		_usLocale = nullptr; // stodLocale() always parses with the classic locale
 	}
 
 	~NumericSorter() override
 	{
-#ifndef __MINGW32__
-		::_free_locale(_usLocale);
-#endif
 	}
 	
 	void sort(std::vector<std::wstring>& lines) override {
@@ -685,7 +679,8 @@ public:
 		// Normal sorting by line length
 		else
 		{
-			std::sort(lines.begin(), lines.end(), [this](std::wstring a, std::wstring b)
+			// Qt port: stable, so that lines that compare equal keep their order as with MSVC, whose std::sort is an insertion sort up to 32 lines
+			std::stable_sort(lines.begin(), lines.end(), [this](std::wstring a, std::wstring b)
 				{
 					if (isDescending())
 					{

@@ -88,8 +88,8 @@ Translation note:
 				<Commands>
 					<Item id="41001" name="&amp;New"/>
 					<Item id="41002" name="&amp;Open..."/>
-					<Item id="41019" name="Explorer"/>
-					<Item id="41020" name="cmd"/>
+					<Item id="41019" name="File Manager"/>
+					<Item id="41020" name="Terminal"/>
 					<Item id="41027" name="PowerShell"/>
 					<Item id="41025" name="Folder as Wor&amp;kspace"/>
 					<Item id="41003" name="&amp;Close"/>
@@ -160,7 +160,7 @@ Translation note:
 					<Item id="42071" name="&amp;iNVERT cASE"/>
 					<Item id="42072" name="&amp;ranDOm CasE"/>
 					<Item id="42073" name="Open File"/>
-					<Item id="42074" name="Open Containing Folder in Explorer"/>
+					<Item id="42074" name="Open Containing Folder in File Manager"/>
 					<Item id="42106" name="Redact Selection █ (Shift: ●)"/>
 					<Item id="42075" name="Search on Internet"/>
 					<Item id="42076" name="Change Search Engine..."/>
@@ -210,7 +210,7 @@ Translation note:
 					<Item id="42087" name="Copy All Filenames"/>
 					<Item id="42088" name="Copy All File Paths"/>
 					<Item id="42032" name="&amp;Run a Macro Multiple Times..."/>
-					<Item id="42033" name="Read-Only Attribute in Windows"/>
+					<Item id="42033" name="Read-Only File Attribute"/>
 					<Item id="42035" name="Single Line Comment"/>
 					<Item id="42036" name="Single Line Uncomment"/>
 					<Item id="42055" name="Remove Empty Lines"/>
@@ -441,8 +441,8 @@ Translation note:
 				<Item CMDID="41006" name="Save"/>
 				<Item CMDID="41008" name="Save As..."/>
 				<Item CMDID="1" name="Open into"/>
-				<Item CMDID="41019" name="Open Containing Folder in Explorer"/>
-				<Item CMDID="41020" name="Open Containing Folder in cmd"/>
+				<Item CMDID="41019" name="Open Containing Folder in File Manager"/>
+				<Item CMDID="41020" name="Open Containing Folder in Terminal"/>
 				<Item CMDID="41027" name="Open Containing Folder in PowerShell"/>
 				<Item CMDID="41025" name="Open Containing Folder as Workspace"/>
 				<Item CMDID="41023" name="Open in Default Viewer"/>
@@ -451,7 +451,7 @@ Translation note:
 				<Item CMDID="41014" name="Reload"/>
 				<Item CMDID="41010" name="Print..."/>
 				<Item CMDID="42028" name="Read-Only in Notepad++"/>
-				<Item CMDID="42033" name="Read-Only Attribute in Windows"/>
+				<Item CMDID="42033" name="Read-Only File Attribute"/>
 				<Item CMDID="2" name="Copy to Clipboard"/>
 				<Item CMDID="42029" name="Copy Full File Path"/>
 				<Item CMDID="42030" name="Copy Filename"/>
@@ -688,8 +688,8 @@ Translation note:
 				<DeleteContextMenu name="Delete"/>
 				<ClearContextMenu name="Clear"/>
 				<MainCommandNames>
-					<Item id="41019" name="Open containing folder in Explorer"/>
-					<Item id="41020" name="Open containing folder in Command Prompt"/>
+					<Item id="41019" name="Open containing folder in File Manager"/>
+					<Item id="41020" name="Open containing folder in Terminal"/>
 					<Item id="41027" name="Open containing folder in PowerShell"/>
 					<Item id="41025" name="Open Containing Folder as Workspace"/>
 					<Item id="41021" name="Restore Recent Closed File"/>
@@ -1069,7 +1069,7 @@ Translation note:
 				<DarkMode title="Dark Mode">
 					<Item id="7131" name="Light mode"/>
 					<Item id="7132" name="Dark mode"/>
-					<Item id="7133" name="Follow Windows"/>
+					<Item id="7133" name="Follow system"/>
 					<Item id="7102" name="Black"/>
 					<Item id="7103" name="Red"/>
 					<Item id="7104" name="Green"/>
@@ -1702,8 +1702,8 @@ Proceed only if you understand the risks."/>
 				<Item id="3515" name="Open"/>
 				<Item id="3516" name="Copy path"/>
 				<Item id="3517" name="Find in Files..."/>
-				<Item id="3518" name="Explorer here"/>
-				<Item id="3519" name="CMD here"/>
+				<Item id="3518" name="File Manager here"/>
+				<Item id="3519" name="Terminal here"/>
 				<Item id="3520" name="Copy file name"/>
 				<Item id="3521" name="PowerShell here"/>
 			</Menu>
@@ -1951,6 +1951,7 @@ If you select advanced mode but do not edit files in the aforementioned language
 			<max-len-on-search-tip value="Your input may exceed the limit allowed and could have been truncated, and it won't be saved for the next session."/>
 			<max-len-on-save-tip value="The length of your input is very long and may not be saved for your next session."/>
 			<goto-setting-tip value="Find your setting here"/>
+			<dialog-font-system value="System default"/><!-- HowToReproduce: Settings > Preferences > General > Dialog Font -->
 			<tabbar-tabcompactlabellen-tip value="Limits the visible length of long tab names. Enter to apply the given value. Value range: 1-257 characters (0 disables the truncation)."/>
 			<networkpathwarning-serverwhitelist-tip value="Puts the server of the current file into Notepad++ serverWhiteList.xml.
 

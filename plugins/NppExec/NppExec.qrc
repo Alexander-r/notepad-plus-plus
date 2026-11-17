@@ -1,0 +1,8 @@
+<RCC>
+  <qresource prefix="/NppExec">
+    <file alias="ConsoleIcon.ico">src/ConsoleIcon.ico</file>
+    <file alias="ConsoleIcon_light.ico">src/ConsoleIcon_multisize_light.ico</file>
+    <file alias="ConsoleIcon_dark.ico">src/ConsoleIcon_multisize_dark.ico</file>
+    <file alias="ConsoleIcon.bmp">src/ConsoleIcon.bmp</file>
+  </qresource>
+</RCC>

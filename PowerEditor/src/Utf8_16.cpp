@@ -18,6 +18,8 @@
 
 #include "Utf8_16.h"
 
+#include <QtEndian>
+
 const Utf8_16::utf8 Utf8_16::k_Boms[][3] = {
 	{0x00, 0x00, 0x00},  // Unknown
 	{0xEF, 0xBB, 0xBF},  // UTF8
@@ -219,9 +221,25 @@ size_t Utf8_16_Read::convert(char* buf, size_t len)
 }
 
 
+namespace
+{
+	// In text that is really UTF-16LE, most high bytes are zero or repeat a few values, while the low bytes
+	// vary. This is the same idea as the statistical test of IsTextUnicode on Windows.
+	bool looksLikeUtf16LE(const unsigned char* buffer, size_t length)
+	{
+		size_t zeroHighBytes = 0;
+		const size_t nbChars = length / 2;
+		for (size_t i = 0; i < nbChars; ++i)
+		{
+			if (buffer[i * 2 + 1] == 0)
+				++zeroHighBytes;
+		}
+		return nbChars > 0 && zeroHighBytes * 2 > nbChars;
+	}
+}
+
 void Utf8_16_Read::determineEncoding()
 {
-	INT uniTest = IS_TEXT_UNICODE_STATISTICS;
 	m_eEncoding = uni8Bit;
 	m_nSkip = 0;
 
@@ -245,7 +263,7 @@ void Utf8_16_Read::determineEncoding()
 		m_nSkip = 3;
 	}
 	// try to detect UTF-16 little-endian without BOM
-	else if (m_nLen > 1 && m_nLen % 2 == 0 && m_pBuf[0] != 0 && m_pBuf[1] == 0 && IsTextUnicode(m_pBuf, static_cast<int32_t>(m_nLen), &uniTest))
+	else if (m_nLen > 1 && m_nLen % 2 == 0 && m_pBuf[0] != 0 && m_pBuf[1] == 0 && looksLikeUtf16LE(m_pBuf, m_nLen))
 	{
 		m_eEncoding = uni16LE_NoBOM;
 		m_nSkip = 0;
@@ -628,7 +646,7 @@ void Utf8_Iter::toStart()
 	bool swap = (m_eEncoding == uni16BE || m_eEncoding == uni16BE_NoBOM);
 	if (m_code < 0x10000)
 	{
-		utf16 c = swap ? _byteswap_ushort((utf16)m_code) : (utf16)m_code;
+		utf16 c = swap ? qbswap<quint16>((utf16)m_code) : (utf16)m_code;
 		pushout  (c);
 	}
 	else
@@ -638,8 +656,8 @@ void Utf8_Iter::toStart()
 		utf16 c2 = (utf16)(0xDC00 | (m_code & 0x3ff));
 		if (swap)
 		{
-			c1 = _byteswap_ushort(c1);
-			c2 = _byteswap_ushort(c2);
+			c1 = qbswap<quint16>(c1);
+			c2 = qbswap<quint16>(c2);
 		}
 		pushout(c1);
 		pushout(c2);

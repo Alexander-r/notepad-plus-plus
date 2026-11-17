@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>FindinfinderDlg</class>
+ <widget class="QDialog" name="FindinfinderDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>547</width><height>201</height></rect></property>
+  <property name="windowTitle"><string>Find in search results</string></property>
+  <layout class="QHBoxLayout" name="layout1">
+   <item>
+    <layout class="QVBoxLayout" name="layout2">
+     <item>
+      <layout class="QHBoxLayout" name="layout3">
+       <item>
+        <widget class="QLabel" name="findwhatStaticFifolder">
+         <property name="nppId" stdset="0"><number>1711</number></property>
+         <property name="text"><string>&amp;Find what:</string></property>
+         <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         <property name="buddy"><cstring>findwhatFifolder</cstring></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="findwhatFifolder">
+         <property name="nppId" stdset="0"><number>1712</number></property>
+         <property name="editable"><bool>true</bool></property>
+         <property name="insertPolicy"><enum>QComboBox::NoInsert</enum></property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="matchlinenumCheckFifolder">
+       <property name="nppId" stdset="0"><number>1713</number></property>
+       <property name="text"><string>Search &amp;only in found lines</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="wholewordFifolder">
+       <property name="nppId" stdset="0"><number>1714</number></property>
+       <property name="text"><string>Match &amp;whole word only</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="atchcaseFifolder">
+       <property name="nppId" stdset="0"><number>1715</number></property>
+       <property name="text"><string>Match &amp;case</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QGroupBox" name="modeStaticFifolder">
+       <property name="nppId" stdset="0"><number>1716</number></property>
+       <property name="title"><string>Search Mode</string></property>
+       <layout class="QVBoxLayout" name="layout4">
+        <item>
+         <widget class="QRadioButton" name="normalFifolder">
+          <property name="nppId" stdset="0"><number>1717</number></property>
+          <property name="text"><string>&amp;Normal</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="extendedFifolder">
+          <property name="nppId" stdset="0"><number>1718</number></property>
+          <property name="text"><string>E&amp;xtended (\n, \r, \t, \0, \x...)</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="layout5">
+          <item>
+           <widget class="QRadioButton" name="regexpFifolder">
+            <property name="nppId" stdset="0"><number>1719</number></property>
+            <property name="text"><string>Re&amp;gular expression</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="redotmatchnlFifolder">
+            <property name="nppId" stdset="0"><number>1720</number></property>
+            <property name="text"><string>&amp;. matches newline</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer6">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <spacer name="spacer7">
+       <property name="orientation"><enum>Qt::Vertical</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QVBoxLayout" name="layout8">
+     <item>
+      <widget class="QPushButton" name="ok">
+       <property name="nppId" stdset="0"><number>1</number></property>
+       <property name="text"><string>Find All</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancel">
+       <property name="nppId" stdset="0"><number>2</number></property>
+       <property name="text"><string>Close</string></property>
+       <property name="autoDefault"><bool>false</bool></property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="spacer9">
+       <property name="orientation"><enum>Qt::Vertical</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+ </buttongroups>
+</ui>

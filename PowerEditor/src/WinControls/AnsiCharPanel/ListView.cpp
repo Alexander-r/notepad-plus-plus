@@ -17,283 +17,138 @@
 
 #include "ListView.h"
 
-#include <windows.h>
+#include <algorithm>
+#include <QHeaderView>
+#include <QPalette>
+#include <QTableWidget>
 
-#include <commctrl.h>
-
-#include <stdexcept>
-#include <string>
-#include <vector>
-
-#include "NppConstants.h"
-#include "NppDarkMode.h"
-#include "Window.h"
-
-void ListViewBase::init(HINSTANCE hInst, HWND hParent, UINT_PTR listViewID, DWORD style, DWORD exStyle)
+namespace
 {
-	Window::init(hInst, hParent);
-
-	INITCOMMONCONTROLSEX icex{};
-	icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-	icex.dwICC = ICC_LISTVIEW_CLASSES;
-	::InitCommonControlsEx(&icex);
-
-	_hSelf = ::CreateWindowExW(
-		0,
-		WC_LISTVIEW,
-		L"",
-		WS_CHILD | WS_BORDER | style,
-		0, 0, 0, 0,
-		_hParent,
-		listViewID == 0 ? nullptr : reinterpret_cast<HMENU>(listViewID),
-		hInst,
-		nullptr);
-
-	if (!_hSelf)
-	{
-		throw std::runtime_error("ListView::init : CreateWindowEx() function return null");
-	}
-
-	NppDarkMode::subclassListViewControl(_hSelf);
-
-	subclassParentNotifyListViewCustomDraw(_hParent, listViewID);
-
-	const DWORD lvExStyle = ListView_GetExtendedListViewStyle(_hSelf) | exStyle;
-	ListView_SetExtendedListViewStyle(_hSelf, lvExStyle);
-
-	setDarkTheme();
+	constexpr int lParamRole = Qt::UserRole + 1;
 }
 
-void ListViewBase::destroy()
+QTableWidget* ListView::table() const
 {
-	if (_hSelf != nullptr)
+	return static_cast<QTableWidget*>(_hSelf);
+}
+
+void ListView::init(HINSTANCE hInst, HWND parent, UINT_PTR listViewID)
+{
+	Window::init(hInst, parent);
+
+	auto* list = new QTableWidget(parent);
+	_hSelf = list;
+	list->setProperty("nppId", static_cast<int>(listViewID));
+	list->setColumnCount(static_cast<int>(_columnInfos.size()));
+	list->setSelectionBehavior(QAbstractItemView::SelectRows);
+	list->setSelectionMode(QAbstractItemView::SingleSelection);
+	list->setEditTriggers(QAbstractItemView::NoEditTriggers);
+	list->setShowGrid(false);
+	list->setWordWrap(false);
+	list->verticalHeader()->hide();
+	list->verticalHeader()->setDefaultSectionSize(list->fontMetrics().height() + 4);
+	list->horizontalHeader()->setSectionsClickable(false);
+	list->horizontalHeader()->setStretchLastSection(true);
+
+	for (int i = 0; i < static_cast<int>(_columnInfos.size()); ++i)
 	{
-		::DestroyWindow(_hSelf);
-		_hSelf = nullptr;
+		list->setHorizontalHeaderItem(i, new QTableWidgetItem(QString::fromStdWString(_columnInfos[i]._label)));
+		list->setColumnWidth(i, std::max(static_cast<int>(_columnInfos[i]._width), list->horizontalHeader()->sectionSizeHint(i))); // never cutting off the title
 	}
 }
 
-void ListViewBase::subclassParentNotifyListViewCustomDraw(HWND hParent, UINT_PTR listViewID)
+void ListView::destroy()
 {
-	if (::GetWindowSubclass(hParent, ListViewBase::ListViewParentNotifyCustomDrawSubclass, static_cast<UINT_PTR>(SubclassID::first), nullptr) == FALSE)
-	{
-		::SetWindowSubclass(hParent, ListViewBase::ListViewParentNotifyCustomDrawSubclass, static_cast<UINT_PTR>(SubclassID::first), static_cast<DWORD_PTR>(listViewID));
-	}
+	delete _hSelf;
+	_hSelf = nullptr;
 }
 
-LRESULT ListViewBase::listViewNotifyCustomDraw(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) noexcept
+void ListView::setColumnText(size_t i, const std::wstring& txt2Set)
 {
-	const auto lplvcd = reinterpret_cast<LPNMLVCUSTOMDRAW>(lParam);
-
-	switch (lplvcd->nmcd.dwDrawStage)
+	if (auto* item = table()->horizontalHeaderItem(static_cast<int>(i)))
 	{
-		case CDDS_PREPAINT:
-		{
-			return CDRF_NOTIFYITEMDRAW;
-		}
-
-		case CDDS_ITEMPREPAINT:
-		{
-			const HWND hList = lplvcd->nmcd.hdr.hwndFrom;
-			const RECT& rcRow = lplvcd->nmcd.rc;
-
-			const bool isThemeDark = NppDarkMode::isThemeDark();
-			const bool isSelected = ListView_GetItemState(hList, lplvcd->nmcd.dwItemSpec, LVIS_SELECTED) == LVIS_SELECTED;
-			const bool isHot = (lplvcd->nmcd.uItemState & CDIS_HOT) == CDIS_HOT;
-
-			const auto style = ::GetWindowLongPtrW(hList, GWL_STYLE);
-			const bool hasHeader = ((style & LVS_REPORT) != 0) && ((style & LVS_NOCOLUMNHEADER) == 0);
-
-			if (isThemeDark && (isSelected || isHot))
-			{
-				const COLORREF bgColor = isSelected ? NppDarkMode::getCtrlBackgroundColor() : NppDarkMode::getHotBackgroundColor();
-
-				lplvcd->clrText = NppDarkMode::getTextColor();
-				lplvcd->clrTextBk = bgColor;
-
-				const auto oldClr = ::SetDCBrushColor(lplvcd->nmcd.hdc, bgColor);
-				const auto hBrush = static_cast<HBRUSH>(::GetStockObject(DC_BRUSH));
-
-				if (!hasHeader)
-				{
-					::FillRect(lplvcd->nmcd.hdc, &rcRow, hBrush);
-				}
-				else
-				{
-					const auto hHeader = ListView_GetHeader(hList);
-					const auto nCol = Header_GetItemCount(hHeader);
-
-					static constexpr LONG paddingLeft = 1;
-					static constexpr LONG paddingRight = 2;
-
-					const auto lvii = LVITEMINDEX{ .iItem= static_cast<int>(lplvcd->nmcd.dwItemSpec), .iGroup = -1 };
-					RECT rcSubitem{
-						rcRow.left
-						, rcRow.top
-						, rcRow.left + ListView_GetColumnWidth(hList, 0) - paddingRight
-						, rcRow.bottom
-					};
-					::FillRect(lplvcd->nmcd.hdc, &rcSubitem, hBrush);
-
-					for (int i = 1; i < nCol; ++i)
-					{
-						ListView_GetItemIndexRect(hList, &lvii, i, LVIR_BOUNDS, &rcSubitem);
-						rcSubitem.left -= paddingLeft;
-						rcSubitem.right -= paddingRight;
-						::FillRect(lplvcd->nmcd.hdc, &rcSubitem, hBrush);
-					}
-				}
-
-				::SetDCBrushColor(lplvcd->nmcd.hdc, oldClr);
-			}
-
-			if (isSelected)
-			{
-				::DrawFocusRect(lplvcd->nmcd.hdc, &rcRow);
-			}
-			else if (isHot)
-			{
-				::FrameRect(lplvcd->nmcd.hdc, &rcRow, isThemeDark ? NppDarkMode::getHotEdgeBrush() : ::GetSysColorBrush(COLOR_WINDOWTEXT));
-			}
-
-			return CDRF_DODEFAULT;
-		}
-
-		default:
-		{
-			break;
-		}
-	}
-	return ::DefSubclassProc(hWnd, uMsg, wParam, lParam);
-}
-
-LRESULT CALLBACK ListViewBase::ListViewParentNotifyCustomDrawSubclass(
-	HWND hWnd,
-	UINT uMsg,
-	WPARAM wParam,
-	LPARAM lParam,
-	UINT_PTR uIdSubclass,
-	DWORD_PTR dwRefData
-) noexcept
-{
-	switch (uMsg)
-	{
-		case WM_NCDESTROY:
-		{
-			::RemoveWindowSubclass(hWnd, ListViewBase::ListViewParentNotifyCustomDrawSubclass, uIdSubclass);
-			break;
-		}
-
-		case WM_NOTIFY:
-		{
-			const auto nmhdr = reinterpret_cast<LPNMHDR>(lParam);
-			if (nmhdr->idFrom == static_cast<UINT_PTR>(dwRefData) && nmhdr->code == NM_CUSTOMDRAW)
-			{
-				return ListViewBase::listViewNotifyCustomDraw(hWnd, uMsg, wParam, lParam);
-			}
-			break;
-		}
-	}
-	return ::DefSubclassProc(hWnd, uMsg, wParam, lParam);
-}
-
-void ListView::init(HINSTANCE hInst, HWND parent, UINT_PTR listViewID, DWORD style, DWORD exStyle)
-{
-	ListViewBase::init(hInst, parent, listViewID, style, exStyle);
-
-	if (!_columnInfos.empty())
-	{
-		LVCOLUMN lvColumn{};
-		lvColumn.mask = LVCF_TEXT | LVCF_WIDTH;
-
-		short i = 0;
-		for (auto& colInfo : _columnInfos)
-		{
-			lvColumn.cx = static_cast<int>(colInfo._width);
-			lvColumn.pszText = colInfo._label.data();
-			ListView_InsertColumn(_hSelf, ++i, &lvColumn);  // index is not 0 based but 1 based
-		}
-	}
-}
-
-void ListView::addLine(std::vector<std::wstring>& values2Add, LPARAM lParam, int pos2insert)
-{
-	if (!values2Add.size())
-		return;
-
-	if (pos2insert == -1)
-		pos2insert = static_cast<int>(nbItem());
-
-	auto it = values2Add.begin();
-
-	LVITEM item{};
-	item.mask = LVIF_TEXT | LVIF_PARAM;
-
-	item.pszText = it->data();
-	item.iItem = pos2insert;
-	item.iSubItem = 0;
-	item.lParam = lParam;
-	ListView_InsertItem(_hSelf, &item);
-	++it;
-
-	int j = 0;
-	for (; it != values2Add.end(); ++it)
-	{
-		ListView_SetItemText(_hSelf, pos2insert, ++j, it->data());
+		item->setText(QString::fromStdWString(txt2Set));
+		QHeaderView* header = table()->horizontalHeader();
+		header->resizeSection(static_cast<int>(i), std::max(header->sectionSize(static_cast<int>(i)), header->sectionSizeHint(static_cast<int>(i))));
 	}
 }
 
 size_t ListView::findAlphabeticalOrderPos(const std::wstring& string2Cmp, SortDirection sortDir)
 {
-	const size_t itemCount = nbItem();
-	if (!itemCount)
-		return 0;
-
-	for (size_t i = 0; i < itemCount; ++i)
+	const QString text = QString::fromStdWString(string2Cmp);
+	const int count = table()->rowCount();
+	for (int i = 0; i < count; ++i)
 	{
-		wchar_t str[MAX_PATH] = { '\0' };
-		ListView_GetItemText(_hSelf, i, 0, str, sizeof(str));
-
-		const int res = string2Cmp.compare(str);
-
-		if (res < 0) // string2Cmp < str
-		{
-			if (sortDir == sortEncrease)
-			{
-				return i;
-			}
-		}
-		else // str2Cmp >= str
-		{
-			if (sortDir == sortDecrease)
-			{
-				return i;
-			}
-		}
+		const int order = QString::compare(text, table()->item(i, 0)->text(), Qt::CaseInsensitive);
+		if ((sortDir == sortEncrease && order < 0) || (sortDir == sortDecrease && order > 0))
+			return i;
 	}
-	return itemCount;
+	return count;
 }
 
+void ListView::addLine(const std::vector<std::wstring>& values2Add, LPARAM lParam, int pos2insert)
+{
+	if (values2Add.empty())
+		return;
+
+	const int row = (pos2insert == -1) ? table()->rowCount() : pos2insert;
+	table()->insertRow(row);
+
+	const int columns = std::min(table()->columnCount(), static_cast<int>(values2Add.size()));
+	for (int column = 0; column < columns; ++column)
+		table()->setItem(row, column, new QTableWidgetItem(QString::fromStdWString(values2Add[column])));
+
+	if (table()->item(row, 0))
+		table()->item(row, 0)->setData(lParamRole, QVariant::fromValue<qlonglong>(lParam));
+}
+
+size_t ListView::nbItem() const
+{
+	return table()->rowCount();
+}
+
+long ListView::getSelectedIndex() const
+{
+	return table()->currentRow();
+}
+
+void ListView::setSelection(int itemIndex) const
+{
+	table()->selectRow(itemIndex);
+	if (auto* item = table()->item(itemIndex, 0))
+		table()->scrollToItem(item);
+}
 
 LPARAM ListView::getLParamFromIndex(int itemIndex) const
 {
-	LVITEM item{};
-	item.mask = LVIF_PARAM;
-	item.iItem = itemIndex;
-	ListView_GetItem(_hSelf, &item);
-
-	return item.lParam;
+	const auto* item = table()->item(itemIndex, 0);
+	return item ? static_cast<LPARAM>(item->data(lParamRole).toLongLong()) : 0;
 }
 
-std::vector<size_t> ListView::getCheckedIndexes() const
+bool ListView::removeFromIndex(size_t i)
 {
-	std::vector<size_t> checkedIndexes;
-	const size_t itemCount = nbItem();
-	for (size_t i = 0; i < itemCount; ++i)
-	{
-		UINT st = ListView_GetItemState(_hSelf, i, LVIS_STATEIMAGEMASK);
-		if (st == INDEXTOSTATEIMAGEMASK(2)) // checked
-			checkedIndexes.push_back(i);
-	}
-	return checkedIndexes;
+	if (i >= nbItem())
+		return false;
+
+	table()->removeRow(static_cast<int>(i));
+	return true;
+}
+
+void ListView::removeAll()
+{
+	table()->setRowCount(0);
+}
+
+std::wstring ListView::getText(int row, int column) const
+{
+	const auto* item = table()->item(row, column);
+	return item ? item->text().toStdWString() : std::wstring{};
+}
+
+void ListView::setColours(COLORREF background, COLORREF text)
+{
+	QPalette palette = table()->palette();
+	palette.setColor(QPalette::Base, QColor(GetRValue(background), GetGValue(background), GetBValue(background)));
+	palette.setColor(QPalette::Text, QColor(GetRValue(text), GetGValue(text), GetBValue(text)));
+	table()->setPalette(palette);
 }

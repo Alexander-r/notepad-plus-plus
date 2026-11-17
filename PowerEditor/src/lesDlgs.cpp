@@ -16,88 +16,56 @@
 
 
 #include "lesDlgs.h"
-#include "resource.h"
+
+#include <QAbstractButton>
+
 #include "menuCmdID.h"
-#include "NppDarkMode.h"
+#include "NppMessages.h"
+#include "resource.h"
+#include "ui_ButtonDlg.h"
 
-
-intptr_t CALLBACK ButtonDlg::run_dlgProc(UINT Message, WPARAM wParam, LPARAM /*lParam*/)
+void ButtonDlg::doDialog(bool isRTL)
 {
-	switch (Message)
+	if (!isCreated())
 	{
-		case WM_INITDIALOG:
-		{
-			NppDarkMode::autoSubclassAndThemeChildControls(_hSelf);
-			return TRUE;
-		}
+		QDialog* dialog = createDialogWidget(isRTL);
+		Ui::ButtonDlg ui;
+		ui.setupUi(dialog);
 
-		case WM_CTLCOLORDLG:
-		{
-			return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-		}
+		// Part of the main window, in its corner. A window of its own would get a frame from the desktop.
+		dialog->setWindowFlags(Qt::Widget);
+		const int side = dialog->fontMetrics().height() + 4;
+		ui.restoreButton->setFixedSize(side, side);
+		dialog->adjustSize();
 
-		case WM_PRINTCLIENT:
+		QObject::connect(button(IDC_RESTORE_BUTTON), &QAbstractButton::clicked, dialog, [this]()
 		{
-			if (NppDarkMode::isEnabled())
+			int bs = getButtonStatus();
+
+			bool isDistractionFree = (bs & buttonStatus_distractionFree) != 0;
+			bool isFullScreen = (bs & buttonStatus_fullscreen) != 0;
+			bool isPostIt = (bs & buttonStatus_postit) != 0;
+			int cmd = 0;
+			if (isDistractionFree)
 			{
-				return TRUE;
+				cmd = IDM_VIEW_DISTRACTIONFREE;
 			}
-			break;
-		}
-
-		case NPPM_INTERNAL_REFRESHDARKMODE:
-		{
-			NppDarkMode::autoThemeChildControls(_hSelf);
-			return TRUE;
-		}
-
-		case WM_COMMAND:
-		{
-			switch (wParam)
+			else if (isFullScreen && isPostIt)
 			{
-				case IDC_RESTORE_BUTTON:
-				{
-                    int bs = getButtonStatus();
-
-                    bool isDistractionFree = (bs & buttonStatus_distractionFree) != 0;
-                    bool isFullScreen = (bs & buttonStatus_fullscreen) != 0;
-                    bool isPostIt = (bs & buttonStatus_postit) != 0;
-                    int cmd = 0;
-                    if (isDistractionFree)
-                    {
-                        cmd = IDM_VIEW_DISTRACTIONFREE;
-                    }
-                    else if (isFullScreen && isPostIt)
-                    {
-                        // remove postit firstly
-                        cmd = IDM_VIEW_POSTIT;
-                    }
-                    else if (isFullScreen)
-                    {
-                        cmd = IDM_VIEW_FULLSCREENTOGGLE;
-                    }
-                    else if (isPostIt)
-                    {
-                        cmd = IDM_VIEW_POSTIT;
-                    }
-                    ::SendMessage(_hParent, WM_COMMAND, cmd, 0);
-					display(false);
-					return TRUE;
-				}
-
-				default:
-					return FALSE;
+				// remove postit firstly
+				cmd = IDM_VIEW_POSTIT;
 			}
-		}
-		default :
-			return FALSE;
+			else if (isFullScreen)
+			{
+				cmd = IDM_VIEW_FULLSCREENTOGGLE;
+			}
+			else if (isPostIt)
+			{
+				cmd = IDM_VIEW_POSTIT;
+			}
+			::SendMessage(_hParent, WM_COMMAND, cmd, 0);
+			display(false);
+		});
 	}
-	return FALSE;
-}
-
-void ButtonDlg::doDialog(bool isRTL) 
-{
-    if (!isCreated())
-			create(IDD_BUTTON_DLG, isRTL);
 	display();
 }

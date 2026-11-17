@@ -17,10 +17,6 @@
 
 #pragma once
 
-#include <windows.h>
-
-#include <commctrl.h>
-
 #include <string>
 #include <vector>
 
@@ -33,29 +29,20 @@
 
 class ScintillaEditView;
 
+// Either the text on the clipboard, or the exact bytes of a binary copy
 struct ClipboardDataInfo {
+	std::wstring _text;
 	std::vector<unsigned char> _data;
 	bool _isBinaryContained = false;
-};
 
-class CBHListView : public ListViewBase
-{
-public:
-	CBHListView() = default;
-	~CBHListView() override = default;
-
-	void init(HINSTANCE hInst, HWND hParent) override;
-	void reSizeToWH(int width, int height);
-
-private:
-	using ListViewBase::init;
-	using Window::reSizeToWH;
+	bool isEmpty() const { return _text.empty() && _data.empty(); }
+	bool operator==(const ClipboardDataInfo&) const = default;
 };
 
 class ClipboardHistoryPanel : public DockingDlgInterface {
 public:
 	ClipboardHistoryPanel()
-		: DockingDlgInterface(IDD_CLIPBOARDHISTORY_PANEL), _ppEditView(nullptr), _hwndNextCbViewer(nullptr)
+		: DockingDlgInterface(IDD_CLIPBOARDHISTORY_PANEL), _ppEditView(nullptr)
 	{}
 
 	void init(HINSTANCE hInst, HWND hPere, ScintillaEditView **ppEditView) {
@@ -67,6 +54,9 @@ public:
 		_hParent = parent2set;
 	}
 
+	using DockingDlgInterface::create;
+	void create(DockedWidgetData* data, bool isRTL = false) override;
+
 	ClipboardDataInfo getClipboadData();
 
 	[[nodiscard]] std::wstring getDisplayStr(const ClipboardDataInfo& cbd);
@@ -74,13 +64,12 @@ public:
 	int getClipboardDataIndex(const ClipboardDataInfo& cbd) const;
 
 	void setBackgroundColor(COLORREF bgColour) override {
-		ListView_SetBkColor(_listView.getHSelf(), bgColour);
-		ListView_SetTextBkColor(_listView.getHSelf(), bgColour);
-		::RedrawWindow(_listView.getHSelf(), nullptr, nullptr, RDW_INVALIDATE);
+		_bgColour = bgColour;
+		_listView.setColours(_bgColour, _fgColour);
 	}
 	void setForegroundColor(COLORREF fgColour) override {
-		ListView_SetTextColor(_listView.getHSelf(), fgColour);
-		::RedrawWindow(_listView.getHSelf(), nullptr, nullptr, RDW_INVALIDATE);
+		_fgColour = fgColour;
+		_listView.setColours(_bgColour, _fgColour);
 	}
 
 	bool trackClipboardOps(bool bTrack) {
@@ -90,20 +79,17 @@ public:
 	}
 
 protected:
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	void onDockingNotify(const NMHDR& notification) override;
 
 private:
 	ScintillaEditView **_ppEditView = nullptr;
 	std::vector<ClipboardDataInfo> _clipboardDataInfos;
-	HWND _hwndNextCbViewer = nullptr;
-	CBHListView _listView;
+	ListView _listView;
 	bool _isTrackingClipboardOps = true; // false when we do not want to track & show some Clipboard operations
+	COLORREF _bgColour = RGB(0xFF, 0xFF, 0xFF);
+	COLORREF _fgColour = RGB(0, 0, 0);
 
 	using DockingDlgInterface::init;
 
-	void onDoubleClick(HWND hList);
-
-	void onDpiChanged() override {
-		setFontForChild(_listView.getHSelf());
-	}
+	void onDoubleClick(int row);
 };

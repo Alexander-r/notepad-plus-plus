@@ -17,261 +17,78 @@
 
 #include "md5Dlgs.h"
 
-#include <windows.h>
+#include <QAbstractButton>
+#include <QCheckBox>
+#include <QCryptographicHash>
+#include <QDialog>
+#include <QFontDatabase>
+#include <QPlainTextEdit>
 
-#include <shlwapi.h>
-
-#include <cstdint>
-#include <cstdio>
-#include <cstring>
-#include <sstream>
 #include <string>
-
-#include <Scintilla.h>
-
-#include "calc_sha1.h"
-#include "md5.h"
-#include "sha-256.h"
-#include "sha512.h"
 
 #include "Common.h"
 #include "CustomFileDialog.h"
 #include "NppConstants.h"
-#include "NppDarkMode.h"
 #include "Parameters.h"
 #include "StaticDialog.h"
-#include "dpiManagerV2.h"
 #include "md5Dlgs_rc.h"
 #include "resource.h"
+#include "ui_HashfromfilesDlg.h"
+#include "ui_HashfromtextDlg.h"
 
-static LRESULT CALLBACK TextEditSelectAllProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
-
-intptr_t CALLBACK HashFromFilesDlg::run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam)
+namespace
 {
-	switch (message) 
+	// The digest in lowercase hexadecimal
+	QByteArray hashOf(hashType type, QByteArrayView content)
 	{
-		case WM_INITDIALOG:
+		QCryptographicHash::Algorithm algorithm = QCryptographicHash::Md5;
+		switch (type)
 		{
-			NppDarkMode::autoSubclassAndThemeChildControls(_hSelf);
-
-			setFont();
-
-			::SetWindowSubclass(::GetDlgItem(_hSelf, IDC_HASH_PATH_EDIT), TextEditSelectAllProc, static_cast<UINT_PTR>(SubclassID::first), 0);
-			::SetWindowSubclass(::GetDlgItem(_hSelf, IDC_HASH_RESULT_EDIT), TextEditSelectAllProc, static_cast<UINT_PTR>(SubclassID::first), 0);
-
-			return TRUE;
+			case hash_sha1: algorithm = QCryptographicHash::Sha1; break;
+			case hash_sha256: algorithm = QCryptographicHash::Sha256; break;
+			case hash_sha512: algorithm = QCryptographicHash::Sha512; break;
+			default: break;
 		}
-
-		case WM_CTLCOLORDLG:
-		{
-			return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_CTLCOLORSTATIC:
-		{
-			const auto hdcStatic = reinterpret_cast<HDC>(wParam);
-			const auto dlgCtrlID = ::GetDlgCtrlID(reinterpret_cast<HWND>(lParam));
-			if (dlgCtrlID == IDC_HASH_PATH_EDIT || dlgCtrlID == IDC_HASH_RESULT_EDIT)
-			{
-				return NppDarkMode::onCtlColor(hdcStatic);
-			}
-			return NppDarkMode::onCtlColorDlg(hdcStatic);
-		}
-
-		case WM_PRINTCLIENT:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				return TRUE;
-			}
-			break;
-		}
-
-		case NPPM_INTERNAL_REFRESHDARKMODE:
-		{
-			NppDarkMode::autoThemeChildControls(_hSelf);
-			return TRUE;
-		}
-
-		case WM_DPICHANGED:
-		{
-			_dpiManager.setDpiWP(wParam);
-
-			setFont();
-
-			setPositionDpi(lParam);
-
-			getWindowRect(_rc);
-
-			return TRUE;
-		}
-
-		case WM_COMMAND:
-		{
-			switch (LOWORD(wParam))
-			{
-				case IDCANCEL:
-					display(false);
-					return TRUE;
-				
-				case IDOK:
-				{
-					return TRUE;
-				}
-
-				case IDC_HASH_FILEBROWSER_BUTTON:
-				{
-					CustomFileDialog fDlg(_hSelf);
-					fDlg.setExtFilter(L"All types", L".*");
-
-					const auto& fns = fDlg.doOpenMultiFilesDlg();
-					if (!fns.empty())
-					{
-						std::wstring files2check, hashResultStr;
-						for (const auto& it : fns)
-						{
-							if (_ht == hashType::hash_md5)
-							{
-								WcharMbcsConvertor& wmc = WcharMbcsConvertor::getInstance();
-								const char *path = wmc.wchar2char(it.c_str(), CP_ACP);
-
-								MD5 md5;
-								char *md5Result = md5.digestFile(path);
-
-								if (md5Result)
-								{
-									files2check += it;
-									files2check += L"\r\n";
-
-									wchar_t* fileName = ::PathFindFileName(it.c_str());
-									hashResultStr += wmc.char2wchar(md5Result, CP_ACP);
-									hashResultStr += L"  ";
-									hashResultStr += fileName;
-									hashResultStr += L"\r\n";
-								}
-							}
-							else
-							{
-								bool bLoadingFailed = false;
-								std::string content = getFileContent(it.c_str(), &bLoadingFailed);
-								if (bLoadingFailed)
-									return FALSE;
-
-								uint8_t hash[HASH_MAX_LENGTH]{};
-								wchar_t hashStr[HASH_STR_MAX_LENGTH]{};
-
-								switch (_ht)
-								{
-									case hash_sha1:
-									{
-										calc_sha1(hash, reinterpret_cast<const uint8_t*>(content.c_str()), content.length());
-									}
-									break;
-
-									case hash_sha256:
-									{
-										calc_sha_256(hash, reinterpret_cast<const uint8_t*>(content.c_str()), content.length());
-									}
-									break;
-
-									case hash_sha512:
-									{
-										calc_sha_512(hash, reinterpret_cast<const uint8_t*>(content.c_str()), content.length());
-									}
-									break;
-
-									default:
-										return FALSE;
-
-								}
-
-								for (int i = 0; i < _ht; i++)
-									wsprintf(hashStr + i * 2, L"%02x", hash[i]);
-
-								files2check += it;
-								files2check += L"\r\n";
-
-								wchar_t* fileName = ::PathFindFileName(it.c_str());
-								hashResultStr += hashStr;
-								hashResultStr += L"  ";
-								hashResultStr += fileName;
-								hashResultStr += L"\r\n";
-							}
-						}
-
-						if (!files2check.empty() && !hashResultStr.empty())
-						{
-							::SetDlgItemText(_hSelf, IDC_HASH_PATH_EDIT, files2check.c_str());
-							::SetDlgItemText(_hSelf, IDC_HASH_RESULT_EDIT, hashResultStr.c_str());
-						}
-					}
-				}
-				return TRUE;
-
-				case IDC_HASH_TOCLIPBOARD_BUTTON:
-				{
-					int len = static_cast<int>(::SendMessage(::GetDlgItem(_hSelf, IDC_HASH_RESULT_EDIT), WM_GETTEXTLENGTH, 0, 0));
-					if (len)
-					{
-						wchar_t* rStr = new wchar_t[len+1];
-						::GetDlgItemText(_hSelf, IDC_HASH_RESULT_EDIT, rStr, len + 1);
-						str2Clipboard(rStr, _hSelf);
-						delete[] rStr;
-					}
-				}
-				return TRUE;
-
-				default :
-					break;
-			}
-			break;
-		}
-
-		case WM_DESTROY:
-		{
-			destroy();
-			return TRUE;
-		}
+		return QCryptographicHash::hash(content, algorithm).toHex();
 	}
-	return FALSE;
+
+	void setFixedFont(QPlainTextEdit* edit)
+	{
+		edit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+	}
 }
 
-static LRESULT CALLBACK TextEditSelectAllProc(
-	HWND hWnd,
-	UINT uMsg,
-	WPARAM wParam,
-	LPARAM lParam,
-	UINT_PTR uIdSubclass,
-	[[maybe_unused]] DWORD_PTR dwRefData
-)
+void HashFromFilesDlg::onChooseFiles()
 {
-	switch (uMsg)
+	CustomFileDialog fDlg(_hSelf);
+	fDlg.setExtFilter(L"All types", L".*");
+
+	const auto& fns = fDlg.doOpenMultiFilesDlg();
+	if (fns.empty())
+		return;
+
+	std::wstring files2check, hashResultStr;
+	for (const auto& it : fns)
 	{
-		case WM_NCDESTROY:
-		{
-			::RemoveWindowSubclass(hWnd, TextEditSelectAllProc, uIdSubclass);
-			break;
-		}
+		bool bLoadingFailed = false;
+		std::string content = getFileContent(it.c_str(), &bLoadingFailed);
+		if (bLoadingFailed)
+			return;
 
-		case WM_GETDLGCODE:
-		{
-			return DLGC_WANTALLKEYS | ::DefSubclassProc(hWnd, uMsg, wParam, lParam);
-		}
+		files2check += it;
+		files2check += L"\r\n";
 
-		case WM_CHAR:
-		{
-			if (wParam == 1) // Ctrl+A
-			{
-				::SendMessage(hWnd, EM_SETSEL, 0, -1);
-				return 0;
-			}
-			break;
-		}
-
-		default:
-			break;
+		hashResultStr += QString::fromLatin1(hashOf(_ht, QByteArrayView(content.data(), content.size()))).toStdWString();
+		hashResultStr += L"  ";
+		hashResultStr += PathFindFileName(it.c_str());
+		hashResultStr += L"\r\n";
 	}
-	return ::DefSubclassProc(hWnd, uMsg, wParam, lParam);
+
+	if (!files2check.empty() && !hashResultStr.empty())
+	{
+		setItemText(IDC_HASH_PATH_EDIT, files2check);
+		setItemText(IDC_HASH_RESULT_EDIT, hashResultStr);
+	}
 }
 
 void HashFromFilesDlg::setHashType(hashType hashType2set)
@@ -283,77 +100,56 @@ void HashFromFilesDlg::doDialog(bool isRTL)
 {
 	if (!isCreated())
 	{
-		const auto dpiContext = DPIManagerV2::setThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-		create(IDD_HASHFROMFILES_DLG, isRTL);
-		DPIManagerV2::setThreadDpiAwarenessContext(dpiContext);
+		QDialog* dialog = createDialogWidget(isRTL);
+		Ui::HashfromfilesDlg ui;
+		ui.setupUi(dialog);
 
-		std::wstring title;
-		std::wstring buttonText;
+		setFixedFont(ui.hashPathEdit);
+		setFixedFont(ui.hashResultEdit);
 
+		QString title;
+		QString buttonText;
 		switch (_ht)
 		{
 			case hash_md5:
-			{
-				title = L"Generate MD5 digest from files";
-				buttonText = L"Choose files to &generate MD5...";
-			}
-			break;
+				title = QStringLiteral("Generate MD5 digest from files");
+				buttonText = QStringLiteral("Choose files to &generate MD5...");
+				break;
 
 			case hash_sha1:
-			{
-				title = L"Generate SHA-1 digest from files";
-				buttonText = L"Choose files to &generate SHA-1...";
-			}
-			break;
+				title = QStringLiteral("Generate SHA-1 digest from files");
+				buttonText = QStringLiteral("Choose files to &generate SHA-1...");
+				break;
 
 			case hash_sha256:
-			{
-				title = L"Generate SHA-256 digest from files";
-				buttonText = L"Choose files to &generate SHA-256...";
-			}
-			break;
+				title = QStringLiteral("Generate SHA-256 digest from files");
+				buttonText = QStringLiteral("Choose files to &generate SHA-256...");
+				break;
 
 			case hash_sha512:
-			{
-				title = L"Generate SHA-1 digest from files";
-				buttonText = L"Choose files to &generate SHA-512...";
-			}
-			break;
+				title = QStringLiteral("Generate SHA-512 digest from files");
+				buttonText = QStringLiteral("Choose files to &generate SHA-512...");
+				break;
 
 			default:
 				return;
 		}
-		::SetWindowText(_hSelf, title.c_str());
-		::SetDlgItemText(_hSelf, IDC_HASH_FILEBROWSER_BUTTON, buttonText.c_str());
+		dialog->setWindowTitle(title);
+		ui.hashFilebrowserButton->setText(buttonText);
+
+		QObject::connect(ui.cancel, &QAbstractButton::clicked, dialog, [this]() { display(false); });
+		QObject::connect(ui.hashFilebrowserButton, &QAbstractButton::clicked, dialog, [this]() { onChooseFiles(); });
+		QObject::connect(ui.hashToclipboardButton, &QAbstractButton::clicked, dialog, [this]()
+		{
+			const std::wstring result = getItemText(IDC_HASH_RESULT_EDIT);
+			if (!result.empty())
+				str2Clipboard(result, _hSelf);
+		});
 	}
 
 	// Adjust the position in the center
-	moveForDpiChange();
-	goToCenter(SWP_SHOWWINDOW | SWP_NOSIZE);
-}
-
-void HashFromFilesDlg::destroy()
-{
-	StaticDialog::destroy();
-	destroyFont();
-}
-
-void HashFromFilesDlg::destroyFont()
-{
-	if (_hFont != nullptr)
-	{
-		::DeleteObject(_hFont);
-		_hFont = nullptr;
-	}
-}
-
-void HashFromFilesDlg::setFont()
-{
-	destroyFont();
-	_hFont = createFont(L"Courier New", NppParameters::getInstance().getDlgFontSize() + 1, false, _hSelf);
-
-	::SendMessage(::GetDlgItem(_hSelf, IDC_HASH_PATH_EDIT), WM_SETFONT, reinterpret_cast<WPARAM>(_hFont), MAKELPARAM(TRUE, 0));
-	::SendMessage(::GetDlgItem(_hSelf, IDC_HASH_RESULT_EDIT), WM_SETFONT, reinterpret_cast<WPARAM>(_hFont), MAKELPARAM(TRUE, 0));
+	goToCenter();
+	display();
 }
 
 void HashFromTextDlg::generateHash()
@@ -361,285 +157,38 @@ void HashFromTextDlg::generateHash()
 	if (_ht != hash_md5 && _ht != hash_sha1 && _ht != hash_sha256 && _ht != hash_sha512)
 		return;
 
-	int len = static_cast<int>(::SendMessage(::GetDlgItem(_hSelf, IDC_HASH_TEXT_EDIT), WM_GETTEXTLENGTH, 0, 0));
-	if (len)
-	{
-		// it's important to get text from UNICODE then convert it to UTF8
-		// So we get the result of UTF8 text (tested with Chinese).
-		wchar_t* text = new wchar_t[len + 1];
-		::GetDlgItemText(_hSelf, IDC_HASH_TEXT_EDIT, text, len + 1);
-		WcharMbcsConvertor& wmc = WcharMbcsConvertor::getInstance();
-		const char *newText = wmc.wchar2char(text, SC_CP_UTF8);
-		if (_ht == hash_md5)
-		{
-			MD5 md5;
-			char* md5Result = md5.digestString(newText);
-			::SetDlgItemTextA(_hSelf, IDC_HASH_RESULT_FOMTEXT_EDIT, md5Result);
-		}
-		else
-		{
-			uint8_t hash[HASH_MAX_LENGTH]{};
-			wchar_t hashStr[HASH_STR_MAX_LENGTH]{};
-
-			switch (_ht)
-			{
-				case hash_sha1:
-				{
-					calc_sha1(hash, reinterpret_cast<const uint8_t*>(newText), strlen(newText));
-				}
-				break;
-
-				case hash_sha256:
-				{
-					calc_sha_256(hash, reinterpret_cast<const uint8_t*>(newText), strlen(newText));
-				}
-				break;
-
-				case hash_sha512:
-				{
-					calc_sha_512(hash, reinterpret_cast<const uint8_t*>(newText), strlen(newText));
-				}
-				break;
-
-				default:
-					delete[] text;
-					return;
-			}
-
-			for (int i = 0; i < _ht; i++)
-				wsprintf(hashStr + i * 2, L"%02x", hash[i]);
-
-			::SetDlgItemText(_hSelf, IDC_HASH_RESULT_FOMTEXT_EDIT, hashStr);
-		}
-		delete[] text;
-	}
-	else
-	{
-		::SetDlgItemTextA(_hSelf, IDC_HASH_RESULT_FOMTEXT_EDIT, "");
-	}
+	// it's important to get text from UNICODE then convert it to UTF8
+	// So we get the result of UTF8 text (tested with Chinese).
+	const QByteArray text = QString::fromStdWString(getItemText(IDC_HASH_TEXT_EDIT)).toUtf8();
+	setItemText(IDC_HASH_RESULT_FOMTEXT_EDIT, text.isEmpty() ? std::wstring{} : QString::fromLatin1(hashOf(_ht, text)).toStdWString());
 }
 
 void HashFromTextDlg::generateHashPerLine()
 {
-	int len = static_cast<int>(::SendMessage(::GetDlgItem(_hSelf, IDC_HASH_TEXT_EDIT), WM_GETTEXTLENGTH, 0, 0));
-	if (len)
+	const QString text = QString::fromStdWString(getItemText(IDC_HASH_TEXT_EDIT));
+	if (text.isEmpty())
 	{
-		wchar_t* text = new wchar_t[len + 1];
-		::GetDlgItemText(_hSelf, IDC_HASH_TEXT_EDIT, text, len + 1);
-
-		std::wstringstream ss(text);
-		std::wstring aLine;
-		std::string result;
-
-		WcharMbcsConvertor& wmc = WcharMbcsConvertor::getInstance();
-
-		while (std::getline(ss, aLine))
-		{
-			if (aLine.empty()) // in case of UNIX EOL
-			{
-				result += "\r\n";
-			}
-			else
-			{
-				// getline() detect only '\n' but not "\r\n" under Windows
-				// this hack is to walk around such bug
-				if (aLine.back() == '\r')
-					aLine.pop_back();
-
-				if (aLine.empty()) // Windows EOL, both \n & \r are removed
-				{
-					result += "\r\n";
-				}
-				else
-				{
-					const char* newText = wmc.wchar2char(aLine.c_str(), SC_CP_UTF8);
-
-					if (_ht == hash_md5)
-					{
-						MD5 md5;
-						char* md5Result = md5.digestString(newText);
-						result += md5Result;
-						result += "\r\n";
-					}
-					else
-					{
-						uint8_t hash[HASH_MAX_LENGTH]{};
-						char hashStr[HASH_STR_MAX_LENGTH]{};
-
-						switch (_ht)
-						{
-							case hash_sha1:
-							{
-								calc_sha1(hash, reinterpret_cast<const uint8_t*>(newText), strlen(newText));
-							}
-							break;
-
-							case hash_sha256:
-							{
-								calc_sha_256(hash, reinterpret_cast<const uint8_t*>(newText), strlen(newText));
-							}
-							break;
-
-							case hash_sha512:
-							{
-								calc_sha_512(hash, reinterpret_cast<const uint8_t*>(newText), strlen(newText));
-							}
-							break;
-
-							default:
-								delete[] text;
-								return;
-						}
-
-						for (int i = 0; i < _ht; i++)
-							sprintf(hashStr + i * 2, "%02x", hash[i]);
-
-						result += hashStr;
-						result += "\r\n";
-					}
-				}
-			}
-		}
-		
-		delete[] text;
-
-		::SetDlgItemTextA(_hSelf, IDC_HASH_RESULT_FOMTEXT_EDIT, result.c_str());
+		setItemText(IDC_HASH_RESULT_FOMTEXT_EDIT, L"");
+		return;
 	}
-	else
+
+	QStringList lines = text.split(u'\n');
+	if (lines.last().isEmpty()) // text ending with an EOL has no further line
+		lines.removeLast();
+
+	QString result;
+	for (QString& line : lines)
 	{
-		::SetDlgItemTextA(_hSelf, IDC_HASH_RESULT_FOMTEXT_EDIT, "");
+		// the line can still hold the '\r' of a Windows EOL
+		if (line.endsWith(u'\r'))
+			line.chop(1);
+
+		if (!line.isEmpty())
+			result += QString::fromLatin1(hashOf(_ht, line.toUtf8()));
+		result += QStringLiteral("\r\n");
 	}
-}
 
-intptr_t CALLBACK HashFromTextDlg::run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam)
-{
-	switch (message) 
-	{
-		case WM_INITDIALOG:
-		{
-			NppDarkMode::autoSubclassAndThemeChildControls(_hSelf);
-
-			setFont();
-
-			::SetWindowSubclass(::GetDlgItem(_hSelf, IDC_HASH_TEXT_EDIT), TextEditSelectAllProc, static_cast<UINT_PTR>(SubclassID::first), 0);
-			::SetWindowSubclass(::GetDlgItem(_hSelf, IDC_HASH_RESULT_FOMTEXT_EDIT), TextEditSelectAllProc, static_cast<UINT_PTR>(SubclassID::first), 0);
-
-			return TRUE;
-		}
-
-		case WM_CTLCOLOREDIT:
-		{
-			return NppDarkMode::onCtlColorCtrl(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_CTLCOLORDLG:
-		{
-			return NppDarkMode::onCtlColorDlg(reinterpret_cast<HDC>(wParam));
-		}
-
-		case WM_CTLCOLORSTATIC:
-		{
-			const auto hdcStatic = reinterpret_cast<HDC>(wParam);
-			const auto dlgCtrlID = ::GetDlgCtrlID(reinterpret_cast<HWND>(lParam));
-			if (dlgCtrlID == IDC_HASH_RESULT_FOMTEXT_EDIT)
-			{
-				return NppDarkMode::onCtlColor(hdcStatic);
-			}
-			return NppDarkMode::onCtlColorDlg(hdcStatic);
-		}
-
-		case WM_PRINTCLIENT:
-		{
-			if (NppDarkMode::isEnabled())
-			{
-				return TRUE;
-			}
-			break;
-		}
-
-		case NPPM_INTERNAL_REFRESHDARKMODE:
-		{
-			NppDarkMode::autoThemeChildControls(_hSelf);
-			return TRUE;
-		}
-
-		case WM_DPICHANGED:
-		{
-			_dpiManager.setDpiWP(wParam);
-
-			setFont();
-
-			setPositionDpi(lParam);
-
-			getWindowRect(_rc);
-
-			return TRUE;
-		}
-
-		case WM_COMMAND:
-		{
-			if (HIWORD(wParam) == EN_CHANGE && LOWORD(wParam) == IDC_HASH_TEXT_EDIT)
-			{
-				if (isCheckedOrNot(IDC_HASH_EACHLINE_CHECK))
-				{
-					generateHashPerLine();
-				}
-				else
-				{
-					generateHash();
-				}
-			}
-
-			switch (LOWORD(wParam))
-			{
-				case IDCANCEL :
-					display(false);
-					return TRUE;
-				
-				case IDOK :
-				{
-					return TRUE;
-				}
-
-				case IDC_HASH_EACHLINE_CHECK:
-				{
-					if (isCheckedOrNot(IDC_HASH_EACHLINE_CHECK))
-					{
-						generateHashPerLine();
-					}
-					else
-					{
-						generateHash();
-					}
-				}
-				return TRUE;
-
-				case IDC_HASH_FROMTEXT_TOCLIPBOARD_BUTTON:
-				{
-					int len = static_cast<int>(::SendMessage(::GetDlgItem(_hSelf, IDC_HASH_RESULT_FOMTEXT_EDIT), WM_GETTEXTLENGTH, 0, 0));
-					if (len)
-					{
-						wchar_t* rStr = new wchar_t[len+1];
-						::GetDlgItemText(_hSelf, IDC_HASH_RESULT_FOMTEXT_EDIT, rStr, len + 1);
-						str2Clipboard(rStr, _hSelf);
-						delete[] rStr;
-					}
-				}
-				return TRUE;
-
-				default :
-					break;
-			}
-			break;
-		}
-
-		case WM_DESTROY:
-		{
-			destroy();
-			return TRUE;
-		}
-	}
-	return FALSE;
+	setItemText(IDC_HASH_RESULT_FOMTEXT_EDIT, result.toStdWString());
 }
 
 void HashFromTextDlg::setHashType(hashType hashType2set)
@@ -651,69 +200,43 @@ void HashFromTextDlg::doDialog(bool isRTL)
 {
 	if (!isCreated())
 	{
-		const auto dpiContext = DPIManagerV2::setThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-		create(IDD_HASHFROMTEXT_DLG, isRTL);
-		DPIManagerV2::setThreadDpiAwarenessContext(dpiContext);
+		QDialog* dialog = createDialogWidget(isRTL);
+		Ui::HashfromtextDlg ui;
+		ui.setupUi(dialog);
 
-		std::wstring title;
+		setFixedFont(ui.hashTextEdit);
+		setFixedFont(ui.hashResultFomtextEdit);
+
+		QString title;
 		switch (_ht)
 		{
-			case hash_md5:
-			{
-				title = L"Generate MD5 digest";
-			}
-			break;
-			
-			case hash_sha1:
-			{
-				title = L"Generate SHA-1 digest";
-			}
-			break;
-
-			case hash_sha256:
-			{
-				title = L"Generate SHA-256 digest";
-			}
-			break;
-
-			case hash_sha512:
-			{
-				title = L"Generate SHA-512 digest";
-			}
-			break;
-
-			default:
-				break;
+			case hash_md5: title = QStringLiteral("Generate MD5 digest"); break;
+			case hash_sha1: title = QStringLiteral("Generate SHA-1 digest"); break;
+			case hash_sha256: title = QStringLiteral("Generate SHA-256 digest"); break;
+			case hash_sha512: title = QStringLiteral("Generate SHA-512 digest"); break;
+			default: break;
 		}
+		dialog->setWindowTitle(title);
 
-		::SetWindowText(_hSelf, title.c_str());
+		const auto regenerate = [this]()
+		{
+			if (isCheckedOrNot(IDC_HASH_EACHLINE_CHECK))
+				generateHashPerLine();
+			else
+				generateHash();
+		};
+		QObject::connect(ui.hashTextEdit, &QPlainTextEdit::textChanged, dialog, regenerate);
+		QObject::connect(ui.hashEachlineCheck, &QAbstractButton::clicked, dialog, regenerate);
+		QObject::connect(ui.cancel, &QAbstractButton::clicked, dialog, [this]() { display(false); });
+		QObject::connect(ui.hashFromtextToclipboardButton, &QAbstractButton::clicked, dialog, [this]()
+		{
+			const std::wstring result = getItemText(IDC_HASH_RESULT_FOMTEXT_EDIT);
+			if (!result.empty())
+				str2Clipboard(result, _hSelf);
+		});
 	}
 
 	// Adjust the position in the center
-	moveForDpiChange();
-	goToCenter(SWP_SHOWWINDOW | SWP_NOSIZE);
-}
-
-void HashFromTextDlg::destroy()
-{
-	StaticDialog::destroy();
-	destroyFont();
-}
-
-void HashFromTextDlg::destroyFont()
-{
-	if (_hFont != nullptr)
-	{
-		::DeleteObject(_hFont);
-		_hFont = nullptr;
-	}
-}
-
-void HashFromTextDlg::setFont()
-{
-	destroyFont();
-	_hFont = createFont(L"Courier New", NppParameters::getInstance().getDlgFontSize() + 1, false, _hSelf);
-
-	::SendMessage(::GetDlgItem(_hSelf, IDC_HASH_TEXT_EDIT), WM_SETFONT, reinterpret_cast<WPARAM>(_hFont), MAKELPARAM(TRUE, 0));
-	::SendMessage(::GetDlgItem(_hSelf, IDC_HASH_RESULT_FOMTEXT_EDIT), WM_SETFONT, reinterpret_cast<WPARAM>(_hFont), MAKELPARAM(TRUE, 0));
+	goToCenter();
+	display();
 }

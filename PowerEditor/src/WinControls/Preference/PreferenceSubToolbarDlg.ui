@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubToolbarDlg</class>
+ <widget class="QWidget" name="PreferenceSubToolbarDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <layout class="QHBoxLayout" name="layout2">
+     <item>
+      <layout class="QVBoxLayout" name="layout3">
+       <item>
+        <widget class="QCheckBox" name="checkHide">
+         <property name="nppId" stdset="0"><number>6102</number></property>
+         <property name="text"><string>Hide</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QRadioButton" name="radioSmallicon">
+         <property name="nppId" stdset="0"><number>6103</number></property>
+         <property name="text"><string>Fluent UI: small</string></property>
+         <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+        </widget>
+       </item>
+       <item>
+        <widget class="QRadioButton" name="radioBigicon">
+         <property name="nppId" stdset="0"><number>6104</number></property>
+         <property name="text"><string>Fluent UI: large</string></property>
+         <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+        </widget>
+       </item>
+       <item>
+        <widget class="QRadioButton" name="radioSmallicon2">
+         <property name="nppId" stdset="0"><number>6129</number></property>
+         <property name="text"><string>Filled Fluent UI: small</string></property>
+         <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+        </widget>
+       </item>
+       <item>
+        <widget class="QRadioButton" name="radioBigicon2">
+         <property name="nppId" stdset="0"><number>6130</number></property>
+         <property name="text"><string>Filled Fluent UI: large</string></property>
+         <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+        </widget>
+       </item>
+       <item>
+        <widget class="QRadioButton" name="radioStandard">
+         <property name="nppId" stdset="0"><number>6105</number></property>
+         <property name="text"><string>Standard icons: small</string></property>
+         <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+        </widget>
+       </item>
+       <item>
+        <spacer name="spacer4">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <widget class="QGroupBox" name="toolbarGbColorization">
+       <property name="nppId" stdset="0"><number>6011</number></property>
+       <property name="title"><string>Colorization</string></property>
+       <layout class="QVBoxLayout" name="layout5">
+        <item>
+         <layout class="QHBoxLayout" name="layout6">
+          <item>
+           <widget class="QRadioButton" name="radioComplete">
+            <property name="nppId" stdset="0"><number>6012</number></property>
+            <property name="text"><string>Complete</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+           </widget>
+          </item>
+          <item>
+           <widget class="QRadioButton" name="radioPartial">
+            <property name="nppId" stdset="0"><number>6013</number></property>
+            <property name="text"><string>Partial</string></property>
+            <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer7">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="toolbarGbColorchoice">
+          <property name="nppId" stdset="0"><number>6014</number></property>
+          <property name="title"><string>Color choice</string></property>
+          <layout class="QHBoxLayout" name="layout8">
+           <item>
+            <layout class="QGridLayout" name="layout9">
+             <item row="0" column="0">
+              <widget class="QRadioButton" name="radioRed">
+               <property name="nppId" stdset="0"><number>6016</number></property>
+               <property name="text"><string>Red</string></property>
+               <attribute name="buttonGroup"><string notr="true">radioGroup3</string></attribute>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QRadioButton" name="radioDefaultcolor">
+               <property name="nppId" stdset="0"><number>6015</number></property>
+               <property name="text"><string>Default</string></property>
+               <attribute name="buttonGroup"><string notr="true">radioGroup3</string></attribute>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QRadioButton" name="radioGreen">
+               <property name="nppId" stdset="0"><number>6017</number></property>
+               <property name="text"><string>Green</string></property>
+               <attribute name="buttonGroup"><string notr="true">radioGroup3</string></attribute>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <layout class="QHBoxLayout" name="layout10">
+               <item>
+                <widget class="QRadioButton" name="radioAccentcolor">
+                 <property name="nppId" stdset="0"><number>6023</number></property>
+                 <property name="text"><string>System Accent</string></property>
+                 <attribute name="buttonGroup"><string notr="true">radioGroup3</string></attribute>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="accentTipStatic">
+                 <property name="nppId" stdset="0"><number>6025</number></property>
+                 <property name="text"><string>(?)</string></property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item row="2" column="0">
+              <widget class="QRadioButton" name="radioBlue">
+               <property name="nppId" stdset="0"><number>6018</number></property>
+               <property name="text"><string>Blue</string></property>
+               <attribute name="buttonGroup"><string notr="true">radioGroup3</string></attribute>
+              </widget>
+             </item>
+             <item row="2" column="1">
+              <widget class="QRadioButton" name="radioCustomcolor">
+               <property name="nppId" stdset="0"><number>6024</number></property>
+               <property name="text"><string>Custom</string></property>
+               <attribute name="buttonGroup"><string notr="true">radioGroup3</string></attribute>
+              </widget>
+             </item>
+             <item row="3" column="0">
+              <widget class="QRadioButton" name="radioPurple">
+               <property name="nppId" stdset="0"><number>6019</number></property>
+               <property name="text"><string>Purple</string></property>
+               <attribute name="buttonGroup"><string notr="true">radioGroup3</string></attribute>
+              </widget>
+             </item>
+             <item row="4" column="0">
+              <widget class="QRadioButton" name="radioCyan">
+               <property name="nppId" stdset="0"><number>6020</number></property>
+               <property name="text"><string>Cyan</string></property>
+               <attribute name="buttonGroup"><string notr="true">radioGroup3</string></attribute>
+              </widget>
+             </item>
+             <item row="5" column="0">
+              <widget class="QRadioButton" name="radioOlive">
+               <property name="nppId" stdset="0"><number>6021</number></property>
+               <property name="text"><string>Olive</string></property>
+               <attribute name="buttonGroup"><string notr="true">radioGroup3</string></attribute>
+              </widget>
+             </item>
+             <item row="6" column="0">
+              <widget class="QRadioButton" name="radioYellow">
+               <property name="nppId" stdset="0"><number>6022</number></property>
+               <property name="text"><string>Yellow</string></property>
+               <attribute name="buttonGroup"><string notr="true">radioGroup3</string></attribute>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <spacer name="spacer11">
+             <property name="orientation"><enum>Qt::Horizontal</enum></property>
+             <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+             <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <spacer name="spacer12">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <spacer name="spacer13">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+  <buttongroup name="radioGroup2"/>
+  <buttongroup name="radioGroup3"/>
+ </buttongroups>
+</ui>

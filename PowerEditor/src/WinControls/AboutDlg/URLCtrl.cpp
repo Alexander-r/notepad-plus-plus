@@ -17,264 +17,125 @@
 
 #include "URLCtrl.h"
 
-#include <windows.h>
+#include <QDesktopServices>
+#include <QEvent>
+#include <QLabel>
+#include <QApplication>
+#include <QPalette>
+#include <QUrl>
 
-#include <commctrl.h>
-
-#include "Common.h"
-#include "NppConstants.h"
-#include "NppDarkMode.h"
-#include "Parameters.h"
-#include "dpiManagerV2.h"
-
-
-void URLCtrl::create(HWND itemHandle, const wchar_t * link, COLORREF linkColor)
+namespace
 {
-	// turn on notify style
-    ::SetWindowLongPtr(itemHandle, GWL_STYLE, ::GetWindowLongPtr(itemHandle, GWL_STYLE) | SS_NOTIFY);
+	class LinkClicks : public QObject
+	{
+	public:
+		LinkClicks(QObject* parent, std::function<void()> onClick) : QObject(parent), _onClick(std::move(onClick)) {}
 
-	// set the URL text (not the display text)
-	if (link)
-		_URL = link;
+	protected:
+		bool eventFilter(QObject* watched, QEvent* event) override
+		{
+			if (event->type() == QEvent::MouseButtonRelease && _onClick)
+				_onClick();
+			return QObject::eventFilter(watched, event);
+		}
 
-	// set the hyperlink colour
-    _linkColor = linkColor;
-
-	// set the visited colour
-	_visitedColor = RGB(128,0,128);
-
-	// subclass the static control
-	::SetWindowSubclass(itemHandle, URLCtrlProc, static_cast<UINT_PTR>(SubclassID::first), reinterpret_cast<DWORD_PTR>(this));
-
-	// save hwnd
-	_hSelf = itemHandle;
-
-	loadHandCursor();
+	private:
+		std::function<void()> _onClick;
+	};
 }
+
+namespace
+{
+	// A link takes its colour from the application's palette only when its text is set, or the label when its own
+	// palette is, so that has to happen again when dark mode changes
+	class FollowPalette : public QObject
+	{
+	public:
+		FollowPalette(QLabel* label, std::function<void()> apply) : QObject(label), _apply(std::move(apply))
+		{
+			label->installEventFilter(this);
+			_apply();
+		}
+
+	protected:
+		bool eventFilter(QObject* watched, QEvent* event) override
+		{
+			if (event->type() == QEvent::ApplicationPaletteChange)
+				_apply();
+			return QObject::eventFilter(watched, event);
+		}
+
+	private:
+		std::function<void()> _apply;
+	};
+}
+
+void URLCtrl::applyStyle(QLabel* label) const
+{
+	QFont font = label->font();
+	font.setUnderline(true);
+	label->setFont(font);
+	label->setCursor(Qt::PointingHandCursor);
+}
+
+void URLCtrl::create(HWND itemHandle, const wchar_t* link)
+{
+	auto* label = qobject_cast<QLabel*>(itemHandle);
+	if (!label)
+		return;
+
+	_URL = link ? link : L"";
+	const QString url = QString::fromStdWString(_URL);
+	const QString text = label->text().isEmpty() ? url : label->text().toHtmlEscaped();
+	label->setTextFormat(Qt::RichText);
+	label->setOpenExternalLinks(true);
+	label->setTextInteractionFlags(Qt::TextBrowserInteraction);
+	const QString html = QStringLiteral("<a href=\"%1\">%2</a>").arg(url.toHtmlEscaped(), text);
+	new FollowPalette(label, [label, html]()
+	{
+		label->clear();
+		label->setText(html);
+	});
+	label->setToolTip(url);
+	label->setCursor(Qt::PointingHandCursor);
+}
+
+void URLCtrl::create(HWND itemHandle, std::function<void()> onClick)
+{
+	auto* label = qobject_cast<QLabel*>(itemHandle);
+	if (!label)
+		return;
+
+	_hSelf = label;
+	applyStyle(label);
+	new FollowPalette(label, [label]()
+	{
+		QPalette colours = QApplication::palette();
+		colours.setColor(QPalette::WindowText, colours.color(QPalette::Link));
+		label->setPalette(colours);
+	});
+	label->installEventFilter(new LinkClicks(label, std::move(onClick)));
+}
+
 void URLCtrl::create(HWND itemHandle, int cmd, HWND msgDest)
 {
-	// turn on notify style
-    ::SetWindowLongPtr(itemHandle, GWL_STYLE, ::GetWindowLongPtr(itemHandle, GWL_STYLE) | SS_NOTIFY);
+	auto* label = qobject_cast<QLabel*>(itemHandle);
+	if (!label)
+		return;
 
 	_cmdID = cmd;
-	_msgDest = msgDest;
-
-	// set the hyperlink colour
-    _linkColor = RGB(0,0,255);
-
-	// subclass the static control
-	::SetWindowSubclass(itemHandle, URLCtrlProc, static_cast<UINT_PTR>(SubclassID::first), reinterpret_cast<DWORD_PTR>(this));
-
-	// save hwnd
-	_hSelf = itemHandle;
-
-	loadHandCursor();
-}
-
-void URLCtrl::destroy()
-{
-	if (_hfUnderlined)
+	_msgDest = msgDest ? msgDest : label->parentWidget();
+	label->setTextFormat(Qt::RichText);
+	label->setTextInteractionFlags(Qt::TextBrowserInteraction);
+	const QString html = QStringLiteral("<a href=\"#\">%1</a>").arg(label->text().toHtmlEscaped());
+	new FollowPalette(label, [label, html]()
 	{
-		::DeleteObject(_hfUnderlined);
-		_hfUnderlined = nullptr;
-	}
-}
-
-HCURSOR& URLCtrl::loadHandCursor()
-{
-	if (_hCursor == nullptr)
+		label->clear();
+		label->setText(html);
+	});
+	QObject::connect(label, &QLabel::linkActivated, label, [this]()
 	{
-		_hCursor = static_cast<HCURSOR>(::LoadImage(nullptr, MAKEINTRESOURCE(OCR_HAND), IMAGE_CURSOR, SM_CXCURSOR, SM_CYCURSOR, LR_SHARED));
-	}
-
-	return _hCursor;
-}
-
-void URLCtrl::action()
-{
-	if (_cmdID)
-	{
-		::SendMessage(_msgDest?_msgDest:_hParent, WM_COMMAND, _cmdID, 0);
-	}
-	else
-	{
-		_linkColor = _visitedColor;
-
-		::InvalidateRect(_hSelf, 0, 0);
-		::UpdateWindow(_hSelf);
-
-		// Open a browser
-		if (!_URL.empty())
-		{
-			::ShellExecute(NULL, L"open", _URL.c_str(), NULL, NULL, SW_SHOWNORMAL);
-		}
-		else
-		{
-			wchar_t szWinText[MAX_PATH] = { '\0' };
-			::GetWindowText(_hSelf, szWinText, MAX_PATH);
-			::ShellExecute(NULL, L"open", szWinText, NULL, NULL, SW_SHOWNORMAL);
-		}
-	}
-}
-
-LRESULT CALLBACK URLCtrl::URLCtrlProc(
-	HWND hwnd,
-	UINT Message,
-	WPARAM wParam,
-	LPARAM lParam,
-	UINT_PTR uIdSubclass,
-	DWORD_PTR dwRefData
-)
-{
-	auto* pRefData = reinterpret_cast<URLCtrl*>(dwRefData);
-
-	switch (Message)
-	{
-		case WM_NCDESTROY:
-		{
-			::RemoveWindowSubclass(hwnd, URLCtrlProc, uIdSubclass);
-			break;
-		}
-
-	    // Paint the static control using our custom
-	    // colours, and with an underline text style
-	    case WM_PAINT:
-        {
-			DWORD dwStyle = static_cast<DWORD>(::GetWindowLongPtr(hwnd, GWL_STYLE));
-		    DWORD dwDTStyle = DT_SINGLELINE;
-
-		    //Test if centered horizontally or vertically
-		    if (dwStyle & SS_CENTER)	     dwDTStyle |= DT_CENTER;
-		    if (dwStyle & SS_RIGHT)		 dwDTStyle |= DT_RIGHT;
-		    if (dwStyle & SS_CENTERIMAGE) dwDTStyle |= DT_VCENTER;
-
-			RECT rect{};
-            ::GetClientRect(hwnd, &rect);
-
-			PAINTSTRUCT ps{};
-            HDC hdc = ::BeginPaint(hwnd, &ps);
-
-			if ((pRefData->_linkColor == pRefData->_visitedColor) || (pRefData->_linkColor == NppDarkMode::getDarkerTextColor()))
-			{
-				pRefData->_linkColor = NppDarkMode::isEnabled() ? NppDarkMode::getDarkerTextColor() : pRefData->_visitedColor;
-				::SetTextColor(hdc, pRefData->_linkColor);
-			}
-			else if (NppDarkMode::isEnabled())
-			{
-				::SetTextColor(hdc, NppDarkMode::getLinkTextColor());
-			}
-			else
-			{
-				::SetTextColor(hdc, pRefData->_linkColor);
-			}
-
-            ::SetBkColor(hdc, getCtrlBgColor(GetParent(hwnd))); ///*::GetSysColor(COLOR_3DFACE)*/);
-
-			// Create an underline font
-			if (pRefData->_hfUnderlined == nullptr)
-			{
-				HWND hParent = ::GetParent(hwnd);
-				const int fontSize = DPIManagerV2::scaleFontForFactor(NppParameters::getInstance().getDlgFontSize() + 1);
-
-				LOGFONT lf{};
-				if (auto* hFont = reinterpret_cast<HFONT>(::SendMessage(hParent, WM_GETFONT, 0, 0));
-					hFont != nullptr && ::GetObjectW(hFont, sizeof(LOGFONT), &lf) != sizeof(LOGFONT))
-				{
-					lf = DPIManagerV2::getDefaultGUIFontForDpi(hParent, static_cast<WORD>(fontSize));
-				}
-				else
-				{
-					lf.lfHeight = DPIManagerV2::scaleFont(fontSize, hParent);
-				}
-
-				lf.lfUnderline = TRUE;
-
-				// Create a new font
-				pRefData->_hfUnderlined = ::CreateFontIndirect(&lf);
-			}
-
-			auto hOld = static_cast<HFONT>(::SelectObject(hdc, pRefData->_hfUnderlined));
-
-		    // Draw the text!
-			wchar_t szWinText[MAX_PATH] = { '\0' };
-            ::GetWindowText(hwnd, szWinText, MAX_PATH);
-            ::DrawText(hdc, szWinText, -1, &rect, dwDTStyle);
-
-            ::SelectObject(hdc, hOld);
-
-            ::EndPaint(hwnd, &ps);
-
-		    return 0;
-        }
-
-		case WM_DPICHANGED_AFTERPARENT:
-		{
-			pRefData->destroy();
-			return 0;
-		}
-
-		case WM_SETTEXT:
-		{
-			const LRESULT ret = ::DefSubclassProc(hwnd, Message, wParam, lParam);
-			::InvalidateRect(hwnd, 0, 0);
-			return ret;
-		}
-		// Provide a hand cursor when the mouse moves over us
-		//case WM_SETCURSOR:
-		case WM_MOUSEMOVE:
-		{
-			::SetCursor(pRefData->loadHandCursor());
-			return 0;
-		}
-
-		case WM_LBUTTONDOWN:
-		{
-			pRefData->_clicking = true;
-			break;
-		}
-
-		case WM_LBUTTONUP:
-		{
-			if (pRefData->_clicking)
-			{
-				pRefData->_clicking = false;
-				pRefData->action();
-			}
-			break;
-		}
-
-		//Support using space to activate this object
-		case WM_KEYDOWN:
-		{
-			if (wParam == VK_SPACE)
-				pRefData->_clicking = true;
-
-			break;
-		}
-
-		case WM_KEYUP:
-		{
-			if (wParam == VK_SPACE && pRefData->_clicking)
-			{
-				pRefData->_clicking = false;
-				pRefData->action();
-			}
-			break;
-		}
-
-		// A standard static control returns HTTRANSPARENT here, which
-		// prevents us from receiving any mouse messages. So, return
-		// HTCLIENT instead.
-		case WM_NCHITTEST:
-		{
-			return HTCLIENT;
-		}
-
-		case WM_DESTROY:
-		{
-			pRefData->destroy();
-			break;
-		}
-	}
-	return ::DefSubclassProc(hwnd, Message, wParam, lParam);
+		::SendMessage(_msgDest, WM_COMMAND, _cmdID, 0);
+	});
+	label->setCursor(Qt::PointingHandCursor);
 }

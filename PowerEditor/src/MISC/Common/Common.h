@@ -17,9 +17,10 @@
 
 #pragma once
 
-#include <windows.h>
+#include <QString>
 
-#include <commctrl.h>
+#include "NppPlatform.h"
+
 
 #include <algorithm>
 #include <locale>
@@ -28,7 +29,8 @@
 #include <vector>
 #include <cstdint>
 
-std::wstring folderBrowser(HWND parent, const std::wstring & title = L"", int outputCtrlID = 0, const wchar_t *defaultStr = NULL);
+class QLineEdit;
+std::wstring folderBrowser(HWND parent, const std::wstring & title = L"", QLineEdit* outputCtrl = nullptr, const wchar_t *defaultStr = NULL);
 std::wstring getFolderName(HWND parent, const wchar_t *defaultDir = NULL);
 
 void printInt(int int2print);
@@ -37,16 +39,18 @@ std::wstring commafyInt(size_t n);
 
 void writeLog(const wchar_t* logFileName, const char* log2write);
 void writeLog(const wchar_t* logFileName, const wchar_t* log2write);
-int filter(unsigned int code, struct _EXCEPTION_POINTERS *ep);
 std::wstring purgeMenuItemString(const wchar_t* menuItemStr, bool keepAmpersand = false);
 std::vector<std::wstring> tokenizeString(const std::wstring & tokenString, const char delim);
 
-void ClientRectToScreenRect(HWND hWnd, RECT* rect);
-void ScreenRectToClientRect(HWND hWnd, RECT* rect);
 
 std::wstring string2wstring(const std::string& rString, UINT codepage = CP_UTF8);
 std::string wstring2string(const std::wstring& rwString, UINT codepage = CP_UTF8);
+// Hue, luminance and saturation on the 0 to 240 scale of the original color settings
+void ColorRGBToHLS(COLORREF rgb, WORD* hue, WORD* luminance, WORD* saturation);
+COLORREF ColorHLSToRGB(WORD hue, WORD luminance, WORD saturation);
+
 bool isInList(const wchar_t* token, const wchar_t* list);
+bool pathMatchSpec(const wchar_t* fileName, const wchar_t* spec);
 std::wstring BuildMenuFileName(int filenameLen, unsigned int pos, const std::wstring &filename, bool ordinalNumber = true);
 
 std::string getFileContent(const wchar_t* file2read, bool* pbFailed = nullptr);
@@ -57,6 +61,10 @@ bool matchInList(const wchar_t *fileName, const std::vector<std::wstring> & patt
 bool matchInExcludeDirList(const wchar_t* dirName, const std::vector<std::wstring>& patterns, size_t level);
 bool allPatternsAreExclusion(const std::vector<std::wstring>& patterns);
 HRESULT openInExplorerAndSelect(const wchar_t* path);
+// As with ShellExecute's "open": a document, a folder or a link in its default application
+bool openWithDesktop(const std::wstring& target);
+// The user's terminal emulator. The "cmd" menu commands open it in the document's folder.
+std::wstring findTerminal();
 
 class WcharMbcsConvertor final
 {
@@ -134,7 +142,6 @@ protected:
 
 std::wstring pathRemoveFileSpec(std::wstring & path);
 std::wstring pathAppend(std::wstring &strDest, const std::wstring & str2append);
-COLORREF getCtrlBgColor(HWND hWnd);
 std::wstring stringToUpper(std::wstring strToConvert);
 std::wstring stringToLower(std::wstring strToConvert);
 std::wstring stringReplace(std::wstring subject, const std::wstring& search, const std::wstring& replace);
@@ -153,10 +160,7 @@ bool buf2Clipboard(const std::vector<Buffer*>& buffers, bool isFullPath, HWND hw
 
 std::wstring GetLastErrorAsString(DWORD errorCode = 0);
 
-HWND createToolTip(int toolID, HWND hDlg, HINSTANCE hInst, wchar_t* pszText, bool isRTL);
-HWND createToolTipRect(int toolID, HWND hWnd, HINSTANCE hInst, wchar_t* pszText, const RECT rc);
 
-bool isCertificateValidated(const std::wstring & fullFilePath, const std::wstring & subjectName2check);
 bool isAssoCommandExisting(LPCWSTR FullPathName);
 
 bool deleteFileOrFolder(const std::wstring& f2delete);
@@ -195,7 +199,6 @@ int nbDigitsFromNbLines(size_t nbLines);
 
 std::wstring getDateTimeStrFrom(const std::wstring& dateTimeFormat, const SYSTEMTIME& st);
 
-HFONT createFont(const wchar_t* fontName, int fontSize, bool isBold, HWND hDestParent);
 bool removeReadOnlyFlagFromFileAttributes(const wchar_t* fileFullPath);
 bool toggleReadOnlyFlagFromFileAttributes(const wchar_t* fileFullPath, bool& isChangedToReadOnly);
 
@@ -275,7 +278,6 @@ bool doesPathExist(const wchar_t* path, DWORD milliSec2wait = 0, bool* isTimeout
 // check if the window rectangle intersects with any currently active monitor's working area
 bool isWindowVisibleOnAnyMonitor(const RECT& rectWndIn);
 
-bool isCoreWindows();
 
 
 class ControlInfoTip final
@@ -283,78 +285,34 @@ class ControlInfoTip final
 public:
 	ControlInfoTip() = default;
 	~ControlInfoTip() {
-		if (_hWndInfoTip) {
-			hide();
-		}
+		hide();
 	}
 
-	bool init(HINSTANCE hInst, HWND ctrl2attached, HWND ctrl2attachedParent, const std::wstring& tipStr, bool isRTL, unsigned int remainTimeMillisecond = 0, int maxWidth = 200); // remainTimeMillisecond = 0: no timeout
+	bool init(HWND ctrl2attached, const std::wstring& tipStr, unsigned int remainTimeMillisecond = 0);
 
 	bool isValid() const {
-		return _hWndInfoTip != nullptr;
-	}
-
-	HWND getTipHandle() const {
-		return _hWndInfoTip;
+		return _attached != nullptr;
 	}
 
 	enum showPosition {beginning, middle, end};
 	void show(showPosition pos = middle) const;
-	
+
 	void hide();
 
 private:
-	HWND _hWndInfoTip = nullptr;
-	TOOLINFO _toolInfo = {};
+	HWND _attached = nullptr;
+	QString _tip;
+	int _remainTime = 0;
 
 	ControlInfoTip(const ControlInfoTip&) = delete;
 	ControlInfoTip& operator=(const ControlInfoTip&) = delete;
 };
 
-DWORD invokeNppUacOp(const std::wstring& strCmdLineParams);
 bool fileTimeToYMD(const FILETIME& ft, int& yyyymmdd);
+FILETIME currentFileTime();
+// In the user's locale short date and time format
+std::wstring fileTimeToLocalString(const FILETIME& ft);
+// Shortens a path to at most maxLen characters with "...", keeping the file name when there is a directory part
+std::wstring compactPath(const std::wstring& path, size_t maxLen);
 void expandEnv(std::wstring& path2Expand);
 
-class ScopedCOMInit final // never use this in DllMain
-{
-public:
-	ScopedCOMInit() {
-		HRESULT hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); // attempt STA init 1st (older CoInitialize(NULL))
-		if (hr == RPC_E_CHANGED_MODE) {
-			hr = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED); // STA init failed, switch to MTA
-		}
-		if (SUCCEEDED(hr)) {
-			// S_OK or S_FALSE, both needs subsequent CoUninitialize()
-			_bInitialized = true;
-		}
-	}
-
-	~ScopedCOMInit() {
-		if (_bInitialized) {
-			_bInitialized = false;
-			::CoUninitialize();
-		}
-	}
-
-	bool isInitialized() const {
-		return _bInitialized;
-	}
-
-private:
-	bool _bInitialized = false;
-
-	ScopedCOMInit(const ScopedCOMInit&) = delete;
-	ScopedCOMInit& operator=(const ScopedCOMInit&) = delete;
-};
-
-
-bool needsElevation4Access(const std::wstring& path2check, bool bWriteAccess);
-
-
-
-constexpr DWORD   NPP_COPYDATA_CONFIRM = 0x4E50C0DE;   // must differ from the COPYDATA_* values
-constexpr LRESULT NPP_CONFIRM_MAGIC = 0x4E504F4B;   // "yes, I sent exactly that"; TRUE/1 is not accepted as a yes
-using NppDigest = std::array<uint8_t, 32>;
-
-// SHA-256 over (dwData, cbData, bytes): binds the message type and length as well as the content
-bool nppCopyDataDigest(ULONG_PTR dwData, const void* data, DWORD cb, NppDigest& out);

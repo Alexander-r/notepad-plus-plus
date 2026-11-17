@@ -17,67 +17,80 @@
 
 #pragma once
 
-#include <windows.h>
+#include <QPoint>
+#include <QWidget>
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "ColourPicker.h"
+#include "CommandDialog.h"
 #include "Common.h"
-#include "ContextMenu.h"
-#include "ControlsTab.h"
 #include "Notepad_plus_msgs.h"
+#include "NppMessages.h"
 #include "Parameters.h"
 #include "StaticDialog.h"
-#include "dpiManagerV2.h"
 #include "preference_rc.h"
-#include "regExtDlg.h"
 
-class MiscSubDlg : public StaticDialog
+class QDialog;
+class QListWidget;
+class QMenu;
+class QSlider;
+class QStackedWidget;
+
+// A page of the preferences, as a child widget of the dialog
+class PreferenceSubDlg : public CommandDialog
+{
+public:
+	void createPage(HINSTANCE hInst, HWND dialog, QStackedWidget* pages, const std::function<void(QDialog*)>& setupForm);
+
+protected:
+	virtual intptr_t onInit() = 0;
+	void onCancel() override;
+
+	HWND mainWindow() const { return _hParent->parentWidget(); }
+};
+
+class MiscSubDlg : public PreferenceSubDlg
 {
 friend class PreferenceDlg;
 public :
 	MiscSubDlg() = default;
-	~MiscSubDlg() override {
-		if (_tipScintillaRenderingTechnology)
-		{
-			::DestroyWindow(_tipScintillaRenderingTechnology);
-			_tipScintillaRenderingTechnology = nullptr;
-		}
-	}
 
 private :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-	HWND _tipScintillaRenderingTechnology = nullptr;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
-class GeneralSubDlg : public StaticDialog
+class GeneralSubDlg : public PreferenceSubDlg
 {
 public :
 	GeneralSubDlg() = default;
 
 private :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
-class ToolbarSubDlg : public StaticDialog
+class ToolbarSubDlg : public PreferenceSubDlg
 {
 friend class PreferenceDlg;
 public:
 	ToolbarSubDlg() = default;
 
 private:
-	HWND _accentTip = nullptr;
 	std::unique_ptr<ColourPicker> _pIconColorPicker = nullptr;
 
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 	UINT getToolbarIconSetMsg(int* iconSetID);
-	void move2CtrlLeft(int ctrlID, HWND handle2Move, int handle2MoveWidth, int handle2MoveHeight);
 	void enableIconColorPicker(bool enable, bool useDark);
+	void changeColorableState(bool isForDarkModeChange);
 };
 
-class TabbarSubDlg : public StaticDialog
+class TabbarSubDlg : public PreferenceSubDlg
 {
 friend class PreferenceDlg;
 public:
@@ -85,66 +98,46 @@ public:
 	void setTabbarAlternateIcons(bool enable = false);
 
 private:
-	HWND _tabCompactLabelLenTip = nullptr;
 
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
-class EditingSubDlg : public StaticDialog
+class EditingSubDlg : public PreferenceSubDlg
 {
 friend class PreferenceDlg;
 public :
 	EditingSubDlg() = default;
-	~EditingSubDlg() override = default;
 	
 private :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
+	void onScroll(HWND slider) override;
 	void initScintParam();
 	void changeLineHiliteMode(bool enableSlider);
 };
 
-class Editing2SubDlg : public StaticDialog
+class Editing2SubDlg : public PreferenceSubDlg
 {
 friend class PreferenceDlg;
 public :
 	Editing2SubDlg() = default;
-	~Editing2SubDlg() override {
-		if (_tip != nullptr)
-		{
-			::DestroyWindow(_tip);
-			_tip = nullptr;
-		}
-
-		for (auto& tip : _tips)
-		{
-			if (tip != nullptr)
-			{
-				::DestroyWindow(tip);
-				tip = nullptr;
-			}
-		}
-	}
 
 private:
-	HWND _tip = nullptr;
-	HWND _tipNote = nullptr;
-	HWND _tipAbb = nullptr;
-	HWND _tipCodepoint = nullptr;
-	HWND _tipNpcColor = nullptr;
-	HWND _tipNpcInclude = nullptr;
 
-	std::vector<HWND> _tips;
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
-class DarkModeSubDlg : public StaticDialog
+class DarkModeSubDlg : public PreferenceSubDlg
 {
 public:
-	DarkModeSubDlg() = default;
+	DarkModeSubDlg();
+	~DarkModeSubDlg() override;
 
-	void destroyResetMenu() {
-		_resetPopupMenu.destroy();
-	}
+	// The system asked for the dark mode
+	void chooseDarkMode() { onCommand(IDC_RADIO_DARKMODE_DARKMODE, 0); }
+
 
 private:
 	std::unique_ptr<ColourPicker> _pBackgroundColorPicker = nullptr;
@@ -160,30 +153,25 @@ private:
 	std::unique_ptr<ColourPicker> _pHotEdgeColorPicker = nullptr;
 	std::unique_ptr<ColourPicker> _pDisabledEdgeColorPicker = nullptr;
 
-	ContextMenu _resetPopupMenu;
+	std::unique_ptr<QMenu> _resetPopupMenu;
 
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 	void enableCustomizedColorCtrls(bool doEnable);
-	void move2CtrlLeft(int ctrlID, HWND handle2Move, int handle2MoveWidth, int handle2MoveHeight);
+	void showResetMenu();
 };
 
-class MarginsBorderEdgeSubDlg : public StaticDialog
+class MarginsBorderEdgeSubDlg : public PreferenceSubDlg
 {
 friend class PreferenceDlg;
 public :
 	MarginsBorderEdgeSubDlg() = default;
-	~MarginsBorderEdgeSubDlg() override {
-		if (_verticalEdgeTip != nullptr)
-		{
-			::DestroyWindow(_verticalEdgeTip);
-			_verticalEdgeTip = nullptr;
-		}
-	}
 
 private :
-	HWND _verticalEdgeTip = nullptr;
 
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
+	void onScroll(HWND slider) override;
 	void initScintParam();
 };
 
@@ -194,111 +182,95 @@ struct LangID_Name
 	LangID_Name(LangType id, const std::wstring& name) : _id(id), _name(name) {}
 };
 
-class NewDocumentSubDlg : public StaticDialog
+class NewDocumentSubDlg : public PreferenceSubDlg
 {
 public :
 	NewDocumentSubDlg() = default;
 
 private :
 	void makeOpenAnsiAsUtf8(bool doIt) const;
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
-class DefaultDirectorySubDlg : public StaticDialog
+class DefaultDirectorySubDlg : public PreferenceSubDlg
 {
 public :
 	DefaultDirectorySubDlg() = default;
 
 private :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
-class RecentFilesHistorySubDlg : public StaticDialog
+class RecentFilesHistorySubDlg : public PreferenceSubDlg
 {
 public :
 	RecentFilesHistorySubDlg() = default;
 private :
 	void setCustomLen(int val);
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
-class LanguageSubDlg : public StaticDialog
+class LanguageSubDlg : public PreferenceSubDlg
 {
 public :
 	LanguageSubDlg() = default;
 
 private :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 	std::vector<LangMenuItem> _langList;
 };
 
-class IndentationSubDlg : public StaticDialog
+class IndentationSubDlg : public PreferenceSubDlg
 {
 friend class PreferenceDlg;
 public :
 	IndentationSubDlg() = default;
-	~IndentationSubDlg() override {
-		if (_tipAutoIndentBasic != nullptr)
-		{
-			::DestroyWindow(_tipAutoIndentBasic);
-			_tipAutoIndentBasic = nullptr;
-		}
-
-		if (_tipAutoIndentAdvanced != nullptr)
-		{
-			::DestroyWindow(_tipAutoIndentAdvanced);
-			_tipAutoIndentAdvanced = nullptr;
-		}
-	}
 
 private :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-	HWND _tipAutoIndentBasic = nullptr;
-	HWND _tipAutoIndentAdvanced = nullptr;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
-class HighlightingSubDlg : public StaticDialog
+class HighlightingSubDlg : public PreferenceSubDlg
 {
 public :
 	HighlightingSubDlg() = default;
 
 private :
 
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
 
-class SearchingSubDlg : public StaticDialog
+class SearchingSubDlg : public PreferenceSubDlg
 {
 friend class PreferenceDlg;
 public:
 	SearchingSubDlg() = default;
-	~SearchingSubDlg() override {
-		if (_tipInSelThresh != nullptr)
-		{
-			::DestroyWindow(_tipInSelThresh);
-			_tipInSelThresh = nullptr;
-		}
-	}
 
 private:
-	HWND _tipInSelThresh = nullptr;
-	HWND _tipFillFindWhatThresh = nullptr;
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
-class PrintSubDlg : public StaticDialog
+class PrintSubDlg : public PreferenceSubDlg
 {
 public :
 	PrintSubDlg() = default;
 
 private :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 	std::vector<std::wstring> varList;
 	int _focusedEditCtrl = 0;
 };
 
-class BackupSubDlg : public StaticDialog
+class BackupSubDlg : public PreferenceSubDlg
 {
 public :
 	BackupSubDlg() = default;
@@ -306,84 +278,78 @@ public :
 private :
 	void updateBackupSessionGUI();
 	void updateBackupOnSaveGUI();
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
 
-class AutoCompletionSubDlg : public StaticDialog
+class AutoCompletionSubDlg : public PreferenceSubDlg
 {
 public :
 	AutoCompletionSubDlg() = default;
 private :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
+	void onScroll(HWND slider) override;
 };
 
-class MultiInstanceSubDlg : public StaticDialog
+class MultiInstanceSubDlg : public PreferenceSubDlg
 {
 public :
 	MultiInstanceSubDlg() = default;
 
 private :
 	const SYSTEMTIME _BTTF_time = {1985, 10, 6, 26, 16, 24, 42, 0};
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
-class DelimiterSubDlg : public StaticDialog
+class DelimiterSubDlg : public PreferenceSubDlg
 {
 friend class PreferenceDlg;
 public :
 	DelimiterSubDlg() = default;
-	~DelimiterSubDlg() override {
-		if (_tip)
-			::DestroyWindow(_tip);
-	}
 
 private :
-	LONG _gapEditHor = 0;
-	LONG _gapEditVer = 0;
-	LONG _gapText = 0;
-	HWND _tip = nullptr;
 
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 	void detectSpace(const char *text2Check, int & nbSp, int & nbTab) const;
 	std::wstring getWarningText(size_t nbSp, size_t nbTab) const;
 	void setWarningIfNeed() const;
-	void calcCtrlsPos();
 	void setCtrlsPos(bool isMultiline);
 };
 
-class CloudAndLinkSubDlg : public StaticDialog
+class CloudAndLinkSubDlg : public PreferenceSubDlg
 {
 public :
 	CloudAndLinkSubDlg() = default;
 
 private :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
-class SearchEngineSubDlg : public StaticDialog
+class SearchEngineSubDlg : public PreferenceSubDlg
 {
 public :
 	SearchEngineSubDlg() = default;
 
 private :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 };
 
-class PerformanceSubDlg : public StaticDialog
+class PerformanceSubDlg : public PreferenceSubDlg
 {
 friend class PreferenceDlg;
 public :
 	PerformanceSubDlg() = default;
-	~PerformanceSubDlg() override {
-		if (_largeFileRestrictionTip)
-			::DestroyWindow(_largeFileRestrictionTip);
-	}
 
 private :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	intptr_t onInit() override;
+	intptr_t onCommand(WPARAM wParam, LPARAM lParam) override;
 
-	HWND _largeFileRestrictionTip = nullptr;
 };
 
 class PreferenceDlg : public StaticDialog
@@ -392,24 +358,11 @@ friend class NativeLangSpeaker;
 friend class Notepad_plus;
 public :
 	PreferenceDlg() = default;
-
-	void doDialog(bool isRTL = false) {
-		if (!isCreated())
-		{
-			const auto dpiContext = DPIManagerV2::setThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-			create(IDD_PREFERENCE_BOX, isRTL);
-			goToCenter(SWP_SHOWWINDOW | SWP_NOSIZE);
-			DPIManagerV2::setThreadDpiAwarenessContext(dpiContext);
-		}
-		display();
-	}
+	void doDialog(bool isRTL = false);
 
 	bool renameDialogTitle(const wchar_t *internalName, const wchar_t *newName);
-	
-	int getListSelectedIndex() const {
-		return static_cast<int>(::SendDlgItemMessage(_hSelf, IDC_LIST_DLGTITLE, LB_GETCURSEL, 0, 0));
-	}
 
+	int getListSelectedIndex() const;
 	void showDialogByName(const wchar_t *name) const;
 	bool setListSelection(size_t currentSel) const;
 
@@ -418,11 +371,23 @@ public :
 	void destroy() override;
 
 private :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	struct PageInfo
+	{
+		PreferenceSubDlg* _dlg = nullptr;
+		std::wstring _name;
+		std::wstring _internalName;
+	};
+
+	void createDialog(bool isRTL);
+	LRESULT onMessage(UINT message, WPARAM wParam, LPARAM lParam);
 	void makeCategoryList();
+	void fitCategoryList();
 	int getIndexFromName(const wchar_t* name) const;
 	void showDialogByIndex(size_t index) const;
-	WindowVector _wVector;
+
+	std::vector<PageInfo> _wVector;
+	QStackedWidget* _pages = nullptr;
+	QListWidget* _categories = nullptr;
 	GeneralSubDlg _generalSubDlg;
 	ToolbarSubDlg _toolbarSubDlg;
 	TabbarSubDlg _tabbarSubDlg;
@@ -431,7 +396,6 @@ private :
 	DarkModeSubDlg _darkModeSubDlg;
 	MarginsBorderEdgeSubDlg _marginsBorderEdgeSubDlg;
 	MiscSubDlg _miscSubDlg;
-	RegExtDlg _fileAssocDlg;
 	LanguageSubDlg _languageSubDlg;
 	IndentationSubDlg _indentationSubDlg;
 	HighlightingSubDlg _highlightingSubDlg;
@@ -447,6 +411,4 @@ private :
 	CloudAndLinkSubDlg _cloudAndLinkSubDlg;
 	SearchEngineSubDlg _searchEngineSubDlg;
 	SearchingSubDlg _searchingSubDlg;
-
-	ControlInfoTip _gotoTip;
 };

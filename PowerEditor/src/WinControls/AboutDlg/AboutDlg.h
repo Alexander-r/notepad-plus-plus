@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <windows.h>
-
 #include <string>
 
 #include "URLCtrl.h"
@@ -47,22 +45,10 @@ public :
 
 	void doDialog();
 
-	void destroy() override {
-		//_emailLink.destroy();
-		if (_hIcon != nullptr)
-		{
-			::DestroyIcon(_hIcon);
-			_hIcon = nullptr;
-		}
-	}
-
-protected :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	void destroy() override {}
 
 private :
-	//URLCtrl _emailLink;
 	URLCtrl _pageLink;
-	HICON _hIcon = nullptr;
 };
 
 
@@ -83,11 +69,9 @@ public:
 
 	void destroy() override {}
 
-protected:
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-
 private:
-	typedef const CHAR * (__cdecl * PWINEGETVERSION)();
+	void buildDebugInfo();
+
 	std::wstring _debugInfoStr;
 	std::wstring _debugInfoDisplay;
 	const std::wstring _cmdLinePlaceHolder { L"$COMMAND_LINE_PLACEHOLDER$" };
@@ -105,14 +89,6 @@ public:
 
 	void doDialog();
 	void destroy() override {}
-
-protected:
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-
-	HFONT _hCmdLineEditFont = nullptr;
-
-	void setFont();
-	void destroyFont() noexcept;
 };
 
 class DoSaveOrNotBox : public StaticDialog
@@ -139,7 +115,7 @@ public:
 	void changeLang();
 
 protected:
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	void onCancel() override;
 
 private:
 	int _clickedButtonId = -1;
@@ -165,42 +141,8 @@ public:
 	void changeLang();
 
 protected:
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
+	void onCancel() override;
 
 private:
 	int _clickedButtonId = -1;
-};
-
-class NetworkPathWarningBox : public StaticDialog
-{
-public:
-	NetworkPathWarningBox() = default;
-
-	void init(HINSTANCE hInst, HWND parent, const std::wstring& path, const char* titleTag = nullptr) {
-		Window::init(hInst, parent);
-		_networkPath = path;
-		if (titleTag)
-			_titleTag = titleTag;
-	}
-
-	void doDialog(bool isRTL = false);
-
-	void destroy() override {}
-
-	int getClickedButtonId() const {
-		return _clickedButtonId;
-	}
-
-	void changeLang();
-
-protected:
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
-
-private:
-	int _clickedButtonId = -1;
-	std::wstring _networkPath;
-	std::string _titleTag;
-	HWND _hwndServerWhiteListTip = nullptr;
-
-	using Window::init;
 };

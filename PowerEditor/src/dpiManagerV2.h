@@ -16,152 +16,37 @@
 
 
 #pragma once
-#include <windows.h>
 
-#ifndef WM_DPICHANGED
-#define WM_DPICHANGED 0x02E0
-#endif
+#include "NppPlatform.h"
 
-#ifndef WM_DPICHANGED_BEFOREPARENT
-#define WM_DPICHANGED_BEFOREPARENT 0x02E2
-#endif
-
-#ifndef WM_DPICHANGED_AFTERPARENT
-#define WM_DPICHANGED_AFTERPARENT 0x02E3
-#endif
-
-#ifndef WM_GETDPISCALEDSIZE
-#define WM_GETDPISCALEDSIZE 0x02E4
-#endif
-
+// Qt lays out in device-independent pixels and scales windows between screens itself, so unlike on
+// Win32 there is nothing to convert: 96 is the logical DPI of those pixels everywhere.
 class DPIManagerV2
 {
 public:
-	DPIManagerV2() {
-		setDpiWithSystem();
-	}
-	virtual ~DPIManagerV2() = default;
+	DPIManagerV2() = default;
 
-	enum class FontType { menu, status, message, caption, smcaption };
+	static constexpr UINT USER_DEFAULT_SCREEN_DPI = 96;
 
-	static void initDpiAPI();
+	static UINT getDpiForWindow(HWND) { return USER_DEFAULT_SCREEN_DPI; }
+	static UINT getDpiForParent(HWND) { return USER_DEFAULT_SCREEN_DPI; }
+	static UINT getDpiForSystem() { return USER_DEFAULT_SCREEN_DPI; }
 
-	static int getSystemMetricsForDpi(int nIndex, UINT dpi);
-	int getSystemMetricsForDpi(int nIndex) const {
-		return getSystemMetricsForDpi(nIndex, _dpi);
-	}
+	void setDpi(HWND) {}
+	void setDpi(UINT) {}
+	UINT getDpi() const { return USER_DEFAULT_SCREEN_DPI; }
 
-	[[nodiscard]] static bool isValidDpiAwarenessContext(DPI_AWARENESS_CONTEXT value);
-	// includes check for `DPI_AWARENESS_CONTEXT dpiContext` via `isValidDpiAwarenessContext`
-	static DPI_AWARENESS_CONTEXT setThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT dpiContext);
-	static DPI_AWARENESS_CONTEXT getWindowDpiAwarenessContext(HWND hWnd);
+	static int scale(int x, UINT, UINT) { return x; }
+	static int scale(int x, UINT) { return x; }
+	static int scale(int x, HWND) { return x; }
+	static int unscale(int x, UINT) { return x; }
+	static int unscale(int x, HWND) { return x; }
+	int scale(int x) const { return x; }
+	int unscale(int x) const { return x; }
 
-	static bool adjustWindowRectExForDpi(LPRECT lpRect, DWORD dwStyle, BOOL bMenu, DWORD dwExStyle, UINT dpi);
-
-	static UINT getDpiForSystem();
-	static UINT getDpiForWindow(HWND hWnd);
-	static UINT getDpiForParent(HWND hWnd) {
-		return getDpiForWindow(::GetParent(hWnd));
-	}
-
-	void setDpiWithSystem() {
-		_dpi = getDpiForSystem();
-	}
-
-	// parameter is WPARAM
-	void setDpiWP(WPARAM wParam) {
-		_dpi = LOWORD(wParam);
-	}
-
-	void setDpi(UINT newDpi) {
-		_dpi = newDpi;
-	}
-
-	void setDpi(HWND hWnd) {
-		setDpi(getDpiForWindow(hWnd));
-	}
-
-	void setDpiWithParent(HWND hWnd) {
-		setDpi(::GetParent(hWnd));
-	}
-
-	UINT getDpi() const {
-		return _dpi;
-	}
-
-	static void setPositionDpi(LPARAM lParam, HWND hWnd, UINT flags = SWP_NOZORDER | SWP_NOACTIVATE);
-
-	static int scale(int x, UINT toDpi, UINT fromDpi) {
-		return MulDiv(x, toDpi, fromDpi);
-	}
-
-	static int scale(int x, UINT dpi) {
-		return scale(x, dpi, USER_DEFAULT_SCREEN_DPI);
-	}
-
-	static int unscale(int x, UINT dpi) {
-		return scale(x, USER_DEFAULT_SCREEN_DPI, dpi);
-	}
-
-	static int scale(int x, HWND hWnd) {
-		return scale(x, getDpiForWindow(hWnd), USER_DEFAULT_SCREEN_DPI);
-	}
-
-	static int unscale(int x, HWND hWnd) {
-		return scale(x, USER_DEFAULT_SCREEN_DPI, getDpiForWindow(hWnd));
-	}
-
-	int scale(int x) const {
-		return scale(x, _dpi);
-	}
-
-	int unscale(int x) const {
-		return unscale(x, _dpi);
-	}
-
-	static int scaleFont(int pt, UINT dpi) {
-		return -(scale(pt, dpi, 72));
-	}
-
-	static int scaleFont(int pt, HWND hWnd) {
-		return -(scale(pt, getDpiForWindow(hWnd), 72));
-	}
-
-	int scaleFont(int pt) const {
-		return scaleFont(pt, _dpi);
-	}
-
-	static LOGFONT getDefaultGUIFontForDpi(UINT dpi, FontType type = FontType::message);
-	static LOGFONT getDefaultGUIFontForDpi(HWND hWnd, FontType type = FontType::message) {
-		return getDefaultGUIFontForDpi(getDpiForWindow(hWnd), type);
-	}
-	static LOGFONT getDefaultGUIFontForDpi(UINT dpi, WORD fontSize, FontType type = FontType::message);
-	static LOGFONT getDefaultGUIFontForDpi(HWND hWnd, WORD fontSize, FontType type = FontType::message) {
-		return getDefaultGUIFontForDpi(getDpiForWindow(hWnd), fontSize, type);
-	}
-
-	LOGFONT getDefaultGUIFontForDpi(FontType type = FontType::message) const {
-		return getDefaultGUIFontForDpi(_dpi, type);
-	}
-
-	static void loadIcon(HINSTANCE hinst, const wchar_t* pszName, int cx, int cy, HICON* phico, UINT fuLoad = LR_DEFAULTCOLOR);
-
-	[[nodiscard]] static DWORD getTextScaleFactor();
-
-	[[nodiscard]] static int scaleFontForFactor(int pt, UINT textScaleFactor) {
-		static constexpr UINT defaultFontScaleFactor = 100;
-		return scale(pt, textScaleFactor, defaultFontScaleFactor);
-	}
-
-	[[nodiscard]] static int scaleFontForFactor(int pt) {
-		static const int scaleFactor = DPIManagerV2::getTextScaleFactor();
-		return scaleFontForFactor(pt, scaleFactor);
-	}
-
-	[[nodiscard]] static int getFontAdjustedHeight(HWND hWnd, HFONT hFont) noexcept;
-	[[nodiscard]] static int getFontAvgAlphaWidth(HWND hWnd, HFONT hFont) noexcept;
-	[[nodiscard]] static int getFontDigitWidth(HWND hWnd, HFONT hFont) noexcept;
-
-private:
-	UINT _dpi = USER_DEFAULT_SCREEN_DPI;
+	// Font sizes in the configuration are given in points, and they mean the same as a Qt point size.
+	static int scaleFontForFactor(int pt) { return pt; }
+	static int scaleFont(int pt, UINT) { return pt; }
+	static int scaleFont(int pt, HWND) { return pt; }
+	int scaleFont(int pt) const { return pt; }
 };

@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <windows.h>
 
 #include "StaticDialog.h"
 
@@ -30,36 +29,25 @@ class HashFromFilesDlg : public StaticDialog
 {
 public :
 	void doDialog(bool isRTL = false);
-	void destroyFont();
-	void destroy() override;
+	void destroy() override {}
 	void setHashType(hashType hashType2set);
 
 protected :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
 	hashType _ht = hash_md5;
 
 private :
-	HFONT _hFont = nullptr;
-
-	void setFont();
+	void onChooseFiles();
 };
 
 class HashFromTextDlg : public StaticDialog
 {
 public :
 	void doDialog(bool isRTL = false);
-	void destroy() override;
-	void destroyFont();
+	void destroy() override {}
 	void generateHash();
 	void generateHashPerLine();
 	void setHashType(hashType hashType2set);
 
 protected :
-	intptr_t CALLBACK run_dlgProc(UINT message, WPARAM wParam, LPARAM lParam) override;
 	hashType _ht = hash_md5;
-
-private :
-	HFONT _hFont = nullptr;
-
-	void setFont();
 };

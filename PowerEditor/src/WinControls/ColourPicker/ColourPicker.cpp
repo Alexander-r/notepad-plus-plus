@@ -14,192 +14,131 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-#include <stdexcept>
 #include "ColourPicker.h"
+
+#include <QAbstractButton>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QPaintEvent>
+
 #include "ColourPopup.h"
-#include "NppDarkMode.h"
 #include "NppConstants.h"
 
-#include <commctrl.h>
+namespace
+{
+	QColor toQColor(COLORREF colour)
+	{
+		return QColor(GetRValue(colour), GetGValue(colour), GetBValue(colour));
+	}
+
+	class ColourButton : public QAbstractButton
+	{
+	public:
+		ColourButton(QWidget* parent, ColourPicker* picker) : QAbstractButton(parent), _picker(picker)
+		{
+			setFixedSize(25, 25);
+			setFocusPolicy(Qt::StrongFocus);
+		}
+
+	protected:
+		void paintEvent(QPaintEvent*) override
+		{
+			QPainter painter(this);
+			const QRect area = rect().adjusted(0, 0, -1, -1);
+
+			if (!QWidget::isEnabled())
+			{
+				painter.setPen(palette().color(QPalette::Disabled, QPalette::WindowText));
+				painter.setBrush(palette().color(QPalette::Window));
+				painter.drawRect(area);
+				return;
+			}
+
+			const COLORREF colour = _picker->getColour();
+			painter.setPen(hasFocus() ? palette().color(QPalette::Highlight) : palette().color(QPalette::Dark));
+			painter.setBrush(toQColor(colour));
+			painter.drawRect(area);
+
+			if (!_picker->isEnabled())
+			{
+				// check if the color is too dark, if so, use white strikeout
+				const int brightness = GetRValue(colour) + GetGValue(colour) + GetBValue(colour);
+				painter.setPen(Qt::NoPen);
+				painter.setBrush(QBrush(brightness < 200 ? Qt::white : Qt::black, Qt::FDiagPattern));
+				painter.drawRect(area);
+			}
+		}
+
+		void mousePressEvent(QMouseEvent* event) override
+		{
+			if (event->button() == Qt::RightButton)
+				_picker->toggleEnabled();
+			else
+				QAbstractButton::mousePressEvent(event);
+		}
+
+	private:
+		ColourPicker* _picker = nullptr;
+	};
+}
+
+ColourPicker::ColourPicker() = default;
+ColourPicker::~ColourPicker() = default;
 
 void ColourPicker::init(HINSTANCE hInst, HWND parent)
 {
 	Window::init(hInst, parent);
 
-	_hSelf = ::CreateWindowEx(
-		0,
-		L"Button",
-		L"F",
-		WS_CHILD | WS_VISIBLE,
-		0, 0, 25, 25,
-		_hParent, nullptr, _hInst, nullptr);
-
-	if (!_hSelf)
-		throw std::runtime_error("ColourPicker::init : CreateWindowEx() function return null");
-
-	::SetWindowSubclass(_hSelf, staticProc, static_cast<UINT_PTR>(SubclassID::first), reinterpret_cast<DWORD_PTR>(this));
+	auto* button = new ColourButton(parent, this);
+	QObject::connect(button, &QAbstractButton::clicked, button, [this]() { showPopup(); });
+	_hSelf = button;
 }
-
 
 void ColourPicker::destroy()
 {
-	ColourPicker::destroyColorPopup();
-	::DestroyWindow(_hSelf);
-}
-
-void ColourPicker::drawBackground(HDC hDC) const
-{
-	RECT rc;
-	HBRUSH hbrush;
-
-	if (!hDC)
-		return;
-
-	getClientRect(rc);
-	hbrush = ::CreateSolidBrush(_currentColour);
-	HGDIOBJ oldObj = ::SelectObject(hDC, hbrush);
-	HPEN holdPen = nullptr;
-	if (NppDarkMode::isEnabled())
-	{
-		holdPen = static_cast<HPEN>(::SelectObject(hDC, NppDarkMode::getEdgePen()));
-	}
-	::Rectangle(hDC, 0, 0, rc.right, rc.bottom);
-	if (NppDarkMode::isEnabled() && holdPen)
-	{
-		::SelectObject(hDC, holdPen);
-	}
-	::SelectObject(hDC, oldObj);
-	//FillRect(hDC, &rc, hbrush);
-	::DeleteObject(hbrush);
-}
-
-void ColourPicker::drawForeground(HDC hDC) const
-{
-	RECT rc;
-
-	if (!hDC || _isEnabled)
-		return;
-
-	int oldMode = ::SetBkMode(hDC, TRANSPARENT);
-	getClientRect(rc);
-	COLORREF strikeOut = RGB(0,0,0);
-	if ((((_currentColour      ) & 0xFF) +
-		 ((_currentColour >>  8) & 0xFF) +
-		 ((_currentColour >> 16) & 0xFF)) < 200)	//check if the color is too dark, if so, use white strikeout
-		strikeOut = RGB(0xFF,0xFF,0xFF);
-
-	HBRUSH hbrush = ::CreateHatchBrush(HS_FDIAGONAL, strikeOut);
-	HGDIOBJ oldObj = ::SelectObject(hDC, hbrush);
-	::Rectangle(hDC, 0, 0, rc.right, rc.bottom);
-	::SelectObject(hDC, oldObj);
-	//FillRect(hDC, &rc, hbrush);
-	::DeleteObject(hbrush);
-	::SetBkMode(hDC, oldMode);
+	destroyColorPopup();
+	delete _hSelf;
+	_hSelf = nullptr;
 }
 
 void ColourPicker::destroyColorPopup()
 {
-	if (_pColourPopup != nullptr)
+	if (_pColourPopup)
 	{
 		_pColourPopup->destroy();
-		delete _pColourPopup;
-		_pColourPopup = nullptr;
+		_pColourPopup.reset();
 	}
 }
 
-LRESULT CALLBACK ColourPicker::staticProc(
-	HWND hwnd,
-	UINT Message,
-	WPARAM wParam,
-	LPARAM lParam,
-	UINT_PTR uIdSubclass,
-	DWORD_PTR dwRefData
-)
+void ColourPicker::showPopup()
 {
-	auto* cpData = reinterpret_cast<ColourPicker*>(dwRefData);
+	destroyColorPopup();
 
-	switch (Message)
+	_pColourPopup = std::make_unique<ColourPopup>(_currentColour);
+	_pColourPopup->init(_hInst, _hSelf);
+	_pColourPopup->doDialog(_hSelf->mapToGlobal(_hSelf->rect().bottomLeft()), [this](COLORREF colour) { colourChosen(colour); });
+}
+
+void ColourPicker::colourChosen(COLORREF colour)
+{
+	destroyColorPopup();
+
+	if (_currentColour != colour)
 	{
-		case WM_NCDESTROY:
-		{
-			::RemoveWindowSubclass(hwnd, staticProc, uIdSubclass);
-			break;
-		}
-
-		case WM_LBUTTONDBLCLK:
-		case WM_LBUTTONDOWN:
-		{
-			cpData->destroyColorPopup();
-
-			if (cpData->_pColourPopup == nullptr)
-			{
-				RECT rc{};
-				cpData->Window::getClientRect(rc);
-				::InflateRect(&rc, -2, -2);
-				POINT p{ rc.left, rc.top + rc.bottom };
-				::ClientToScreen(hwnd, &p);
-
-				cpData->_pColourPopup = new ColourPopup(cpData->_currentColour);
-				cpData->_pColourPopup->init(cpData->_hInst, hwnd);
-				cpData->_pColourPopup->doDialog(p);
-
-				return 0;
-			}
-			break;
-		}
-
-		case WM_RBUTTONDOWN:
-		{
-			if (cpData->_disableRightClick)
-				break;
-
-			cpData->_isEnabled = !cpData->_isEnabled;
-			::SendMessage(cpData->_hParent, WM_COMMAND, MAKEWPARAM(0, CPN_COLOURPICKED), reinterpret_cast<LPARAM>(hwnd));
-			cpData->redraw();
-			return 0;
-		}
-
-		case WM_ERASEBKGND:
-		{
-			auto* hdc = reinterpret_cast<HDC>(wParam);
-			cpData->drawBackground(hdc);
-			return TRUE;
-		}
-
-		case WM_PAINT:
-		{
-			PAINTSTRUCT ps{};
-			HDC hdc = ::BeginPaint(hwnd, &ps);
-			cpData->drawForeground(hdc);
-			::EndPaint(hwnd, &ps);
-			return 0;
-		}
-
-		case WM_PICKUP_COLOR:
-		{
-			cpData->destroyColorPopup();
-
-			if (const auto clr = static_cast<COLORREF>(wParam); cpData->_currentColour != clr)
-			{
-				cpData->_currentColour = clr;
-				::SendMessage(cpData->_hParent, WM_COMMAND, MAKEWPARAM(0, CPN_COLOURPICKED), reinterpret_cast<LPARAM>(hwnd));
-				cpData->redraw();
-			}
-			return TRUE;
-		}
-
-		case WM_ENABLE:
-		{
-			if (static_cast<BOOL>(wParam) == FALSE)
-			{
-				cpData->_currentColour = NppDarkMode::isEnabled() ? NppDarkMode::getDlgBackgroundColor() : ::GetSysColor(COLOR_3DFACE);
-				cpData->redraw();
-			}
-			return 0;
-		}
-
-		default:
-			break;
+		_currentColour = colour;
+		if (_onPicked)
+			_onPicked();
+		redraw();
 	}
-	return ::DefSubclassProc(hwnd, Message, wParam, lParam);
+}
+
+void ColourPicker::toggleEnabled()
+{
+	if (_disableRightClick)
+		return;
+
+	_isEnabled = !_isEnabled;
+	if (_onPicked)
+		_onPicked();
+	redraw();
 }

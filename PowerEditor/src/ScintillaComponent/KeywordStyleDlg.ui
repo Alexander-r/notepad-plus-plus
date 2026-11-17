@@ -1,0 +1,326 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>KeywordStyleDlg</class>
+ <widget class="QWidget" name="KeywordStyleDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>699</width><height>674</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <layout class="QGridLayout" name="layout2">
+     <item row="0" column="0">
+      <widget class="QGroupBox" name="keyword1DescgroupStatic">
+       <property name="nppId" stdset="0"><number>22101</number></property>
+       <property name="title"><string>1st group</string></property>
+       <layout class="QVBoxLayout" name="layout3">
+        <item>
+         <layout class="QHBoxLayout" name="layout4">
+          <item>
+           <widget class="QPushButton" name="keyword1Styler">
+            <property name="nppId" stdset="0"><number>22122</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="keyword1PrefixCheck">
+            <property name="nppId" stdset="0"><number>22121</number></property>
+            <property name="text"><string>Prefix mode</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer5">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QPlainTextEdit" name="keyword1Edit">
+          <property name="nppId" stdset="0"><number>22120</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="0" column="1">
+      <widget class="QGroupBox" name="keyword2DescgroupStatic">
+       <property name="nppId" stdset="0"><number>22201</number></property>
+       <property name="title"><string>2nd group</string></property>
+       <layout class="QVBoxLayout" name="layout6">
+        <item>
+         <layout class="QHBoxLayout" name="layout7">
+          <item>
+           <widget class="QPushButton" name="keyword2Styler">
+            <property name="nppId" stdset="0"><number>22222</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="keyword2PrefixCheck">
+            <property name="nppId" stdset="0"><number>22221</number></property>
+            <property name="text"><string>Prefix mode</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer8">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QPlainTextEdit" name="keyword2Edit">
+          <property name="nppId" stdset="0"><number>22220</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="1" column="0">
+      <widget class="QGroupBox" name="keyword3DescgroupStatic">
+       <property name="nppId" stdset="0"><number>22301</number></property>
+       <property name="title"><string>3rd group</string></property>
+       <layout class="QVBoxLayout" name="layout9">
+        <item>
+         <layout class="QHBoxLayout" name="layout10">
+          <item>
+           <widget class="QPushButton" name="keyword3Styler">
+            <property name="nppId" stdset="0"><number>22322</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="keyword3PrefixCheck">
+            <property name="nppId" stdset="0"><number>22321</number></property>
+            <property name="text"><string>Prefix mode</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer11">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QPlainTextEdit" name="keyword3Edit">
+          <property name="nppId" stdset="0"><number>22320</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <widget class="QGroupBox" name="keyword4DescgroupStatic">
+       <property name="nppId" stdset="0"><number>22401</number></property>
+       <property name="title"><string>4th group</string></property>
+       <layout class="QVBoxLayout" name="layout12">
+        <item>
+         <layout class="QHBoxLayout" name="layout13">
+          <item>
+           <widget class="QPushButton" name="keyword4Styler">
+            <property name="nppId" stdset="0"><number>22422</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="keyword4PrefixCheck">
+            <property name="nppId" stdset="0"><number>22421</number></property>
+            <property name="text"><string>Prefix mode</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer14">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QPlainTextEdit" name="keyword4Edit">
+          <property name="nppId" stdset="0"><number>22420</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="2" column="0">
+      <widget class="QGroupBox" name="keyword5DescgroupStatic">
+       <property name="nppId" stdset="0"><number>22451</number></property>
+       <property name="title"><string>5th group</string></property>
+       <layout class="QVBoxLayout" name="layout15">
+        <item>
+         <layout class="QHBoxLayout" name="layout16">
+          <item>
+           <widget class="QPushButton" name="keyword5Styler">
+            <property name="nppId" stdset="0"><number>22472</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="keyword5PrefixCheck">
+            <property name="nppId" stdset="0"><number>22471</number></property>
+            <property name="text"><string>Prefix mode</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer17">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QPlainTextEdit" name="keyword5Edit">
+          <property name="nppId" stdset="0"><number>22470</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="2" column="1">
+      <widget class="QGroupBox" name="keyword6DescgroupStatic">
+       <property name="nppId" stdset="0"><number>22501</number></property>
+       <property name="title"><string>6th group</string></property>
+       <layout class="QVBoxLayout" name="layout18">
+        <item>
+         <layout class="QHBoxLayout" name="layout19">
+          <item>
+           <widget class="QPushButton" name="keyword6Styler">
+            <property name="nppId" stdset="0"><number>22522</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="keyword6PrefixCheck">
+            <property name="nppId" stdset="0"><number>22521</number></property>
+            <property name="text"><string>Prefix mode</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer20">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QPlainTextEdit" name="keyword6Edit">
+          <property name="nppId" stdset="0"><number>22520</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="3" column="0">
+      <widget class="QGroupBox" name="keyword7DescgroupStatic">
+       <property name="nppId" stdset="0"><number>22551</number></property>
+       <property name="title"><string>7th group</string></property>
+       <layout class="QVBoxLayout" name="layout21">
+        <item>
+         <layout class="QHBoxLayout" name="layout22">
+          <item>
+           <widget class="QPushButton" name="keyword7Styler">
+            <property name="nppId" stdset="0"><number>22572</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="keyword7PrefixCheck">
+            <property name="nppId" stdset="0"><number>22571</number></property>
+            <property name="text"><string>Prefix mode</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer23">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QPlainTextEdit" name="keyword7Edit">
+          <property name="nppId" stdset="0"><number>22570</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="3" column="1">
+      <widget class="QGroupBox" name="keyword8DescgroupStatic">
+       <property name="nppId" stdset="0"><number>22601</number></property>
+       <property name="title"><string>8th group</string></property>
+       <layout class="QVBoxLayout" name="layout24">
+        <item>
+         <layout class="QHBoxLayout" name="layout25">
+          <item>
+           <widget class="QPushButton" name="keyword8Styler">
+            <property name="nppId" stdset="0"><number>22622</number></property>
+            <property name="text"><string>Styler</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="keyword8PrefixCheck">
+            <property name="nppId" stdset="0"><number>22621</number></property>
+            <property name="text"><string>Prefix mode</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer26">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QPlainTextEdit" name="keyword8Edit">
+          <property name="nppId" stdset="0"><number>22620</number></property>
+          <property name="tabChangesFocus"><bool>true</bool></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <spacer name="spacer27">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

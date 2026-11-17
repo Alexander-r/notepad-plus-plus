@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Name=Notepad++
+GenericName=Text Editor
+Comment=Source code and text editor
+Exec=notepad++ %F
+Icon=notepad-plus-plus
+Terminal=false
+StartupNotify=true
+Categories=Utility;TextEditor;
+Keywords=text;editor;code;programming;
+MimeType=text/plain;text/x-c;text/x-csrc;text/x-chdr;text/x-c++src;text/x-c++hdr;text/x-csharp;text/x-java;text/x-python;text/x-python3;text/x-perl;text/x-php;text/x-ruby;text/x-lua;text/x-go;text/x-rust;text/x-sql;text/x-shellscript;text/x-makefile;text/x-cmake;text/x-tex;text/x-markdown;text/markdown;text/css;text/html;text/xml;text/csv;application/xml;application/json;application/javascript;application/x-shellscript;application/x-php;application/x-yaml;
+Actions=NewInstance;
+
+[Desktop Action NewInstance]
+Name=New Instance
+Exec=notepad++ -multiInst

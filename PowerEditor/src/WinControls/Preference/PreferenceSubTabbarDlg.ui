@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubTabbarDlg</class>
+ <widget class="QWidget" name="PreferenceSubTabbarDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <widget class="QCheckBox" name="checkTabHide">
+     <property name="nppId" stdset="0"><number>6118</number></property>
+     <property name="text"><string>Hide</string></property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="layout2">
+     <item>
+      <widget class="QGroupBox" name="gbBehavior">
+       <property name="nppId" stdset="0"><number>6125</number></property>
+       <property name="title"><string>Behavior</string></property>
+       <layout class="QVBoxLayout" name="layout3">
+        <item>
+         <widget class="QCheckBox" name="checkTabVertical">
+          <property name="nppId" stdset="0"><number>6120</number></property>
+          <property name="text"><string>Vertical</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkTabMultiline">
+          <property name="nppId" stdset="0"><number>6119</number></property>
+          <property name="text"><string>Multi-line</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkLock">
+          <property name="nppId" stdset="0"><number>6108</number></property>
+          <property name="text"><string>Lock (no drag and drop)</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkDbclick2close">
+          <property name="nppId" stdset="0"><number>6113</number></property>
+          <property name="text"><string>Double click to close document</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkTabLastExit">
+          <property name="nppId" stdset="0"><number>6121</number></property>
+          <property name="text"><string>Exit on close the last tab</string></property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="layout4">
+          <item>
+           <widget class="QLabel" name="tabcompactlabellenStatic">
+            <property name="nppId" stdset="0"><number>6136</number></property>
+            <property name="text"><string>Max. tab label length:</string></property>
+            <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="editTabcompactlabellen">
+            <property name="nppId" stdset="0"><number>6137</number></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="tabcompactlabellenTipStatic">
+            <property name="nppId" stdset="0"><number>6138</number></property>
+            <property name="text"><string>(?)</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer5">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <spacer name="spacer6">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <widget class="QGroupBox" name="gbLookfeel">
+       <property name="nppId" stdset="0"><number>6126</number></property>
+       <property name="title"><string>Look &amp;&amp; feel</string></property>
+       <layout class="QVBoxLayout" name="layout7">
+        <item>
+         <widget class="QCheckBox" name="checkReduce">
+          <property name="nppId" stdset="0"><number>6107</number></property>
+          <property name="text"><string>Reduce</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkTabAlticons">
+          <property name="nppId" stdset="0"><number>6128</number></property>
+          <property name="text"><string>Alternate icons</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkDrawinactive">
+          <property name="nppId" stdset="0"><number>6109</number></property>
+          <property name="text"><string>Change inactive tab color</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkOrange">
+          <property name="nppId" stdset="0"><number>6110</number></property>
+          <property name="text"><string>Draw a coloured bar on active tab</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkEnabletabclose">
+          <property name="nppId" stdset="0"><number>6112</number></property>
+          <property name="text"><string>Show close button</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkEnabletabpin">
+          <property name="nppId" stdset="0"><number>6115</number></property>
+          <property name="text"><string>Enable pin tab feature</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkShowonlypinnedbutton">
+          <property name="nppId" stdset="0"><number>6135</number></property>
+          <property name="text"><string>Show only pinned button</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkInacttabdrawbutton">
+          <property name="nppId" stdset="0"><number>6111</number></property>
+          <property name="text"><string>Show buttons on inactive tabs</string></property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer8">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <spacer name="spacer9">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

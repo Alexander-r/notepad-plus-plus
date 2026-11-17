@@ -17,44 +17,62 @@
 
 #include "trayIconControler.h"
 
-trayIconControler::trayIconControler(HWND hwnd, UINT uID, UINT uCBMsg, HICON hicon, const wchar_t *tip)
+#include <QSystemTrayIcon>
+
+#include "NppMessages.h"
+
+trayIconControler::trayIconControler(HWND hwnd, UINT /*uID*/, UINT uCBMsg, QIcon* hicon, const wchar_t *tip)
+	: _icon(std::make_unique<QSystemTrayIcon>())
 {
-  _nid.cbSize = sizeof(_nid);
-  _nid.hWnd = hwnd;
-  _nid.uID = uID;
-  _nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-  _nid.uCallbackMessage = uCBMsg;
-  _nid.hIcon = hicon;
-  wcscpy_s(_nid.szTip, tip);
-  
-  _isIconShown = false;
+	if (hicon)
+		_icon->setIcon(*hicon);
+	_icon->setToolTip(QString::fromWCharArray(tip));
+
+	QObject::connect(_icon.get(), &QSystemTrayIcon::activated, _icon.get(), [hwnd, uCBMsg](QSystemTrayIcon::ActivationReason reason)
+	{
+		switch (reason)
+		{
+			case QSystemTrayIcon::Trigger:
+			case QSystemTrayIcon::DoubleClick:
+				::SendMessage(hwnd, uCBMsg, 0, WM_LBUTTONUP);
+				break;
+
+			case QSystemTrayIcon::MiddleClick:
+				::SendMessage(hwnd, uCBMsg, 0, WM_MBUTTONUP);
+				break;
+
+			case QSystemTrayIcon::Context:
+				::SendMessage(hwnd, uCBMsg, 0, WM_RBUTTONUP);
+				break;
+
+			default:
+				break;
+		}
+	});
 }
+
+trayIconControler::~trayIconControler() = default;
 
 int trayIconControler::doTrayIcon(DWORD op)
 {
-  if (op != ADD && op != REMOVE)
-      return INCORRECT_OPERATION;
+	if (op != ADD && op != REMOVE)
+		return INCORRECT_OPERATION;
 
-  if ((_isIconShown && op == ADD) || (!_isIconShown && op == REMOVE))
-    return OPERATION_INCOHERENT;
+	if ((_isIconShown && op == ADD) || (!_isIconShown && op == REMOVE))
+		return OPERATION_INCOHERENT;
 
-  ::Shell_NotifyIcon(op, &_nid);
-  _isIconShown = !_isIconShown;
+	_icon->setVisible(op == ADD);
+	_isIconShown = !_isIconShown;
 
-  return 0;
+	return 0;
 }
 
 int trayIconControler::reAddTrayIcon()
 {
-    if (!_isIconShown)
-        return -1;
+	if (!_isIconShown)
+		return -1;
 
-    // we only re-add the tray icon when it has been lost and no longer exists,
-    // but we still delete it first to ensure it's not duplicated 
-    // due to an incorrect call or something
-    ::Shell_NotifyIcon(NIM_DELETE, &_nid);
-
-    // reset state and re-add tray icon
-    _isIconShown = false;
-    return doTrayIcon(ADD);
+	_icon->hide();
+	_icon->show();
+	return 0;
 }

@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PreferenceSubEditing2Dlg</class>
+ <widget class="QWidget" name="PreferenceSubEditing2Dlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>690</width><height>333</height></rect></property>
+  <layout class="QVBoxLayout" name="layout1">
+   <item>
+    <layout class="QHBoxLayout" name="layout2">
+     <item>
+      <widget class="QGroupBox" name="gbStaticMultiediting">
+       <property name="nppId" stdset="0"><number>6521</number></property>
+       <property name="title"><string>Multi-Editing</string></property>
+       <layout class="QVBoxLayout" name="layout3">
+        <item>
+         <widget class="QCheckBox" name="checkMultiselection">
+          <property name="nppId" stdset="0"><number>6522</number></property>
+          <property name="text"><string>Enable Multi-Editing (Ctrl+Mouse click/selection)</string></property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="layout4">
+          <item>
+           <spacer name="spacer5">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Fixed</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkColumn2multiediting">
+            <property name="nppId" stdset="0"><number>6523</number></property>
+            <property name="text"><string>Enable Column Selection to Multi-Editing</string></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <spacer name="spacer6">
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <widget class="QGroupBox" name="gbStaticCrlf">
+       <property name="nppId" stdset="0"><number>6247</number></property>
+       <property name="title"><string>EOL (CRLF)</string></property>
+       <layout class="QVBoxLayout" name="layout7">
+        <item>
+         <widget class="QRadioButton" name="radioRoundcornerCrlf">
+          <property name="nppId" stdset="0"><number>6248</number></property>
+          <property name="text"><string>Default</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radioPlaintextCrlf">
+          <property name="nppId" stdset="0"><number>6249</number></property>
+          <property name="text"><string>Plain Text</string></property>
+          <attribute name="buttonGroup"><string notr="true">radioGroup1</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="layout8">
+          <item>
+           <widget class="QCheckBox" name="checkWithcustomcolorCrlf">
+            <property name="nppId" stdset="0"><number>6250</number></property>
+            <property name="text"><string>Custom Color</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="buttonLaunchstyleconfCrlf">
+            <property name="nppId" stdset="0"><number>6251</number></property>
+            <property name="text"><string>...</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="spacer9">
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="gbStaticNpc">
+     <property name="nppId" stdset="0"><number>6252</number></property>
+     <property name="title"><string>Non-Printing Characters</string></property>
+     <layout class="QVBoxLayout" name="layout10">
+      <item>
+       <widget class="QGroupBox" name="staticNpcAppearance">
+        <property name="nppId" stdset="0"><number>6260</number></property>
+        <property name="title"><string>Appearance</string></property>
+        <layout class="QGridLayout" name="layout11">
+         <item row="0" column="0">
+          <widget class="QRadioButton" name="radioNpcAbbreviation">
+           <property name="nppId" stdset="0"><number>6254</number></property>
+           <property name="text"><string>Abbreviation</string></property>
+           <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QPushButton" name="buttonNpcNote">
+           <property name="nppId" stdset="0"><number>6253</number></property>
+           <property name="text"><string>?</string></property>
+           <property name="autoDefault"><bool>false</bool></property>
+          </widget>
+         </item>
+         <item row="0" column="2">
+          <spacer name="spacer12">
+           <property name="orientation"><enum>Qt::Horizontal</enum></property>
+           <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+           <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+          </spacer>
+         </item>
+         <item row="1" column="0">
+          <widget class="QRadioButton" name="radioNpcCodepoint">
+           <property name="nppId" stdset="0"><number>6255</number></property>
+           <property name="text"><string>Codepoint</string></property>
+           <attribute name="buttonGroup"><string notr="true">radioGroup2</string></attribute>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QCheckBox" name="checkNpcColor">
+           <property name="nppId" stdset="0"><number>6256</number></property>
+           <property name="text"><string>Custom Color</string></property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QPushButton" name="buttonNpcLaunchstyleconf">
+           <property name="nppId" stdset="0"><number>6257</number></property>
+           <property name="text"><string>...</string></property>
+           <property name="autoDefault"><bool>false</bool></property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkNpcIncludeccunieol">
+        <property name="nppId" stdset="0"><number>6258</number></property>
+        <property name="text"><string>Apply Appearance settings to C0, C1 &amp;&amp; Unicode EOL</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkNpcNoinputc0">
+        <property name="nppId" stdset="0"><number>6259</number></property>
+        <property name="text"><string>Prevent control character (C0 code) typing into document</string></property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer13">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeType"><enum>QSizePolicy::Expanding</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="radioGroup1"/>
+  <buttongroup name="radioGroup2"/>
+ </buttongroups>
+</ui>

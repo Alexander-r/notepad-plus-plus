@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>IncrementFindDlg</class>
+ <widget class="QWidget" name="IncrementFindDlg">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>1320</width><height>32</height></rect></property>
+  <layout class="QGridLayout" name="gridLayout1">
+   <item row="0" column="0">
+    <widget class="QPushButton" name="cancel">
+     <property name="nppId" stdset="0"><number>2</number></property>
+     <property name="text"><string>✕</string></property>
+     <property name="autoDefault"><bool>false</bool></property>
+     <property name="maximumSize"><size><width>32</width><height>16777215</height></size></property>
+    </widget>
+   </item>
+   <item row="0" column="1">
+    <widget class="QPushButton" name="goupdownToggleButton">
+     <property name="nppId" stdset="0"><number>1642</number></property>
+     <property name="text"><string/></property>
+     <property name="autoDefault"><bool>false</bool></property>
+     <property name="maximumSize"><size><width>32</width><height>16777215</height></size></property>
+    </widget>
+   </item>
+   <item row="0" column="2">
+    <widget class="QLabel" name="incstatic">
+     <property name="nppId" stdset="0"><number>1681</number></property>
+     <property name="text"><string>Find:</string></property>
+     <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+    </widget>
+   </item>
+   <item row="0" column="3">
+    <widget class="QLineEdit" name="incfindtext">
+     <property name="nppId" stdset="0"><number>1682</number></property>
+    </widget>
+   </item>
+   <item row="0" column="4">
+    <widget class="QPushButton" name="incfindprevok">
+     <property name="nppId" stdset="0"><number>1683</number></property>
+     <property name="text"><string>&lt;</string></property>
+     <property name="autoDefault"><bool>false</bool></property>
+     <property name="maximumSize"><size><width>32</width><height>16777215</height></size></property>
+    </widget>
+   </item>
+   <item row="0" column="5">
+    <widget class="QPushButton" name="incfindnxtok">
+     <property name="nppId" stdset="0"><number>1684</number></property>
+     <property name="text"><string>&gt;</string></property>
+     <property name="autoDefault"><bool>false</bool></property>
+     <property name="maximumSize"><size><width>32</width><height>16777215</height></size></property>
+    </widget>
+   </item>
+   <item row="0" column="6">
+    <widget class="QCheckBox" name="incfindmatchcase">
+     <property name="nppId" stdset="0"><number>1685</number></property>
+     <property name="text"><string>Match &amp;case</string></property>
+    </widget>
+   </item>
+   <item row="0" column="7">
+    <widget class="QCheckBox" name="incfindhiliteall">
+     <property name="nppId" stdset="0"><number>1690</number></property>
+     <property name="text"><string>&amp;Highlight all</string></property>
+    </widget>
+   </item>
+   <item row="0" column="8">
+    <widget class="QCheckBox" name="incfindcount">
+     <property name="nppId" stdset="0"><number>1691</number></property>
+     <property name="text"><string>Count</string></property>
+    </widget>
+   </item>
+   <item row="0" column="9">
+    <widget class="QLabel" name="incfindstatus">
+     <property name="nppId" stdset="0"><number>1689</number></property>
+     <property name="text"><string/></property>
+    </widget>
+   </item>
+   <item row="1" column="0">
+    <spacer name="vSpacer1">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
